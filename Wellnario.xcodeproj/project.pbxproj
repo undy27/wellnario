@@ -1,0 +1,851 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		021BBF30BAFC953B341C8366 /* TrendsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0D0E0B9003E1C25B755FCD /* TrendsViewController.swift */; };
+		03139FA281C37036380E3B79 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2C14E9292D7FB3ECDF40050 /* SettingsViewController.swift */; };
+		03E4F64429612000F1AF912F /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = E1212BDF28F0932A5AAB1775 /* README.md */; };
+		0447C56F7ED13661C2BDF6CA /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 3AA5764D8FBDD37ACF3C9126 /* PrivacyInfo.xcprivacy */; };
+		09CDCB88B5284A54C5208BA9 /* FloatingTabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5893B61719D0D872B6BE8E36 /* FloatingTabBarView.swift */; };
+		1293D72AB5D173796A705A82 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B4FA1FA593AA18507C24737 /* AppDelegate.swift */; };
+		12CC524BC6A0ADF366BF983F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CDF92964DE0149CDFEA4246F /* Assets.xcassets */; };
+		1367A6D455AC096E1652C16A /* TodayViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED89A282729B7462F37E4F82 /* TodayViewController.swift */; };
+		15275CCBC362A569CD50DCEA /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = ED227AA318BDE4EBEAA28E49 /* Localizable.strings */; };
+		1D12EA62BC414B4089E2C2B8 /* WellnarioStateViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B61E62F90E3C1939114F9E0B /* WellnarioStateViews.swift */; };
+		23D989C6E5A718327FDFF40D /* SupplementEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E3CABD1CAC280DB0958A83D /* SupplementEditorViewController.swift */; };
+		2B32C88D026D26E2FC38DB60 /* IntakeEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C91DB98B8BC4D2E2EB540DD /* IntakeEditorViewController.swift */; };
+		4482FC147136972133ED6A57 /* WellnarioFormatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E52EC0814FF611585C88373 /* WellnarioFormatters.swift */; };
+		454A356639B10577A8BE8716 /* Supplement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B510384592730A0D7147E58 /* Supplement.swift */; };
+		4647F02D9CE9CC4CBC378B45 /* WellnarioControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BB901ADA513E7E6F7751AA /* WellnarioControls.swift */; };
+		4AED4666635BF678D6479245 /* UIView+Wellnario.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BA13CCC95421D209AF59016 /* UIView+Wellnario.swift */; };
+		4C6F57C1800E3875FC2DC595 /* SchemaMigrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75AA826B78C53FF24EADBDD1 /* SchemaMigrator.swift */; };
+		548009BD2ECC697639BDA4F3 /* RepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63001F551897AE5B827BBE22 /* RepositoryTests.swift */; };
+		6276ABDC1346F63EBFED00D4 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008F62E6C25A0243668FE670 /* AppEnvironment.swift */; };
+		662D2C7FC736F0BC3402D58B /* SQLiteDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B8AC46C6567906FAD3CFF2 /* SQLiteDatabase.swift */; };
+		6D368FFA29CECD9F509A54B9 /* InstanceEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81E8C2E0047B5EEBFD4FE9D /* InstanceEditorViewController.swift */; };
+		73391A8133D20D498865CE7E /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 5F305B591F074A4D46639502 /* libsqlite3.tbd */; };
+		7864D87CE3AEE3898A1C3D19 /* MoreCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCDEF7F63B385FEE10A71F5E /* MoreCoordinator.swift */; };
+		786970C03229CBAC32A95DEE /* SeedData.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB77342703AC0891C686433 /* SeedData.swift */; };
+		7EB26D6EE6A530965E8E8724 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 626E14AC87F29C63184B9FD0 /* SceneDelegate.swift */; };
+		829F9C7D8DF95B8A736A19A9 /* ArchivedItemsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9324B5E5B9957A44156A3AD /* ArchivedItemsViewController.swift */; };
+		84BB6A766189967C80FC1BDF /* WellnarioSupplementFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E456B28E1165EDE798DE80B5 /* WellnarioSupplementFlowUITests.swift */; };
+		9077BED6BDEC4EEE8ACDA00E /* Active.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC46152DBDD22C5FB71B29E6 /* Active.swift */; };
+		983A4C70D9152E3B29B015F0 /* ActiveEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5ED68B35AC5355A130EA6EB /* ActiveEditorViewController.swift */; };
+		99254C9785C561DF9E38436C /* WellnarioMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF4565A4E620DF87B3B00F07 /* WellnarioMetrics.swift */; };
+		9B2FB414CF1A3A28DB0B3759 /* AppCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E737D3A0DB144B4F6DCEB28A /* AppCoordinator.swift */; };
+		9B52637B17911E893DFE0B55 /* RootTabBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D2B459C56B7990782E0D625 /* RootTabBarController.swift */; };
+		9C527081B15B428712D5703A /* DiaryViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4072DD4D15D9CB0B2DC88EE8 /* DiaryViewController.swift */; };
+		9E86F084603CF0AD836C9D60 /* DomainTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A57015E2CBCF39B308C1F980 /* DomainTypes.swift */; };
+		A28A6BFD2090FFECD43CBE82 /* ComingSoonViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E485D87376ED3F0A39A25862 /* ComingSoonViewController.swift */; };
+		A7E2F036C318747E3D62CBF1 /* FeatureSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1670B04FCD03A5EA8E19E3B4 /* FeatureSupport.swift */; };
+		A8E95AA9FFB90A68A3B45B4A /* SupplementDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE19802AB1A2B26824FE1028 /* SupplementDetailViewController.swift */; };
+		AAE17958C835AF3B0C4D02CD /* LocalizationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDF5A375CBCE12A49F38C0D3 /* LocalizationManager.swift */; };
+		ADDD2C13698B6D0A792C4E99 /* Consumption.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA8E3A61C72C4B3E09B25CD0 /* Consumption.swift */; };
+		B9ABA4EAAEDD0CE9B40FB070 /* PremiumCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F89630E973D453E6E7654C9 /* PremiumCardView.swift */; };
+		C136BAA3750870D507E5B0CE /* RepositoryMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D659352650DE6315F544F9D /* RepositoryMapping.swift */; };
+		C27A1DDA25BD61B6EEC47C3B /* MoreFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C6849EA49DEA349D544DE1D /* MoreFeature.swift */; };
+		C5D0BCC8C5857589CB935EC6 /* ActiveRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAFE1D3FA1C495DD8D250435 /* ActiveRepository.swift */; };
+		C6FBD3B68904B5666445B379 /* SupplementRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F43B812B503B178B38AC3F3F /* SupplementRepository.swift */; };
+		CDD38E488DFB981D84CECBC4 /* AppLaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AF49D4573211603C1FB7E0B /* AppLaunchConfiguration.swift */; };
+		D14FEF0F4E8CBD5F4FD58C9F /* PresentationArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3C56AA21E0E8F60D3AA9A2 /* PresentationArtworkView.swift */; };
+		D3CC330B5B35061E65FDE1BE /* MoreViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09C643AA3DC070D505358029 /* MoreViewController.swift */; };
+		D62F01B8EB8D9B021C919527 /* WellnarioRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F80873A72A781EB3D6BEDFA /* WellnarioRepository.swift */; };
+		DC5416B9CA4B075AE3405202 /* WellnarioNavigationUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD8C330B7E3D760DD9559F57 /* WellnarioNavigationUITests.swift */; };
+		DF52CA97DB43170F4AA06334 /* WellnarioTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C87E0FCB8413368507D4E05 /* WellnarioTokens.swift */; };
+		E51BE79CADAF42B350EC6954 /* EditorSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAC82015A0F90402551D4A16 /* EditorSupport.swift */; };
+		E884DB48F1B32D5745C6F158 /* WellnarioTypography.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBC6F29D7D23D56AF57E1260 /* WellnarioTypography.swift */; };
+		ED54D80726E94653FA07205B /* ConsumptionRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69E1E0AF4271DD5640AA100 /* ConsumptionRepository.swift */; };
+		F85F75A540DAC3432800AB1F /* SupplementsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9218DDB4325018A500790ED1 /* SupplementsViewController.swift */; };
+		F8D3E1A6FDB556ABF718C582 /* WellnarioNavigationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 756A916CE1EC3B9021CED0CA /* WellnarioNavigationController.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		5B19FADA5292A2EACE732897 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1154F8635BE468D70BAE292A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3E2F6DCC0FC645851714A542;
+			remoteInfo = Wellnario;
+		};
+		B36E592F4FD7404031201DAE /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1154F8635BE468D70BAE292A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3E2F6DCC0FC645851714A542;
+			remoteInfo = Wellnario;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		008F62E6C25A0243668FE670 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
+		09C643AA3DC070D505358029 /* MoreViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreViewController.swift; sourceTree = "<group>"; };
+		0A6AD04DC713B007295D95A9 /* WellnarioUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = WellnarioUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1670B04FCD03A5EA8E19E3B4 /* FeatureSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureSupport.swift; sourceTree = "<group>"; };
+		1BA13CCC95421D209AF59016 /* UIView+Wellnario.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIView+Wellnario.swift"; sourceTree = "<group>"; };
+		1C87E0FCB8413368507D4E05 /* WellnarioTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioTokens.swift; sourceTree = "<group>"; };
+		2B4FA1FA593AA18507C24737 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		2F89630E973D453E6E7654C9 /* PremiumCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumCardView.swift; sourceTree = "<group>"; };
+		3AA5764D8FBDD37ACF3C9126 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		3C6849EA49DEA349D544DE1D /* MoreFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreFeature.swift; sourceTree = "<group>"; };
+		3D659352650DE6315F544F9D /* RepositoryMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryMapping.swift; sourceTree = "<group>"; };
+		4072DD4D15D9CB0B2DC88EE8 /* DiaryViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryViewController.swift; sourceTree = "<group>"; };
+		5893B61719D0D872B6BE8E36 /* FloatingTabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingTabBarView.swift; sourceTree = "<group>"; };
+		5B510384592730A0D7147E58 /* Supplement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Supplement.swift; sourceTree = "<group>"; };
+		5C91DB98B8BC4D2E2EB540DD /* IntakeEditorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntakeEditorViewController.swift; sourceTree = "<group>"; };
+		5D2B459C56B7990782E0D625 /* RootTabBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabBarController.swift; sourceTree = "<group>"; };
+		5F305B591F074A4D46639502 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
+		626E14AC87F29C63184B9FD0 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		62BB901ADA513E7E6F7751AA /* WellnarioControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioControls.swift; sourceTree = "<group>"; };
+		63001F551897AE5B827BBE22 /* RepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryTests.swift; sourceTree = "<group>"; };
+		6E3CABD1CAC280DB0958A83D /* SupplementEditorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementEditorViewController.swift; sourceTree = "<group>"; };
+		6F80873A72A781EB3D6BEDFA /* WellnarioRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioRepository.swift; sourceTree = "<group>"; };
+		756A916CE1EC3B9021CED0CA /* WellnarioNavigationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioNavigationController.swift; sourceTree = "<group>"; };
+		75AA826B78C53FF24EADBDD1 /* SchemaMigrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaMigrator.swift; sourceTree = "<group>"; };
+		9218DDB4325018A500790ED1 /* SupplementsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementsViewController.swift; sourceTree = "<group>"; };
+		9AF49D4573211603C1FB7E0B /* AppLaunchConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLaunchConfiguration.swift; sourceTree = "<group>"; };
+		9E52EC0814FF611585C88373 /* WellnarioFormatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioFormatters.swift; sourceTree = "<group>"; };
+		A4B8AC46C6567906FAD3CFF2 /* SQLiteDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteDatabase.swift; sourceTree = "<group>"; };
+		A57015E2CBCF39B308C1F980 /* DomainTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainTypes.swift; sourceTree = "<group>"; };
+		A786C39C5ACBD63E42686FCC /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		AA8E3A61C72C4B3E09B25CD0 /* Consumption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Consumption.swift; sourceTree = "<group>"; };
+		AE19802AB1A2B26824FE1028 /* SupplementDetailViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementDetailViewController.swift; sourceTree = "<group>"; };
+		B61E62F90E3C1939114F9E0B /* WellnarioStateViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioStateViews.swift; sourceTree = "<group>"; };
+		B83F44EB6C7CF97D47824996 /* Wellnario.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Wellnario.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B9324B5E5B9957A44156A3AD /* ArchivedItemsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchivedItemsViewController.swift; sourceTree = "<group>"; };
+		BDF5A375CBCE12A49F38C0D3 /* LocalizationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationManager.swift; sourceTree = "<group>"; };
+		CD8C330B7E3D760DD9559F57 /* WellnarioNavigationUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioNavigationUITests.swift; sourceTree = "<group>"; };
+		CDF92964DE0149CDFEA4246F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D5ED68B35AC5355A130EA6EB /* ActiveEditorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveEditorViewController.swift; sourceTree = "<group>"; };
+		D69E1E0AF4271DD5640AA100 /* ConsumptionRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsumptionRepository.swift; sourceTree = "<group>"; };
+		D81E8C2E0047B5EEBFD4FE9D /* InstanceEditorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstanceEditorViewController.swift; sourceTree = "<group>"; };
+		DA323D0C6677F688C67DE568 /* es */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = es; path = es.lproj/Localizable.strings; sourceTree = "<group>"; };
+		DAFE1D3FA1C495DD8D250435 /* ActiveRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveRepository.swift; sourceTree = "<group>"; };
+		DB7025380F51EE9D1E1F87EF /* WellnarioTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = WellnarioTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		DBC6F29D7D23D56AF57E1260 /* WellnarioTypography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioTypography.swift; sourceTree = "<group>"; };
+		DC0D0E0B9003E1C25B755FCD /* TrendsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendsViewController.swift; sourceTree = "<group>"; };
+		DF3C56AA21E0E8F60D3AA9A2 /* PresentationArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresentationArtworkView.swift; sourceTree = "<group>"; };
+		E1212BDF28F0932A5AAB1775 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		E456B28E1165EDE798DE80B5 /* WellnarioSupplementFlowUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioSupplementFlowUITests.swift; sourceTree = "<group>"; };
+		E485D87376ED3F0A39A25862 /* ComingSoonViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComingSoonViewController.swift; sourceTree = "<group>"; };
+		E737D3A0DB144B4F6DCEB28A /* AppCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCoordinator.swift; sourceTree = "<group>"; };
+		EC46152DBDD22C5FB71B29E6 /* Active.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Active.swift; sourceTree = "<group>"; };
+		ED89A282729B7462F37E4F82 /* TodayViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayViewController.swift; sourceTree = "<group>"; };
+		EDB77342703AC0891C686433 /* SeedData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedData.swift; sourceTree = "<group>"; };
+		EF4565A4E620DF87B3B00F07 /* WellnarioMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioMetrics.swift; sourceTree = "<group>"; };
+		F2C14E9292D7FB3ECDF40050 /* SettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewController.swift; sourceTree = "<group>"; };
+		F43B812B503B178B38AC3F3F /* SupplementRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementRepository.swift; sourceTree = "<group>"; };
+		FAC82015A0F90402551D4A16 /* EditorSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorSupport.swift; sourceTree = "<group>"; };
+		FCDEF7F63B385FEE10A71F5E /* MoreCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreCoordinator.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		0D46AE1EBD98A08E19AA66AA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				73391A8133D20D498865CE7E /* libsqlite3.tbd in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		06939B83977600A91190BC35 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				E737D3A0DB144B4F6DCEB28A /* AppCoordinator.swift */,
+				2B4FA1FA593AA18507C24737 /* AppDelegate.swift */,
+				008F62E6C25A0243668FE670 /* AppEnvironment.swift */,
+				9AF49D4573211603C1FB7E0B /* AppLaunchConfiguration.swift */,
+				5D2B459C56B7990782E0D625 /* RootTabBarController.swift */,
+				626E14AC87F29C63184B9FD0 /* SceneDelegate.swift */,
+				756A916CE1EC3B9021CED0CA /* WellnarioNavigationController.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		098FDE73DD3AF560970582A9 /* More */ = {
+			isa = PBXGroup;
+			children = (
+				E485D87376ED3F0A39A25862 /* ComingSoonViewController.swift */,
+				FCDEF7F63B385FEE10A71F5E /* MoreCoordinator.swift */,
+				3C6849EA49DEA349D544DE1D /* MoreFeature.swift */,
+				09C643AA3DC070D505358029 /* MoreViewController.swift */,
+				F2C14E9292D7FB3ECDF40050 /* SettingsViewController.swift */,
+			);
+			path = More;
+			sourceTree = "<group>";
+		};
+		1AA2BCE7D94FEED89D64282A /* Wellnario */ = {
+			isa = PBXGroup;
+			children = (
+				06939B83977600A91190BC35 /* App */,
+				5840BCCBE8300D2A935DEA36 /* Data */,
+				AD51809EDFABD04F3B808CEE /* DesignSystem */,
+				CE17A543101099CDC0F2E668 /* Features */,
+				86C14B185E61B64894579AEB /* Models */,
+				1D3284ABDF21F9D2B6B77CB2 /* Resources */,
+			);
+			path = Wellnario;
+			sourceTree = "<group>";
+		};
+		1B466C5BA08970D41A379837 /* WellnarioTests */ = {
+			isa = PBXGroup;
+			children = (
+				63001F551897AE5B827BBE22 /* RepositoryTests.swift */,
+			);
+			path = WellnarioTests;
+			sourceTree = "<group>";
+		};
+		1D3284ABDF21F9D2B6B77CB2 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				CDF92964DE0149CDFEA4246F /* Assets.xcassets */,
+				3AA5764D8FBDD37ACF3C9126 /* PrivacyInfo.xcprivacy */,
+				ED227AA318BDE4EBEAA28E49 /* Localizable.strings */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		285D36A17172FF9043FEED77 /* Trends */ = {
+			isa = PBXGroup;
+			children = (
+				DC0D0E0B9003E1C25B755FCD /* TrendsViewController.swift */,
+			);
+			path = Trends;
+			sourceTree = "<group>";
+		};
+		470A259CFBC2CDB405709F4E /* Supplements */ = {
+			isa = PBXGroup;
+			children = (
+				D5ED68B35AC5355A130EA6EB /* ActiveEditorViewController.swift */,
+				B9324B5E5B9957A44156A3AD /* ArchivedItemsViewController.swift */,
+				FAC82015A0F90402551D4A16 /* EditorSupport.swift */,
+				D81E8C2E0047B5EEBFD4FE9D /* InstanceEditorViewController.swift */,
+				5C91DB98B8BC4D2E2EB540DD /* IntakeEditorViewController.swift */,
+				AE19802AB1A2B26824FE1028 /* SupplementDetailViewController.swift */,
+				6E3CABD1CAC280DB0958A83D /* SupplementEditorViewController.swift */,
+				9218DDB4325018A500790ED1 /* SupplementsViewController.swift */,
+			);
+			path = Supplements;
+			sourceTree = "<group>";
+		};
+		5840BCCBE8300D2A935DEA36 /* Data */ = {
+			isa = PBXGroup;
+			children = (
+				DAFE1D3FA1C495DD8D250435 /* ActiveRepository.swift */,
+				D69E1E0AF4271DD5640AA100 /* ConsumptionRepository.swift */,
+				3D659352650DE6315F544F9D /* RepositoryMapping.swift */,
+				75AA826B78C53FF24EADBDD1 /* SchemaMigrator.swift */,
+				EDB77342703AC0891C686433 /* SeedData.swift */,
+				A4B8AC46C6567906FAD3CFF2 /* SQLiteDatabase.swift */,
+				F43B812B503B178B38AC3F3F /* SupplementRepository.swift */,
+				6F80873A72A781EB3D6BEDFA /* WellnarioRepository.swift */,
+			);
+			path = Data;
+			sourceTree = "<group>";
+		};
+		817287D3462EE5E0FCAE3BF8 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				5F305B591F074A4D46639502 /* libsqlite3.tbd */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		86C14B185E61B64894579AEB /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				EC46152DBDD22C5FB71B29E6 /* Active.swift */,
+				AA8E3A61C72C4B3E09B25CD0 /* Consumption.swift */,
+				A57015E2CBCF39B308C1F980 /* DomainTypes.swift */,
+				5B510384592730A0D7147E58 /* Supplement.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		8AFDA7073D9BCED1701DDB65 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B83F44EB6C7CF97D47824996 /* Wellnario.app */,
+				DB7025380F51EE9D1E1F87EF /* WellnarioTests.xctest */,
+				0A6AD04DC713B007295D95A9 /* WellnarioUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A43FF543C56725D3ACDBD79D /* Today */ = {
+			isa = PBXGroup;
+			children = (
+				ED89A282729B7462F37E4F82 /* TodayViewController.swift */,
+			);
+			path = Today;
+			sourceTree = "<group>";
+		};
+		AD51809EDFABD04F3B808CEE /* DesignSystem */ = {
+			isa = PBXGroup;
+			children = (
+				5893B61719D0D872B6BE8E36 /* FloatingTabBarView.swift */,
+				2F89630E973D453E6E7654C9 /* PremiumCardView.swift */,
+				DF3C56AA21E0E8F60D3AA9A2 /* PresentationArtworkView.swift */,
+				E1212BDF28F0932A5AAB1775 /* README.md */,
+				1BA13CCC95421D209AF59016 /* UIView+Wellnario.swift */,
+				62BB901ADA513E7E6F7751AA /* WellnarioControls.swift */,
+				EF4565A4E620DF87B3B00F07 /* WellnarioMetrics.swift */,
+				B61E62F90E3C1939114F9E0B /* WellnarioStateViews.swift */,
+				1C87E0FCB8413368507D4E05 /* WellnarioTokens.swift */,
+				DBC6F29D7D23D56AF57E1260 /* WellnarioTypography.swift */,
+			);
+			path = DesignSystem;
+			sourceTree = "<group>";
+		};
+		C84FA302D4A3FB2D6670291E /* WellnarioUITests */ = {
+			isa = PBXGroup;
+			children = (
+				CD8C330B7E3D760DD9559F57 /* WellnarioNavigationUITests.swift */,
+				E456B28E1165EDE798DE80B5 /* WellnarioSupplementFlowUITests.swift */,
+			);
+			path = WellnarioUITests;
+			sourceTree = "<group>";
+		};
+		CD125D37412FC8FB58D818D7 = {
+			isa = PBXGroup;
+			children = (
+				1AA2BCE7D94FEED89D64282A /* Wellnario */,
+				1B466C5BA08970D41A379837 /* WellnarioTests */,
+				C84FA302D4A3FB2D6670291E /* WellnarioUITests */,
+				817287D3462EE5E0FCAE3BF8 /* Frameworks */,
+				8AFDA7073D9BCED1701DDB65 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		CE17A543101099CDC0F2E668 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				1670B04FCD03A5EA8E19E3B4 /* FeatureSupport.swift */,
+				DE8A62B6684252B79A8DED25 /* Diary */,
+				098FDE73DD3AF560970582A9 /* More */,
+				DA1AB93FDEDFF695EF129D48 /* Shared */,
+				470A259CFBC2CDB405709F4E /* Supplements */,
+				A43FF543C56725D3ACDBD79D /* Today */,
+				285D36A17172FF9043FEED77 /* Trends */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		DA1AB93FDEDFF695EF129D48 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				BDF5A375CBCE12A49F38C0D3 /* LocalizationManager.swift */,
+				9E52EC0814FF611585C88373 /* WellnarioFormatters.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		DE8A62B6684252B79A8DED25 /* Diary */ = {
+			isa = PBXGroup;
+			children = (
+				4072DD4D15D9CB0B2DC88EE8 /* DiaryViewController.swift */,
+			);
+			path = Diary;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		3E2F6DCC0FC645851714A542 /* Wellnario */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6403C6820F2F7FDB2BE3153C /* Build configuration list for PBXNativeTarget "Wellnario" */;
+			buildPhases = (
+				E79F064D817570902E378BEC /* Sources */,
+				5DFBCFEF60AB42186B0E9380 /* Resources */,
+				0D46AE1EBD98A08E19AA66AA /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Wellnario;
+			packageProductDependencies = (
+			);
+			productName = Wellnario;
+			productReference = B83F44EB6C7CF97D47824996 /* Wellnario.app */;
+			productType = "com.apple.product-type.application";
+		};
+		9B957CE25999AC80D768561C /* WellnarioUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BCDE16A71DA0E50B8C350747 /* Build configuration list for PBXNativeTarget "WellnarioUITests" */;
+			buildPhases = (
+				4ED5424D72AC90924E9F9563 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B7386ABD0E7FFA096B2C19C1 /* PBXTargetDependency */,
+			);
+			name = WellnarioUITests;
+			packageProductDependencies = (
+			);
+			productName = WellnarioUITests;
+			productReference = 0A6AD04DC713B007295D95A9 /* WellnarioUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		A3F1E89A0E72E5F7FA661C2A /* WellnarioTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2F3E027503560A14F02E7886 /* Build configuration list for PBXNativeTarget "WellnarioTests" */;
+			buildPhases = (
+				C01315BC5956B10672B09953 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				798F832E674C21E014B554BA /* PBXTargetDependency */,
+			);
+			name = WellnarioTests;
+			packageProductDependencies = (
+			);
+			productName = WellnarioTests;
+			productReference = DB7025380F51EE9D1E1F87EF /* WellnarioTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		1154F8635BE468D70BAE292A /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					3E2F6DCC0FC645851714A542 = {
+						DevelopmentTeam = 73ZVWQPH3Z;
+						ProvisioningStyle = Automatic;
+					};
+					9B957CE25999AC80D768561C = {
+						DevelopmentTeam = 73ZVWQPH3Z;
+						ProvisioningStyle = Automatic;
+						TestTargetID = 3E2F6DCC0FC645851714A542;
+					};
+					A3F1E89A0E72E5F7FA661C2A = {
+						DevelopmentTeam = 73ZVWQPH3Z;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 0FFC1B71B3730A2712AEE4EA /* Build configuration list for PBXProject "Wellnario" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+				es,
+			);
+			mainGroup = CD125D37412FC8FB58D818D7;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 8AFDA7073D9BCED1701DDB65 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				3E2F6DCC0FC645851714A542 /* Wellnario */,
+				A3F1E89A0E72E5F7FA661C2A /* WellnarioTests */,
+				9B957CE25999AC80D768561C /* WellnarioUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5DFBCFEF60AB42186B0E9380 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				12CC524BC6A0ADF366BF983F /* Assets.xcassets in Resources */,
+				15275CCBC362A569CD50DCEA /* Localizable.strings in Resources */,
+				0447C56F7ED13661C2BDF6CA /* PrivacyInfo.xcprivacy in Resources */,
+				03E4F64429612000F1AF912F /* README.md in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		4ED5424D72AC90924E9F9563 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DC5416B9CA4B075AE3405202 /* WellnarioNavigationUITests.swift in Sources */,
+				84BB6A766189967C80FC1BDF /* WellnarioSupplementFlowUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C01315BC5956B10672B09953 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				548009BD2ECC697639BDA4F3 /* RepositoryTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E79F064D817570902E378BEC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9077BED6BDEC4EEE8ACDA00E /* Active.swift in Sources */,
+				983A4C70D9152E3B29B015F0 /* ActiveEditorViewController.swift in Sources */,
+				C5D0BCC8C5857589CB935EC6 /* ActiveRepository.swift in Sources */,
+				9B2FB414CF1A3A28DB0B3759 /* AppCoordinator.swift in Sources */,
+				1293D72AB5D173796A705A82 /* AppDelegate.swift in Sources */,
+				6276ABDC1346F63EBFED00D4 /* AppEnvironment.swift in Sources */,
+				CDD38E488DFB981D84CECBC4 /* AppLaunchConfiguration.swift in Sources */,
+				829F9C7D8DF95B8A736A19A9 /* ArchivedItemsViewController.swift in Sources */,
+				A28A6BFD2090FFECD43CBE82 /* ComingSoonViewController.swift in Sources */,
+				ADDD2C13698B6D0A792C4E99 /* Consumption.swift in Sources */,
+				ED54D80726E94653FA07205B /* ConsumptionRepository.swift in Sources */,
+				9C527081B15B428712D5703A /* DiaryViewController.swift in Sources */,
+				9E86F084603CF0AD836C9D60 /* DomainTypes.swift in Sources */,
+				E51BE79CADAF42B350EC6954 /* EditorSupport.swift in Sources */,
+				A7E2F036C318747E3D62CBF1 /* FeatureSupport.swift in Sources */,
+				09CDCB88B5284A54C5208BA9 /* FloatingTabBarView.swift in Sources */,
+				6D368FFA29CECD9F509A54B9 /* InstanceEditorViewController.swift in Sources */,
+				2B32C88D026D26E2FC38DB60 /* IntakeEditorViewController.swift in Sources */,
+				AAE17958C835AF3B0C4D02CD /* LocalizationManager.swift in Sources */,
+				7864D87CE3AEE3898A1C3D19 /* MoreCoordinator.swift in Sources */,
+				C27A1DDA25BD61B6EEC47C3B /* MoreFeature.swift in Sources */,
+				D3CC330B5B35061E65FDE1BE /* MoreViewController.swift in Sources */,
+				B9ABA4EAAEDD0CE9B40FB070 /* PremiumCardView.swift in Sources */,
+				D14FEF0F4E8CBD5F4FD58C9F /* PresentationArtworkView.swift in Sources */,
+				C136BAA3750870D507E5B0CE /* RepositoryMapping.swift in Sources */,
+				9B52637B17911E893DFE0B55 /* RootTabBarController.swift in Sources */,
+				662D2C7FC736F0BC3402D58B /* SQLiteDatabase.swift in Sources */,
+				7EB26D6EE6A530965E8E8724 /* SceneDelegate.swift in Sources */,
+				4C6F57C1800E3875FC2DC595 /* SchemaMigrator.swift in Sources */,
+				786970C03229CBAC32A95DEE /* SeedData.swift in Sources */,
+				03139FA281C37036380E3B79 /* SettingsViewController.swift in Sources */,
+				454A356639B10577A8BE8716 /* Supplement.swift in Sources */,
+				A8E95AA9FFB90A68A3B45B4A /* SupplementDetailViewController.swift in Sources */,
+				23D989C6E5A718327FDFF40D /* SupplementEditorViewController.swift in Sources */,
+				C6FBD3B68904B5666445B379 /* SupplementRepository.swift in Sources */,
+				F85F75A540DAC3432800AB1F /* SupplementsViewController.swift in Sources */,
+				1367A6D455AC096E1652C16A /* TodayViewController.swift in Sources */,
+				021BBF30BAFC953B341C8366 /* TrendsViewController.swift in Sources */,
+				4AED4666635BF678D6479245 /* UIView+Wellnario.swift in Sources */,
+				4647F02D9CE9CC4CBC378B45 /* WellnarioControls.swift in Sources */,
+				4482FC147136972133ED6A57 /* WellnarioFormatters.swift in Sources */,
+				99254C9785C561DF9E38436C /* WellnarioMetrics.swift in Sources */,
+				F8D3E1A6FDB556ABF718C582 /* WellnarioNavigationController.swift in Sources */,
+				D62F01B8EB8D9B021C919527 /* WellnarioRepository.swift in Sources */,
+				1D12EA62BC414B4089E2C2B8 /* WellnarioStateViews.swift in Sources */,
+				DF52CA97DB43170F4AA06334 /* WellnarioTokens.swift in Sources */,
+				E884DB48F1B32D5745C6F158 /* WellnarioTypography.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		798F832E674C21E014B554BA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3E2F6DCC0FC645851714A542 /* Wellnario */;
+			targetProxy = 5B19FADA5292A2EACE732897 /* PBXContainerItemProxy */;
+		};
+		B7386ABD0E7FFA096B2C19C1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3E2F6DCC0FC645851714A542 /* Wellnario */;
+			targetProxy = B36E592F4FD7404031201DAE /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		ED227AA318BDE4EBEAA28E49 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				A786C39C5ACBD63E42686FCC /* en */,
+				DA323D0C6677F688C67DE568 /* es */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		0C99DD62B085821576095D0B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.wellnario.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Wellnario.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Wellnario";
+			};
+			name = Debug;
+		};
+		37AAB85E8EDD2F9851CCC90C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.wellnario.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = Wellnario;
+			};
+			name = Release;
+		};
+		47FDF181D2C1DB7E29F13909 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = Wellnario/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dtigl.wellnario.ios;
+				PRODUCT_NAME = Wellnario;
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		5500F027BF2B74B8A1087508 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 73ZVWQPH3Z;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		C3D4853BD2FF925B2337B01C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.wellnario.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Wellnario.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Wellnario";
+			};
+			name = Release;
+		};
+		CC259A3205A432B1A2B9F151 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = Wellnario/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dtigl.wellnario.ios;
+				PRODUCT_NAME = Wellnario;
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		DE0D010FE99243EFF3337F3D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 73ZVWQPH3Z;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		FCF0EB4D18092CBCFF090484 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.wellnario.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = Wellnario;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0FFC1B71B3730A2712AEE4EA /* Build configuration list for PBXProject "Wellnario" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5500F027BF2B74B8A1087508 /* Debug */,
+				DE0D010FE99243EFF3337F3D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		2F3E027503560A14F02E7886 /* Build configuration list for PBXNativeTarget "WellnarioTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0C99DD62B085821576095D0B /* Debug */,
+				C3D4853BD2FF925B2337B01C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		6403C6820F2F7FDB2BE3153C /* Build configuration list for PBXNativeTarget "Wellnario" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CC259A3205A432B1A2B9F151 /* Debug */,
+				47FDF181D2C1DB7E29F13909 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BCDE16A71DA0E50B8C350747 /* Build configuration list for PBXNativeTarget "WellnarioUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FCF0EB4D18092CBCFF090484 /* Debug */,
+				37AAB85E8EDD2F9851CCC90C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 1154F8635BE468D70BAE292A /* Project object */;
+}
