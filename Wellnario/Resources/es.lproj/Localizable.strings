@@ -184,9 +184,9 @@
 "actives.contained_in" = "Presente en";
 "actives.history" = "Historial";
 "actives.no_target" = "Sin objetivo configurado";
-"actives.today" = "Hoy";
+"actives.today" = "Hoy: %@";
 "actives.target.not_set" = "Objetivo sin configurar";
-"actives.target.value" = "Objetivo: %@–%@ %@";
+"actives.target.value" = "Objetivo: %@";
 "actives.empty.title" = "Aún no hay activos";
 "actives.empty.message" = "Añade los componentes que quieres monitorizar y define tus objetivos personales.";
 "actives.saved" = "Activo guardado";

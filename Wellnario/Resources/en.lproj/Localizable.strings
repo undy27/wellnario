@@ -184,9 +184,9 @@
 "actives.contained_in" = "Found in";
 "actives.history" = "History";
 "actives.no_target" = "No target configured";
-"actives.today" = "Today";
+"actives.today" = "Today: %@";
 "actives.target.not_set" = "Target not configured";
-"actives.target.value" = "Target: %@–%@ %@";
+"actives.target.value" = "Target: %@";
 "actives.empty.title" = "No actives yet";
 "actives.empty.message" = "Add the components you want to track and define your personal targets.";
 "actives.saved" = "Active saved";
