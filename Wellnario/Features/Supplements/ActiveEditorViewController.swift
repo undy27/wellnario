@@ -248,6 +248,18 @@ final class ActiveDetailViewController: FeatureViewController {
         reloadContent()
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+
+        // Resolve the scroll view and card hierarchy before the navigation
+        // transition starts. Otherwise the hero card can receive its final
+        // size in a later animation frame and look only partially rendered.
+        UIView.performWithoutAnimation {
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+        }
+    }
+
     override func reloadContent() {
         do {
             guard let active = try repository.active(id: activeID) else { return }
@@ -316,6 +328,7 @@ final class ActiveDetailViewController: FeatureViewController {
         stackView.addArrangedSubview(targetCard)
 
         let trendsButton = PrimaryButton(title: L10n.Tab.trends)
+        trendsButton.accessibilityIdentifier = "active.detail.trends"
         trendsButton.addTarget(self, action: #selector(showTrends), for: .touchUpInside)
         stackView.addArrangedSubview(trendsButton)
     }
@@ -328,9 +341,24 @@ final class ActiveDetailViewController: FeatureViewController {
     }
 
     @objc private func showTrends() {
-        navigationController?.pushViewController(
-            TrendsViewController(repository: repository, activeID: activeID),
-            animated: true
+        guard let navigationController else { return }
+        let trends = TrendsViewController(
+            repository: repository,
+            activeID: activeID,
+            returnsToActiveDetail: true
         )
+
+        guard WellnarioMotion.animationsEnabled else {
+            navigationController.pushViewController(trends, animated: false)
+            return
+        }
+
+        UIView.transition(
+            with: navigationController.view,
+            duration: WellnarioMotion.standard,
+            options: [.transitionCrossDissolve, .allowAnimatedContent, .beginFromCurrentState]
+        ) {
+            navigationController.pushViewController(trends, animated: false)
+        }
     }
 }

@@ -76,6 +76,30 @@ final class WellnarioNavigationUITests: XCTestCase {
         XCTAssertTrue(app.segmentedControls["archive.segments"].exists)
     }
 
+    @MainActor
+    func testActiveDetailIsReachable() {
+        let app = launch(language: "es", initialTab: "supplements")
+        let actives = app.buttons["Activos"]
+        XCTAssertTrue(actives.waitForExistence(timeout: 5))
+        actives.tap()
+
+        let vitaminC = app.staticTexts["Vitamina C"]
+        XCTAssertTrue(vitaminC.waitForExistence(timeout: 3))
+        vitaminC.tap()
+
+        XCTAssertTrue(app.navigationBars["Vitamina C"].waitForExistence(timeout: 3))
+
+        let trends = app.buttons["active.detail.trends"]
+        XCTAssertTrue(trends.waitForExistence(timeout: 3))
+        trends.tap()
+        XCTAssertTrue(app.navigationBars["Tendencias"].waitForExistence(timeout: 3))
+
+        let back = app.buttons["trends.back_to_active"]
+        XCTAssertTrue(back.waitForExistence(timeout: 3))
+        back.tap()
+        XCTAssertTrue(app.navigationBars["Vitamina C"].waitForExistence(timeout: 3))
+    }
+
     @discardableResult
     @MainActor
     private func launch(language: String, initialTab: String) -> XCUIApplication {

@@ -5,6 +5,7 @@ final class TrendsViewController: FeatureViewController {
     private enum Period: Int, CaseIterable { case sevenDays, thirtyDays, year, custom }
 
     private let initialActiveID: UUID?
+    private let returnsToActiveDetail: Bool
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
     private let activeField = SelectionFieldView(title: L10n.Form.active)
@@ -23,9 +24,14 @@ final class TrendsViewController: FeatureViewController {
     private var customThrough = LocalDay(containing: Date(), in: .current)
     private var series: ConsumptionSeries?
 
-    init(repository: WellnarioRepositoryProtocol, activeID: UUID? = nil) {
+    init(
+        repository: WellnarioRepositoryProtocol,
+        activeID: UUID? = nil,
+        returnsToActiveDetail: Bool = false
+    ) {
         self.initialActiveID = activeID
         self.selectedActiveID = activeID
+        self.returnsToActiveDetail = returnsToActiveDetail
         super.init(repository: repository)
     }
 
@@ -79,6 +85,18 @@ final class TrendsViewController: FeatureViewController {
     private func setUpView() {
         navigationController?.navigationBar.prefersLargeTitles = true
         navigationItem.largeTitleDisplayMode = .always
+        if returnsToActiveDetail {
+            navigationItem.hidesBackButton = true
+            let back = UIBarButtonItem(
+                image: UIImage(systemName: "chevron.backward"),
+                style: .plain,
+                target: self,
+                action: #selector(backToActiveDetail)
+            )
+            back.accessibilityLabel = L10n.Common.back
+            back.accessibilityIdentifier = "trends.back_to_active"
+            navigationItem.leftBarButtonItem = back
+        }
 
         view.addForAutoLayout(scrollView)
         scrollView.pinEdges(to: view)
@@ -122,6 +140,23 @@ final class TrendsViewController: FeatureViewController {
         ])
         emptyState.isHidden = true
         rebuildPeriodButtons()
+    }
+
+    @objc private func backToActiveDetail() {
+        guard let navigationController else { return }
+
+        guard WellnarioMotion.animationsEnabled else {
+            navigationController.popViewController(animated: false)
+            return
+        }
+
+        UIView.transition(
+            with: navigationController.view,
+            duration: WellnarioMotion.standard,
+            options: [.transitionCrossDissolve, .allowAnimatedContent, .beginFromCurrentState]
+        ) {
+            navigationController.popViewController(animated: false)
+        }
     }
 
     private func setUpChartCard() {

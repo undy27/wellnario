@@ -393,10 +393,25 @@ extension SupplementsViewController: UITableViewDataSource, UITableViewDelegate 
         case .inventory:
             presentSheet(InstanceEditorViewController(repository: repository, instance: filteredInstances[indexPath.row]), largeOnly: true)
         case .actives:
-            navigationController?.pushViewController(
-                ActiveDetailViewController(repository: repository, activeID: filteredActives[indexPath.row].id),
-                animated: true
-            )
+            showActiveDetail(for: filteredActives[indexPath.row])
+        }
+    }
+
+    private func showActiveDetail(for active: Active) {
+        guard let navigationController else { return }
+        let detail = ActiveDetailViewController(repository: repository, activeID: active.id)
+
+        guard WellnarioMotion.animationsEnabled else {
+            navigationController.pushViewController(detail, animated: false)
+            return
+        }
+
+        UIView.transition(
+            with: navigationController.view,
+            duration: WellnarioMotion.standard,
+            options: [.transitionCrossDissolve, .allowAnimatedContent, .beginFromCurrentState]
+        ) {
+            navigationController.pushViewController(detail, animated: false)
         }
     }
 
