@@ -4,6 +4,15 @@ import UniformTypeIdentifiers
 @MainActor
 final class HealthViewController: WellnessScrollViewController, UIDocumentPickerDelegate {
     var onOpenSettings: (() -> Void)?
+    private let appleHealthService: AppleHealthSyncing
+
+    init(appleHealthService: AppleHealthSyncing) {
+        self.appleHealthService = appleHealthService
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -16,10 +25,17 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
             action: #selector(openSettings)
         )
         navigationItem.rightBarButtonItem?.accessibilityLabel = L10n.Settings.title
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appleHealthDidChange),
+            name: .appleHealthSyncDidChange,
+            object: appleHealthService
+        )
         buildContent()
     }
 
     private func buildContent() {
+        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         contentStack.addArrangedSubview(makeBiologicalAgeCard())
         contentStack.setCustomSpacing(WellnarioSpacing.large, after: contentStack.arrangedSubviews.last!)
         contentStack.addArrangedSubview(makeSectionTitle(
@@ -39,14 +55,7 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
         importButton.addTarget(self, action: #selector(importLab), for: .touchUpInside)
         contentStack.addArrangedSubview(importButton)
 
-        let sourceBanner = FeedbackBannerView()
-        sourceBanner.configure(
-            message: L10n.text("health.source.empty"),
-            tone: .information,
-            actionTitle: L10n.text("integrations.connect")
-        )
-        sourceBanner.onAction = { [weak self] in self?.onOpenSettings?() }
-        contentStack.addArrangedSubview(sourceBanner)
+        contentStack.addArrangedSubview(makeSourceBanner())
     }
 
     private func makeBiologicalAgeCard() -> PremiumCardView {
@@ -95,32 +104,45 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
     }
 
     private func makeBiomarkersCard() -> PremiumCardView {
+        let snapshot = appleHealthService.snapshot
         let rows = [
             BiomarkerRowView(
                 title: L10n.text("health.biomarker.hrv"),
-                detail: L10n.text("health.biomarker.hrv.unit"),
-                value: "—",
+                detail: measurementDetail(
+                    unitKey: "health.biomarker.hrv.unit",
+                    measurement: snapshot.heartRateVariability
+                ),
+                value: measurementValue(snapshot.heartRateVariability, fractionDigits: 0),
                 symbolName: "waveform.path.ecg",
                 tone: WellnarioPalette.cyan
             ),
             BiomarkerRowView(
                 title: L10n.text("health.biomarker.resting_hr"),
-                detail: L10n.text("health.biomarker.resting_hr.unit"),
-                value: "—",
+                detail: measurementDetail(
+                    unitKey: "health.biomarker.resting_hr.unit",
+                    measurement: snapshot.restingHeartRate
+                ),
+                value: measurementValue(snapshot.restingHeartRate, fractionDigits: 0),
                 symbolName: "heart.fill",
                 tone: WellnarioPalette.pink
             ),
             BiomarkerRowView(
                 title: L10n.text("health.biomarker.vo2"),
-                detail: L10n.text("health.biomarker.vo2.unit"),
-                value: "—",
+                detail: measurementDetail(
+                    unitKey: "health.biomarker.vo2.unit",
+                    measurement: snapshot.vo2Max
+                ),
+                value: measurementValue(snapshot.vo2Max, fractionDigits: 1),
                 symbolName: "lungs.fill",
                 tone: WellnarioPalette.violet
             ),
             BiomarkerRowView(
                 title: L10n.text("health.biomarker.glucose"),
-                detail: L10n.text("health.biomarker.glucose.unit"),
-                value: "—",
+                detail: measurementDetail(
+                    unitKey: "health.biomarker.glucose.unit",
+                    measurement: snapshot.bloodGlucose
+                ),
+                value: measurementValue(snapshot.bloodGlucose, fractionDigits: 0),
                 symbolName: "drop.fill",
                 tone: WellnarioPalette.information
             )
@@ -141,6 +163,63 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
             stack.addArrangedSubview(row)
         }
         return makeCard(containing: stack, identifier: "health.biomarkers.card")
+    }
+
+    private func measurementValue(
+        _ measurement: AppleHealthMeasurement?,
+        fractionDigits: Int
+    ) -> String {
+        measurement.map {
+            AppleHealthUIFormatting.number($0.value, maximumFractionDigits: fractionDigits)
+        } ?? "—"
+    }
+
+    private func measurementDetail(
+        unitKey: String,
+        measurement: AppleHealthMeasurement?
+    ) -> String {
+        let unit = L10n.text(unitKey)
+        guard let measurement else { return unit }
+        return L10n.text(
+            "apple_health.measurement.detail",
+            unit,
+            WellnarioFormatters.relativeDay(measurement.date),
+            measurement.sourceName
+        )
+    }
+
+    private func makeSourceBanner() -> FeedbackBannerView {
+        let banner = FeedbackBannerView()
+        switch appleHealthService.state {
+        case .unavailable:
+            banner.configure(message: L10n.text("apple_health.unavailable"), tone: .warning)
+        case .notConfigured:
+            banner.configure(
+                message: L10n.text("health.source.empty"),
+                tone: .information,
+                actionTitle: L10n.text("integrations.connect")
+            )
+            banner.onAction = { [weak self] in self?.onOpenSettings?() }
+        case .syncing:
+            banner.configure(message: L10n.text("apple_health.syncing"), tone: .information)
+        case .failed:
+            banner.configure(
+                message: L10n.text("apple_health.sync_failed"),
+                tone: .warning,
+                actionTitle: L10n.text("apple_health.sync_now")
+            )
+            banner.onAction = { [weak self] in self?.syncNow() }
+        case .ready:
+            let message = appleHealthService.snapshot.lastSyncedAt.map(AppleHealthUIFormatting.syncedAt)
+                ?? L10n.text("apple_health.configured")
+            banner.configure(
+                message: message,
+                tone: .success,
+                actionTitle: L10n.text("apple_health.sync_now")
+            )
+            banner.onAction = { [weak self] in self?.syncNow() }
+        }
+        return banner
     }
 
     private func actionConfiguration(title: String, symbolName: String, color: UIColor) -> UIButton.Configuration {
@@ -177,6 +256,11 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
     }
 
     @objc private func openSettings() { onOpenSettings?() }
+    @objc private func appleHealthDidChange() { buildContent() }
+
+    private func syncNow() {
+        Task { try? await appleHealthService.sync() }
+    }
 }
 
 @MainActor

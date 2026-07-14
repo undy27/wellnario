@@ -12,13 +12,21 @@ protocol RootFeatureBuilding {
 @MainActor
 private final class LiveRootFeatureFactory: RootFeatureBuilding {
     private let repository: WellnarioRepositoryProtocol
+    private let appleHealthService: AppleHealthSyncing
 
-    init(repository: WellnarioRepositoryProtocol) {
+    init(
+        repository: WellnarioRepositoryProtocol,
+        appleHealthService: AppleHealthSyncing
+    ) {
         self.repository = repository
+        self.appleHealthService = appleHealthService
     }
 
     func makeToday() -> TodayViewController {
-        TodayViewController(repository: repository)
+        TodayViewController(
+            repository: repository,
+            appleHealthService: appleHealthService
+        )
     }
 
     func makeSupplements() -> SupplementsViewController {
@@ -26,15 +34,15 @@ private final class LiveRootFeatureFactory: RootFeatureBuilding {
     }
 
     func makeSleep() -> SleepViewController {
-        SleepViewController()
+        SleepViewController(appleHealthService: appleHealthService)
     }
 
     func makeHealth() -> HealthViewController {
-        HealthViewController()
+        HealthViewController(appleHealthService: appleHealthService)
     }
 
     func makeFitness() -> FitnessViewController {
-        FitnessViewController()
+        FitnessViewController(appleHealthService: appleHealthService)
     }
 }
 
@@ -55,7 +63,10 @@ final class AppCoordinator: NSObject {
         self.window = window
         self.environment = environment
         self.featureFactory = featureFactory
-            ?? LiveRootFeatureFactory(repository: environment.repository)
+            ?? LiveRootFeatureFactory(
+                repository: environment.repository,
+                appleHealthService: environment.appleHealthService
+            )
         super.init()
 
         NotificationCenter.default.addObserver(
@@ -74,6 +85,7 @@ final class AppCoordinator: NSObject {
         let index = environment.launchConfiguration.initialTab.rawValue
         installRoot(selectedIndex: index, restoringSettings: false, animated: false)
         window.makeKeyAndVisible()
+        Task { await environment.appleHealthService.syncIfConfigured() }
     }
 
     private func installRoot(
@@ -96,7 +108,10 @@ final class AppCoordinator: NSObject {
         let fitnessNavigation = makeNavigationController(root: fitnessController, identifier: "navigation.fitness")
 
         if restoringSettings {
-            todayNavigation.pushViewController(SettingsViewController(), animated: false)
+            todayNavigation.pushViewController(
+                SettingsViewController(appleHealthService: environment.appleHealthService),
+                animated: false
+            )
         }
 
         let rootController = RootTabBarController()
@@ -174,7 +189,10 @@ final class AppCoordinator: NSObject {
         }
         rootTabBarController.select(index: AppLaunchConfiguration.InitialTab.today.rawValue)
         guard !(todayNavigation.topViewController is SettingsViewController) else { return }
-        todayNavigation.pushViewController(SettingsViewController(), animated: true)
+        todayNavigation.pushViewController(
+            SettingsViewController(appleHealthService: environment.appleHealthService),
+            animated: true
+        )
     }
 
     @objc private func languageDidChange() {

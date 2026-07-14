@@ -1,0 +1,159 @@
+2026-07-14 19:26:03 +0000 [MT] Initial pipeline context: <IDEDistributionProcessingPipelineContext: 0xb66724600; archive(resolved)="<IDEArchive: 0xb643b01c0>", distributionTask(resolved)="2", distributionDestination(resolved)="1", distributionMethod(resolved)="<IDEDistributionMethodiOSAppStoreDistribution: 0xb6617b7d0>", team(resolved)="<IDEProvisioningBasicTeam: 0xb6666b220; teamID='73ZVWQPH3Z', teamName='(null)'>">
+	Chain (15, self inclusive):
+	<IDEDistributionProcessingPipelineContext: 0xb66724600; archive = "<IDEArchive: 0xb643b01c0>", distributionMethod="<IDEDistributionMethodiOSAppStoreDistribution: 0xb6617b7d0>", team="<IDEProvisioningBasicTeam: 0xb6666b220; teamID='73ZVWQPH3Z', teamName='(null)'>">
+	<IDEDistributionProcessingPipelineContext: 0xb66724c00; archive = "<IDEArchive: 0xb643b01c0>", distributionMethod="<IDEDistributionMethodiOSAppStoreDistribution: 0xb6617b7d0>", team="<IDEProvisioningBasicTeam: 0xb6666b220; teamID='73ZVWQPH3Z', teamName='(null)'>">
+	<IDEDistributionContext: 0xb6663b480; archive = "<IDEArchive: 0xb643b01c0>", distributionMethod="<IDEDistributionMethodiOSAppStoreDistribution: 0xb6617b7d0>", team="<IDEProvisioningBasicTeam: 0xb6666b220; teamID='73ZVWQPH3Z', teamName='(null)'>">
+	<IDEDistributionContext: 0xb6663aa80; archive = "<IDEArchive: 0xb643b01c0>", distributionMethod="<IDEDistributionMethodiOSAppStoreDistribution: 0xb6617b7d0>", team="<IDEProvisioningBasicTeam: 0xb6666b220; teamID='73ZVWQPH3Z', teamName='(null)'>">
+	<IDEDistributionContext: 0xb6663a800; archive = "<IDEArchive: 0xb643b01c0>", distributionMethod="<IDEDistributionMethodiOSAppStoreDistribution: 0xb6617b7d0>", team="<IDEProvisioningBasicTeam: 0xb6666b220; teamID='73ZVWQPH3Z', teamName='(null)'>">
+	<IDEDistributionContext: 0xb6663a580; archive = "<IDEArchive: 0xb643b01c0>", distributionMethod="<IDEDistributionMethodiOSAppStoreDistribution: 0xb6617b7d0>", team="<IDEProvisioningBasicTeam: 0xb6666b220; teamID='73ZVWQPH3Z', teamName='(null)'>">
+	<IDEDistributionContext: 0xb6663a300; archive = "<IDEArchive: 0xb643b01c0>", distributionMethod="<IDEDistributionMethodiOSAppStoreDistribution: 0xb6617b7d0>", team="<IDEProvisioningBasicTeam: 0xb6666b220; teamID='73ZVWQPH3Z', teamName='(null)'>">
+	<IDEDistributionContext: 0xb6663a080; archive = "<IDEArchive: 0xb643b01c0>", distributionMethod="<IDEDistributionMethodiOSAppStoreDistribution: 0xb6617b7d0>", team="<IDEProvisioningBasicTeam: 0xb6666b220; teamID='73ZVWQPH3Z', teamName='(null)'>">
+	<IDEDistributionContext: 0xb66639680; archive = "<IDEArchive: 0xb643b01c0>", distributionMethod="<IDEDistributionMethodiOSAppStoreDistribution: 0xb6617b7d0>", team="<IDEProvisioningBasicTeam: 0xb6666b220; teamID='73ZVWQPH3Z', teamName='(null)'>">
+	<IDEDistributionContext: 0xb66638f00; archive = "<IDEArchive: 0xb643b01c0>", distributionMethod="<IDEDistributionMethodiOSAppStoreDistribution: 0xb6617b7d0>", team="<IDEProvisioningBasicTeam: 0xb6666b220; teamID='73ZVWQPH3Z', teamName='(null)'>">
+	<IDEDistributionContext: 0xb66638c80; archive = "<IDEArchive: 0xb643b01c0>", distributionMethod="<IDEDistributionMethodiOSAppStoreDistribution: 0xb6617b7d0>", team="<IDEProvisioningBasicTeam: 0xb6666b220; teamID='73ZVWQPH3Z', teamName='(null)'>">
+	<IDEDistributionContext: 0xb66638a00; archive = "<IDEArchive: 0xb643b01c0>", distributionMethod="<IDEDistributionMethodiOSAppStoreDistribution: 0xb6617b7d0>", team="<IDEProvisioningBasicTeam: 0xb6666b220; teamID='73ZVWQPH3Z', teamName='(null)'>">
+	<IDEDistributionContext: 0xb66638780; archive = "<IDEArchive: 0xb643b01c0>", distributionMethod="<IDEDistributionMethodiOSAppStoreDistribution: 0xb6617b7d0>", team="(null)">
+	<IDEDistributionContext: 0xb66638000; archive = "<IDEArchive: 0xb643b01c0>", distributionMethod="<IDEDistributionMethodiOSAppStoreDistribution: 0xb6617b7d0>", team="(null)">
+	<IDEDistributionContext: 0x102d12940; archive = "<IDEArchive: 0xb643b01c0>", distributionMethod="(null)", team="(null)">
+</IDEDistributionProcessingPipelineContext: 0xb66724600>
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionCreateDestRootStep
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionCopyItemStep
+2026-07-14 19:26:03 +0000 [MT] Running /usr/bin/ditto '-V' '/Volumes/DATOS/Desarrollo/Wellnario/build/testflight/Wellnario-202607142125.xcarchive/Products/Applications/Wellnario.app' '/var/folders/y1/mrj14zcd6jxggzg1zw3lk9gr0000gn/T/XcodeDistPipeline.~~~l50Td9/Root/Payload/Wellnario.app'
+2026-07-14 19:26:03 +0000  >>> Copying /Volumes/DATOS/Desarrollo/Wellnario/build/testflight/Wellnario-202607142125.xcarchive/Products/Applications/Wellnario.app 
+2026-07-14 19:26:03 +0000  copying file ./_CodeSignature/CodeResources ... 
+2026-07-14 19:26:03 +0000  3909 bytes for ./_CodeSignature/CodeResources
+2026-07-14 19:26:03 +0000  copying file ./en.lproj/Localizable.strings ... 
+2026-07-14 19:26:03 +0000  24186 bytes for ./en.lproj/Localizable.strings
+2026-07-14 19:26:03 +0000  copying file ./Wellnario ... 
+2026-07-14 19:26:03 +0000  1334224 bytes for ./Wellnario
+2026-07-14 19:26:03 +0000  copying file ./es.lproj/Localizable.strings ... 
+2026-07-14 19:26:03 +0000  30865 bytes for ./es.lproj/Localizable.strings
+2026-07-14 19:26:03 +0000  copying file ./AppIcon60x60@2x.png ... 
+2026-07-14 19:26:03 +0000  23375 bytes for ./AppIcon60x60@2x.png
+2026-07-14 19:26:03 +0000  copying file ./README.md ... 
+2026-07-14 19:26:03 +0000  3020 bytes for ./README.md
+2026-07-14 19:26:03 +0000  copying file ./Assets.car ... 
+2026-07-14 19:26:03 +0000  1191400 bytes for ./Assets.car
+2026-07-14 19:26:03 +0000  copying file ./AppIcon76x76@2x~ipad.png ... 
+2026-07-14 19:26:03 +0000  36289 bytes for ./AppIcon76x76@2x~ipad.png
+2026-07-14 19:26:03 +0000  copying file ./PrivacyInfo.xcprivacy ... 
+2026-07-14 19:26:03 +0000  641 bytes for ./PrivacyInfo.xcprivacy
+2026-07-14 19:26:03 +0000  copying file ./embedded.mobileprovision ... 
+2026-07-14 19:26:03 +0000  12324 bytes for ./embedded.mobileprovision
+2026-07-14 19:26:03 +0000  copying file ./Info.plist ... 
+2026-07-14 19:26:03 +0000  1535 bytes for ./Info.plist
+2026-07-14 19:26:03 +0000  copying file ./PkgInfo ... 
+2026-07-14 19:26:03 +0000  8 bytes for ./PkgInfo
+2026-07-14 19:26:03 +0000 [MT] /usr/bin/ditto exited with 0
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionEmbedProfileStep
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionInfoPlistStep
+2026-07-14 19:26:03 +0000 [MT] Skipping setting DTXcodeBuildDistribution because toolsBuildVersionName was nil.
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionItemRemovalStep
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionAppThinningPlistStep
+2026-07-14 19:26:03 +0000 [MT] Skipping step: IDEDistributionAppThinningPlistStep because it said so
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionSymbolsStep
+2026-07-14 19:26:03 +0000 [MT] Writing /var/folders/y1/mrj14zcd6jxggzg1zw3lk9gr0000gn/T/XcodeDistPipeline.~~~l50Td9/Symbols/AABC3A4A-C1BF-3B4A-8EAA-98253E1F8F7E.symbols
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionCopyAppleProvidedContentStep
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionAppThinningStep
+2026-07-14 19:26:03 +0000 [MT] Skipping step: IDEDistributionAppThinningStep because it said so
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionArchThinningStep
+2026-07-14 19:26:03 +0000 [MT] Archs to thin for item /Volumes/DATOS/Desarrollo/Wellnario/build/testflight/Wellnario-202607142125.xcarchive/Products/Applications/Wellnario.app are []
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionODRStep
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionStripXattrsStep
+2026-07-14 19:26:03 +0000 [MT] Skipping stripping extended attributes because the codesign step will strip them.
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionCodesignStep
+2026-07-14 19:26:03 +0000 [MT] Entitlements for <IDEDistributionItem: 0xb6436b900; bundleID='com.dtigl.wellnario.ios', path='<DVTFilePath:0xb64369620:'/Volumes/DATOS/Desarrollo/Wellnario/build/testflight/Wellnario-202607142125.xcarchive/Products/Applications/Wellnario.app'>', codeSigningInfo='<_DVTCodeSigningInformation_Path: 0xb6436b8a0; isSigned='1', isAdHocSigned='0', signingCertificate='<DVTSigningCertificate: 0xb64cb0cc0; name='Apple Development: undy27@gmail.com (773Z4YKS92)', hash='813283A6889FEFCF3909DA3A1A4390662249B701', serialNumber='6386597ED87F8688A992F40C1DF6ACAA', certificateKinds='(
+    "1.2.840.113635.100.6.1.12",
+    "1.2.840.113635.100.6.1.2"
+), issueDate='2025-11-22 19:55:28 +0000''>', entitlements='{
+    "application-identifier" = "73ZVWQPH3Z.com.dtigl.wellnario.ios";
+    "com.apple.developer.team-identifier" = 73ZVWQPH3Z;
+    "get-task-allow" = 1;
+}', teamID='73ZVWQPH3Z', identifier='com.dtigl.wellnario.ios', executablePath='<DVTFilePath:0xb6436ad60:'/Volumes/DATOS/Desarrollo/Wellnario/build/testflight/Wellnario-202607142125.xcarchive/Products/Applications/Wellnario.app/Wellnario'>', hardenedRuntime='0'>'>: {
+    "application-identifier" = "73ZVWQPH3Z.com.dtigl.wellnario.ios";
+    "beta-reports-active" = 1;
+    "com.apple.developer.team-identifier" = 73ZVWQPH3Z;
+    "get-task-allow" = 0;
+}
+2026-07-14 19:26:03 +0000 [MT] Associated App Clip Identifiers Filter: Skipping because "com.apple.developer.associated-appclip-app-identifiers" is not present
+2026-07-14 19:26:03 +0000 [MT] Entitlements for <IDEDistributionItem: 0xb6436b900; bundleID='com.dtigl.wellnario.ios', path='<DVTFilePath:0xb64369620:'/Volumes/DATOS/Desarrollo/Wellnario/build/testflight/Wellnario-202607142125.xcarchive/Products/Applications/Wellnario.app'>', codeSigningInfo='<_DVTCodeSigningInformation_Path: 0xb6436b8a0; isSigned='1', isAdHocSigned='0', signingCertificate='<DVTSigningCertificate: 0xb64cb0540; name='Apple Development: undy27@gmail.com (773Z4YKS92)', hash='813283A6889FEFCF3909DA3A1A4390662249B701', serialNumber='6386597ED87F8688A992F40C1DF6ACAA', certificateKinds='(
+    "1.2.840.113635.100.6.1.12",
+    "1.2.840.113635.100.6.1.2"
+), issueDate='2025-11-22 19:55:28 +0000''>', entitlements='{
+    "application-identifier" = "73ZVWQPH3Z.com.dtigl.wellnario.ios";
+    "com.apple.developer.team-identifier" = 73ZVWQPH3Z;
+    "get-task-allow" = 1;
+}', teamID='73ZVWQPH3Z', identifier='com.dtigl.wellnario.ios', executablePath='<DVTFilePath:0xb6436ad60:'/Volumes/DATOS/Desarrollo/Wellnario/build/testflight/Wellnario-202607142125.xcarchive/Products/Applications/Wellnario.app/Wellnario'>', hardenedRuntime='0'>'> are: {
+    "application-identifier" = "73ZVWQPH3Z.com.dtigl.wellnario.ios";
+    "beta-reports-active" = 1;
+    "com.apple.developer.team-identifier" = 73ZVWQPH3Z;
+    "get-task-allow" = 0;
+}
+2026-07-14 19:26:03 +0000 [MT] Writing entitlements for <IDEDistributionItem: 0xb6436b900; bundleID='com.dtigl.wellnario.ios', path='<DVTFilePath:0xb64369620:'/Volumes/DATOS/Desarrollo/Wellnario/build/testflight/Wellnario-202607142125.xcarchive/Products/Applications/Wellnario.app'>', codeSigningInfo='<_DVTCodeSigningInformation_Path: 0xb6436b8a0; isSigned='1', isAdHocSigned='0', signingCertificate='<DVTSigningCertificate: 0xb64cb0540; name='Apple Development: undy27@gmail.com (773Z4YKS92)', hash='813283A6889FEFCF3909DA3A1A4390662249B701', serialNumber='6386597ED87F8688A992F40C1DF6ACAA', certificateKinds='(
+    "1.2.840.113635.100.6.1.12",
+    "1.2.840.113635.100.6.1.2"
+), issueDate='2025-11-22 19:55:28 +0000''>', entitlements='{
+    "application-identifier" = "73ZVWQPH3Z.com.dtigl.wellnario.ios";
+    "com.apple.developer.team-identifier" = 73ZVWQPH3Z;
+    "get-task-allow" = 1;
+}', teamID='73ZVWQPH3Z', identifier='com.dtigl.wellnario.ios', executablePath='<DVTFilePath:0xb6436ad60:'/Volumes/DATOS/Desarrollo/Wellnario/build/testflight/Wellnario-202607142125.xcarchive/Products/Applications/Wellnario.app/Wellnario'>', hardenedRuntime='0'>'> to: /var/folders/y1/mrj14zcd6jxggzg1zw3lk9gr0000gn/T/XcodeDistPipeline.~~~l50Td9/entitlements~~~C1S9U7
+2026-07-14 19:26:03 +0000 [MT] invoking codesign: <NSConcreteTask: 0xb66d0e7b0; launchPath='/usr/bin/codesign', arguments='(
+    "-f",
+    "-s",
+    BF9B78D70BD43CA6F4653D81ECB049CAD60506C9,
+    "--entitlements",
+    "/var/folders/y1/mrj14zcd6jxggzg1zw3lk9gr0000gn/T/XcodeDistPipeline.~~~l50Td9/entitlements~~~C1S9U7",
+    "--preserve-metadata=identifier,flags,runtime,launch-constraints,library-constraints",
+    "--generate-entitlement-der",
+    "--strip-disallowed-xattrs",
+    "-vvv",
+    "/var/folders/y1/mrj14zcd6jxggzg1zw3lk9gr0000gn/T/XcodeDistPipeline.~~~l50Td9/Root/Payload/Wellnario.app"
+)'>
+2026-07-14 19:26:03 +0000 [MT] codesign output: /var/folders/y1/mrj14zcd6jxggzg1zw3lk9gr0000gn/T/XcodeDistPipeline.~~~l50Td9/Root/Payload/Wellnario.app: replacing existing signature
+/var/folders/y1/mrj14zcd6jxggzg1zw3lk9gr0000gn/T/XcodeDistPipeline.~~~l50Td9/Root/Payload/Wellnario.app: signed app bundle with Mach-O thin (arm64) [com.dtigl.wellnario.ios]
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionZipODRItemStep
+2026-07-14 19:26:03 +0000 [MT] Skipping step: IDEDistributionZipODRItemStep because it said so
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionCreateIPAStep
+2026-07-14 19:26:03 +0000 [MT] Running /usr/bin/rsync '-8aPhhE' '/var/folders/y1/mrj14zcd6jxggzg1zw3lk9gr0000gn/T/XcodeDistPipeline.~~~l50Td9/Symbols' '--link-dest' '/var/folders/y1/mrj14zcd6jxggzg1zw3lk9gr0000gn/T/XcodeDistPipeline.~~~l50Td9' '/var/folders/y1/mrj14zcd6jxggzg1zw3lk9gr0000gn/T/XcodeDistPipeline.~~~l50Td9/Root'
+2026-07-14 19:26:03 +0000  Symbols/
+._Symbols
+            163 170%    3.88MB/s   00:00:00 (xfer#1, to-check=0/4)
+2026-07-14 19:26:03 +0000  Symbols/AABC3A4A-C1BF-3B4A-8EAA-98253E1F8F7E.symbols
+Symbols/._AABC3A4A-C1BF-3B4A-8EAA-98253E1F8F7E.symbols
+            163   0%  329.70KB/s   00:00:00 (xfer#2, to-check=2/4)
+2026-07-14 19:26:03 +0000 [MT] /usr/bin/rsync exited with 0
+2026-07-14 19:26:03 +0000 [MT] Running /usr/bin/ditto '-V' '-c' '-k' '--norsrc' '/var/folders/y1/mrj14zcd6jxggzg1zw3lk9gr0000gn/T/XcodeDistPipeline.~~~l50Td9/Root' '/var/folders/y1/mrj14zcd6jxggzg1zw3lk9gr0000gn/T/XcodeDistPipeline.~~~l50Td9/Packages/Wellnario.ipa'
+2026-07-14 19:26:03 +0000  >>> Copying /var/folders/y1/mrj14zcd6jxggzg1zw3lk9gr0000gn/T/XcodeDistPipeline.~~~l50Td9/Root 
+2026-07-14 19:26:03 +0000  copying file ./Payload/Wellnario.app/_CodeSignature/CodeResources ... 
+2026-07-14 19:26:03 +0000  3909 bytes for ./Payload/Wellnario.app/_CodeSignature/CodeResources
+2026-07-14 19:26:03 +0000  copying file ./Payload/Wellnario.app/en.lproj/Localizable.strings ... 
+2026-07-14 19:26:03 +0000  24186 bytes for ./Payload/Wellnario.app/en.lproj/Localizable.strings
+2026-07-14 19:26:03 +0000  copying file ./Payload/Wellnario.app/Wellnario ... 
+2026-07-14 19:26:03 +0000  1334304 bytes for ./Payload/Wellnario.app/Wellnario
+2026-07-14 19:26:03 +0000  copying file ./Payload/Wellnario.app/es.lproj/Localizable.strings ... 
+2026-07-14 19:26:03 +0000  30865 bytes for ./Payload/Wellnario.app/es.lproj/Localizable.strings
+2026-07-14 19:26:03 +0000  copying file ./Payload/Wellnario.app/AppIcon60x60@2x.png ... 
+2026-07-14 19:26:03 +0000  23375 bytes for ./Payload/Wellnario.app/AppIcon60x60@2x.png
+2026-07-14 19:26:03 +0000  copying file ./Payload/Wellnario.app/README.md ... 
+2026-07-14 19:26:03 +0000  3020 bytes for ./Payload/Wellnario.app/README.md
+2026-07-14 19:26:03 +0000  copying file ./Payload/Wellnario.app/Assets.car ... 
+2026-07-14 19:26:03 +0000  1191400 bytes for ./Payload/Wellnario.app/Assets.car
+2026-07-14 19:26:03 +0000  copying file ./Payload/Wellnario.app/AppIcon76x76@2x~ipad.png ... 
+2026-07-14 19:26:03 +0000  36289 bytes for ./Payload/Wellnario.app/AppIcon76x76@2x~ipad.png
+2026-07-14 19:26:03 +0000  copying file ./Payload/Wellnario.app/PrivacyInfo.xcprivacy ... 
+2026-07-14 19:26:03 +0000  641 bytes for ./Payload/Wellnario.app/PrivacyInfo.xcprivacy
+2026-07-14 19:26:03 +0000  copying file ./Payload/Wellnario.app/embedded.mobileprovision ... 
+2026-07-14 19:26:03 +0000  12803 bytes for ./Payload/Wellnario.app/embedded.mobileprovision
+2026-07-14 19:26:03 +0000  copying file ./Payload/Wellnario.app/Info.plist ... 
+2026-07-14 19:26:03 +0000  1535 bytes for ./Payload/Wellnario.app/Info.plist
+2026-07-14 19:26:03 +0000  copying file ./Payload/Wellnario.app/PkgInfo ... 
+2026-07-14 19:26:03 +0000  8 bytes for ./Payload/Wellnario.app/PkgInfo
+2026-07-14 19:26:03 +0000  copying file ./Symbols/AABC3A4A-C1BF-3B4A-8EAA-98253E1F8F7E.symbols ... 
+2026-07-14 19:26:03 +0000  2431876 bytes for ./Symbols/AABC3A4A-C1BF-3B4A-8EAA-98253E1F8F7E.symbols
+2026-07-14 19:26:03 +0000 [MT] /usr/bin/ditto exited with 0
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionAppStoreInformationStep
+2026-07-14 19:26:03 +0000 [MT] Skipping step: IDEDistributionAppStoreInformationStep because it said so
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionGenerateProcessedDistributionItems
+2026-07-14 19:26:03 +0000 [MT] IDEDistributionItem init <DVTFilePath:0xb64ab8cc0:'/var/folders/y1/mrj14zcd6jxggzg1zw3lk9gr0000gn/T/XcodeDistPipeline.~~~l50Td9/Root/Payload/Wellnario.app'>
+2026-07-14 19:26:03 +0000 [MT] Processing step: IDEDistributionCreateManifestStep
+2026-07-14 19:26:03 +0000 [MT] Skipping step: IDEDistributionCreateManifestStep because it said so

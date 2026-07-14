@@ -4,6 +4,7 @@ import Foundation
 final class AppEnvironment {
     let repository: WellnarioRepositoryProtocol
     let launchConfiguration: AppLaunchConfiguration
+    let appleHealthService: AppleHealthSyncing
 
     init(
         launchConfiguration: AppLaunchConfiguration = .current(),
@@ -14,6 +15,10 @@ final class AppEnvironment {
         if let language = launchConfiguration.languageOverride {
             LocalizationManager.shared.setLanguage(language)
         }
+
+        appleHealthService = AppleHealthSyncService(
+            isEnabled: !launchConfiguration.isUITesting
+        )
 
         if launchConfiguration.isUITesting {
             let databaseURL = try Self.uiTestDatabaseURL(fileManager: fileManager)

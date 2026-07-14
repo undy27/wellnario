@@ -3,15 +3,31 @@ import UIKit
 @MainActor
 final class FitnessViewController: WellnessScrollViewController {
     var onStartWorkout: (() -> Void)?
+    private let appleHealthService: AppleHealthSyncing
+
+    init(appleHealthService: AppleHealthSyncing) {
+        self.appleHealthService = appleHealthService
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.text("fitness.title")
         view.accessibilityIdentifier = "fitness.root"
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appleHealthDidChange),
+            name: .appleHealthSyncDidChange,
+            object: appleHealthService
+        )
         buildContent()
     }
 
     private func buildContent() {
+        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         contentStack.addArrangedSubview(makeWeeklyHero())
 
         let startButton = PrimaryButton()
@@ -40,7 +56,7 @@ final class FitnessViewController: WellnessScrollViewController {
 
         contentStack.setCustomSpacing(WellnarioSpacing.large, after: contentStack.arrangedSubviews.last!)
         contentStack.addArrangedSubview(makeSectionTitle(L10n.text("fitness.recent.title")))
-        contentStack.addArrangedSubview(makeEmptyRecentCard())
+        contentStack.addArrangedSubview(makeRecentCard())
     }
 
     private func makeWeeklyHero() -> PremiumCardView {
@@ -50,7 +66,7 @@ final class FitnessViewController: WellnessScrollViewController {
 
         let valueLabel = UILabel()
         valueLabel.applyWellnarioStyle(.metric, color: WellnarioPalette.textPrimary)
-        valueLabel.text = "0"
+        valueLabel.text = "\(appleHealthService.snapshot.workoutsThisWeek.count)"
         let unitLabel = UILabel()
         unitLabel.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textSecondary)
         unitLabel.text = L10n.text("fitness.workouts")
@@ -63,7 +79,7 @@ final class FitnessViewController: WellnessScrollViewController {
 
         let detail = UILabel()
         detail.applyWellnarioStyle(.body, color: WellnarioPalette.textSecondary)
-        detail.text = L10n.text("fitness.hero.empty")
+        detail.text = weeklyDetail()
         detail.numberOfLines = 0
 
         let artwork = FitnessArtworkView()
@@ -84,8 +100,26 @@ final class FitnessViewController: WellnessScrollViewController {
         card.showsAccent = true
         card.isAccessibilityElement = true
         card.accessibilityLabel = L10n.text("fitness.this_week")
-        card.accessibilityValue = L10n.text("fitness.hero.empty")
+        card.accessibilityValue = "\(valueLabel.text ?? "0") \(L10n.text("fitness.workouts")), \(detail.text ?? "")"
         return card
+    }
+
+    private func weeklyDetail() -> String {
+        let snapshot = appleHealthService.snapshot
+        var details: [String] = []
+        if let steps = snapshot.stepsToday {
+            details.append(L10n.text(
+                "apple_health.steps_today",
+                AppleHealthUIFormatting.number(steps)
+            ))
+        }
+        if let energy = snapshot.activeEnergyKilocaloriesToday {
+            details.append(L10n.text(
+                "apple_health.active_energy_today",
+                AppleHealthUIFormatting.number(energy)
+            ))
+        }
+        return details.isEmpty ? L10n.text("fitness.hero.empty") : details.joined(separator: " · ")
     }
 
     private func makeWeekCard() -> PremiumCardView {
@@ -97,6 +131,10 @@ final class FitnessViewController: WellnessScrollViewController {
             alignment: .fill,
             distribution: .fillEqually
         )
+        let workoutDays = Set(appleHealthService.snapshot.workoutsThisWeek.map {
+            Calendar.autoupdatingCurrent.startOfDay(for: $0.startDate)
+        })
+        let days = currentWeekDates
         for (index, symbol) in daySymbols.enumerated() {
             let label = UILabel()
             label.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)
@@ -104,17 +142,20 @@ final class FitnessViewController: WellnessScrollViewController {
             label.textAlignment = .center
 
             let circle = UIView()
-            circle.backgroundColor = index == currentWeekdayIndex
+            let hasWorkout = days.indices.contains(index) && workoutDays.contains(days[index])
+            circle.backgroundColor = hasWorkout
                 ? WellnarioPalette.magenta.withAlphaComponent(0.18)
                 : WellnarioPalette.surfaceElevated
             circle.layer.borderWidth = 1
-            circle.layer.borderColor = (index == currentWeekdayIndex
+            circle.layer.borderColor = (hasWorkout
                 ? WellnarioPalette.magenta.withAlphaComponent(0.55)
                 : WellnarioPalette.hairline).cgColor
             circle.applyContinuousCorners(18)
             circle.heightAnchor.constraint(equalToConstant: 36).isActive = true
             let dot = UIView()
-            dot.backgroundColor = index == currentWeekdayIndex ? WellnarioPalette.magenta : WellnarioPalette.textDisabled
+            dot.backgroundColor = hasWorkout
+                ? WellnarioPalette.magenta
+                : (index == currentWeekdayIndex ? WellnarioPalette.textSecondary : WellnarioPalette.textDisabled)
             dot.applyContinuousCorners(3)
             circle.addForAutoLayout(dot)
             NSLayoutConstraint.activate([
@@ -126,6 +167,55 @@ final class FitnessViewController: WellnessScrollViewController {
             stack.addArrangedSubview(UIStackView(arrangedSubviews: [label, circle], axis: .vertical, spacing: 8))
         }
         return makeCard(containing: stack, identifier: "fitness.week.card")
+    }
+
+    private func makeRecentCard() -> PremiumCardView {
+        let workouts = appleHealthService.snapshot.workoutsThisWeek
+        guard !workouts.isEmpty else { return makeEmptyRecentCard() }
+
+        let stack = UIStackView(arrangedSubviews: [], axis: .vertical, spacing: WellnarioSpacing.xSmall)
+        for (index, workout) in workouts.prefix(5).enumerated() {
+            if index > 0 {
+                let separator = UIView()
+                separator.backgroundColor = WellnarioPalette.hairline
+                separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
+                stack.addArrangedSubview(separator)
+            }
+            stack.addArrangedSubview(makeWorkoutRow(workout))
+        }
+        return makeCard(containing: stack, identifier: "fitness.recent.card")
+    }
+
+    private func makeWorkoutRow(_ workout: AppleHealthWorkout) -> UIView {
+        let icon = UIImageView(image: UIImage(systemName: AppleHealthUIFormatting.workoutSymbol(workout.kind)))
+        icon.tintColor = WellnarioPalette.magenta
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
+        icon.widthAnchor.constraint(equalToConstant: 32).isActive = true
+
+        let titleLabel = UILabel()
+        titleLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textPrimary)
+        titleLabel.text = AppleHealthUIFormatting.workoutTitle(workout.kind)
+        let detailLabel = UILabel()
+        detailLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
+        var details = [
+            WellnarioFormatters.relativeDay(workout.startDate),
+            AppleHealthUIFormatting.duration(workout.durationSeconds)
+        ]
+        if let energy = workout.activeEnergyKilocalories {
+            details.append(L10n.text("apple_health.energy_kcal", AppleHealthUIFormatting.number(energy)))
+        }
+        detailLabel.text = details.joined(separator: " · ")
+        detailLabel.numberOfLines = 2
+        let labels = UIStackView(arrangedSubviews: [titleLabel, detailLabel], axis: .vertical, spacing: 3)
+        let row = UIStackView(
+            arrangedSubviews: [icon, labels],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.xSmall,
+            alignment: .center
+        )
+        row.isAccessibilityElement = true
+        row.accessibilityLabel = [titleLabel.text, detailLabel.text].compactMap { $0 }.joined(separator: ", ")
+        return row
     }
 
     private func makeEmptyRecentCard() -> PremiumCardView {
@@ -154,6 +244,16 @@ final class FitnessViewController: WellnessScrollViewController {
         return (weekday + 5) % 7
     }
 
+    private var currentWeekDates: [Date] {
+        let calendar = Calendar.autoupdatingCurrent
+        let now = Date()
+        let interval = calendar.dateInterval(of: .weekOfYear, for: now)
+        let start = interval?.start ?? calendar.startOfDay(for: now)
+        return (0..<7).compactMap {
+            calendar.date(byAdding: .day, value: $0, to: start).map(calendar.startOfDay)
+        }
+    }
+
     private func localizedWeekdayInitials() -> [String] {
         let formatter = DateFormatter()
         formatter.locale = LocalizationManager.shared.locale
@@ -163,6 +263,7 @@ final class FitnessViewController: WellnessScrollViewController {
     }
 
     @objc private func startWorkout() { onStartWorkout?() }
+    @objc private func appleHealthDidChange() { buildContent() }
 }
 
 @MainActor

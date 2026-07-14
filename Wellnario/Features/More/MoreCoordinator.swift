@@ -3,11 +3,16 @@ import UIKit
 @MainActor
 final class MoreCoordinator: NSObject, UINavigationControllerDelegate {
     let navigationController: WellnarioNavigationController
+    private let appleHealthService: AppleHealthSyncing
 
     private(set) var currentRoute: MoreRoute = .root
 
-    init(navigationController: WellnarioNavigationController) {
+    init(
+        navigationController: WellnarioNavigationController,
+        appleHealthService: AppleHealthSyncing
+    ) {
         self.navigationController = navigationController
+        self.appleHealthService = appleHealthService
         super.init()
         navigationController.delegate = self
     }
@@ -26,7 +31,10 @@ final class MoreCoordinator: NSObject, UINavigationControllerDelegate {
             navigationController.popToRootViewController(animated: animated)
         case .settings:
             guard !(navigationController.topViewController is SettingsViewController) else { return }
-            navigationController.pushViewController(SettingsViewController(), animated: animated)
+            navigationController.pushViewController(
+                SettingsViewController(appleHealthService: appleHealthService),
+                animated: animated
+            )
         case let .placeholder(feature):
             if let current = navigationController.topViewController as? ComingSoonViewController,
                current.feature == feature {

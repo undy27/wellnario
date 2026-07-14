@@ -30,10 +30,28 @@ final class TodayViewController: FeatureViewController {
 
     private var summary: DashboardSummary?
     private var selectedDate = Date()
+    private let appleHealthService: AppleHealthSyncing
+
+    init(
+        repository: WellnarioRepositoryProtocol,
+        appleHealthService: AppleHealthSyncing
+    ) {
+        self.appleHealthService = appleHealthService
+        super.init(repository: repository)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         setUpView()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appleHealthDidChange),
+            name: .appleHealthSyncDidChange,
+            object: appleHealthService
+        )
         applyLocalizedCopy()
         reloadContent()
     }
@@ -54,6 +72,7 @@ final class TodayViewController: FeatureViewController {
     }
 
     override func reloadContent() {
+        configureStaticCards()
         do {
             let summary = try repository.dashboard(
                 on: LocalDay(containing: selectedDate, in: .current),
@@ -180,32 +199,57 @@ final class TodayViewController: FeatureViewController {
 
     private func configureStaticCards() {
         let noData = L10n.text("wellness.no_data")
+        let snapshot = appleHealthService.snapshot
+        let isToday = Calendar.autoupdatingCurrent.isDateInToday(selectedDate)
+
+        let sleepValue: String
+        let sleepDetail: String
+        if isToday, let session = snapshot.latestSleepSession {
+            sleepValue = AppleHealthUIFormatting.duration(session.asleepSeconds)
+            sleepDetail = AppleHealthUIFormatting.sleepRange(session)
+        } else {
+            sleepValue = "—"
+            sleepDetail = WellnessLocalStore.lastSleepFactor ?? noData
+        }
         sleepCard.configure(
             title: L10n.text("wellness.sleep"),
             symbolName: "moon.stars.fill",
-            value: "—",
-            detail: WellnessLocalStore.lastSleepFactor ?? noData,
+            value: sleepValue,
+            detail: sleepDetail,
             tone: WellnarioPalette.violet
         )
+
+        let hrv = isToday ? snapshot.heartRateVariability : nil
         recoveryCard.configure(
             title: L10n.text("wellness.recovery"),
             symbolName: "figure.cooldown",
-            value: "—",
-            detail: noData,
+            value: hrv.map { "\(AppleHealthUIFormatting.number($0.value)) ms" } ?? "—",
+            detail: hrv == nil ? noData : L10n.text("apple_health.recovery.hrv_context"),
             tone: WellnarioPalette.success
         )
+
+        let restingHeartRate = isToday ? snapshot.restingHeartRate : nil
         stressCard.configure(
             title: L10n.text("wellness.stress"),
             symbolName: "waveform.path.ecg",
-            value: "—",
-            detail: noData,
+            value: restingHeartRate.map {
+                "\(AppleHealthUIFormatting.number($0.value)) \(L10n.text("apple_health.unit.bpm"))"
+            } ?? "—",
+            detail: restingHeartRate == nil
+                ? noData
+                : L10n.text("apple_health.stress.resting_hr_context"),
             tone: WellnarioPalette.warning
         )
+
+        let workouts = isToday ? snapshot.workoutsThisWeek.count : 0
+        let steps = isToday ? snapshot.stepsToday : nil
         fitnessCard.configure(
             title: L10n.text("wellness.fitness"),
             symbolName: "figure.run",
-            value: "0",
-            detail: L10n.text("fitness.workouts_this_week"),
+            value: "\(workouts)",
+            detail: steps.map {
+                L10n.text("apple_health.steps_today", AppleHealthUIFormatting.number($0))
+            } ?? L10n.text("fitness.workouts_this_week"),
             tone: WellnarioPalette.magenta
         )
     }
@@ -439,6 +483,7 @@ final class TodayViewController: FeatureViewController {
     @objc private func openSleep() { onShowSleep?() }
     @objc private func openHealth() { onShowHealth?() }
     @objc private func openFitness() { onShowFitness?() }
+    @objc private func appleHealthDidChange() { reloadContent() }
 }
 
 extension TodayViewController: UIDocumentPickerDelegate {

@@ -4,11 +4,28 @@ import UIKit
 final class SettingsViewController: UIViewController {
     private let spanishButton = LanguageChoiceControl(language: .spanish)
     private let englishButton = LanguageChoiceControl(language: .english)
+    private let appleHealthRow = IntegrationRowControl(provider: .appleHealth)
+    private let appleHealthService: AppleHealthSyncing
+
+    init(appleHealthService: AppleHealthSyncing) {
+        self.appleHealthService = appleHealthService
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         setUpView()
         updateSelection()
+        updateAppleHealthStatus()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appleHealthDidChange),
+            name: .appleHealthSyncDidChange,
+            object: appleHealthService
+        )
     }
 
     private func setUpView() {
@@ -52,12 +69,11 @@ final class SettingsViewController: UIViewController {
         integrationsFooter.text = L10n.text("integrations.footer")
         integrationsFooter.numberOfLines = 0
 
-        let appleHealth = IntegrationRowControl(provider: .appleHealth)
         let oura = IntegrationRowControl(provider: .oura)
-        appleHealth.addTarget(self, action: #selector(integrationTapped(_:)), for: .touchUpInside)
+        appleHealthRow.addTarget(self, action: #selector(integrationTapped(_:)), for: .touchUpInside)
         oura.addTarget(self, action: #selector(integrationTapped(_:)), for: .touchUpInside)
         let integrationRows = UIStackView(
-            arrangedSubviews: [appleHealth, oura],
+            arrangedSubviews: [appleHealthRow, oura],
             axis: .vertical,
             spacing: WellnarioSpacing.xxSmall
         )
@@ -169,6 +185,29 @@ final class SettingsViewController: UIViewController {
         englishButton.isSelected = language == .english
     }
 
+    private func updateAppleHealthStatus() {
+        let status: String
+        let tone: UIColor
+        switch appleHealthService.state {
+        case .unavailable:
+            status = L10n.text("apple_health.status.unavailable")
+            tone = WellnarioPalette.textTertiary
+        case .notConfigured:
+            status = L10n.text("integrations.connect")
+            tone = WellnarioPalette.cyan
+        case .syncing:
+            status = L10n.text("apple_health.status.syncing")
+            tone = WellnarioPalette.information
+        case .failed:
+            status = L10n.text("apple_health.status.error")
+            tone = WellnarioPalette.warning
+        case .ready:
+            status = L10n.text("apple_health.status.configured")
+            tone = WellnarioPalette.success
+        }
+        appleHealthRow.configureStatus(status, tone: tone)
+    }
+
     @objc private func languageTapped(_ sender: LanguageChoiceControl) {
         guard sender.language != LocalizationManager.shared.language else { return }
         UISelectionFeedbackGenerator().selectionChanged()
@@ -177,10 +216,15 @@ final class SettingsViewController: UIViewController {
 
     @objc private func integrationTapped(_ sender: IntegrationRowControl) {
         navigationController?.pushViewController(
-            IntegrationSetupViewController(provider: sender.provider),
+            IntegrationSetupViewController(
+                provider: sender.provider,
+                appleHealthService: appleHealthService
+            ),
             animated: true
         )
     }
+
+    @objc private func appleHealthDidChange() { updateAppleHealthStatus() }
 }
 
 @MainActor

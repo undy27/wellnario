@@ -4,6 +4,16 @@ import UIKit
 final class SleepViewController: WellnessScrollViewController {
     var onOpenSettings: (() -> Void)?
 
+    private let appleHealthService: AppleHealthSyncing
+
+    init(appleHealthService: AppleHealthSyncing) {
+        self.appleHealthService = appleHealthService
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.text("sleep.title")
@@ -15,40 +25,40 @@ final class SleepViewController: WellnessScrollViewController {
             action: #selector(openSettings)
         )
         navigationItem.rightBarButtonItem?.accessibilityLabel = L10n.Settings.title
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appleHealthDidChange),
+            name: .appleHealthSyncDidChange,
+            object: appleHealthService
+        )
         buildContent()
     }
 
     private func buildContent() {
-        let sourceBanner = FeedbackBannerView()
-        sourceBanner.configure(
-            message: L10n.text("sleep.source.empty"),
-            tone: .information,
-            actionTitle: L10n.text("integrations.connect")
-        )
-        sourceBanner.onAction = { [weak self] in self?.onOpenSettings?() }
-        contentStack.addArrangedSubview(sourceBanner)
+        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        let snapshot = appleHealthService.snapshot
 
+        contentStack.addArrangedSubview(makeSourceBanner(snapshot: snapshot))
         contentStack.addArrangedSubview(makeSectionTitle(
             L10n.text("sleep.latest.title"),
             detail: L10n.text("sleep.latest.detail")
         ))
+        contentStack.addArrangedSubview(makeLatestSessionCard(snapshot.latestSleepSession))
 
-        let hero = makeLatestSessionCard()
-        contentStack.addArrangedSubview(hero)
-
+        let session = snapshot.latestSleepSession
         let metrics = [
             makeMiniMetric(
-                title: L10n.text("sleep.duration"),
-                value: "—",
-                detail: L10n.text("sleep.no_data"),
-                symbol: "bed.double.fill",
+                title: L10n.text("sleep.deep"),
+                value: stageValue(session?.deepSeconds),
+                detail: stageDetail(session?.deepSeconds),
+                symbol: "circle.bottomhalf.filled",
                 tone: WellnarioPalette.violet
             ),
             makeMiniMetric(
-                title: L10n.text("sleep.score"),
-                value: "—",
-                detail: L10n.text("sleep.no_data"),
-                symbol: "sparkles",
+                title: L10n.text("sleep.rem"),
+                value: stageValue(session?.remSeconds),
+                detail: stageDetail(session?.remSeconds),
+                symbol: "brain.head.profile",
                 tone: WellnarioPalette.magenta
             )
         ]
@@ -69,11 +79,19 @@ final class SleepViewController: WellnessScrollViewController {
         ))
 
         let chart = WellnessTrendChartView()
-        chart.values = Array(repeating: nil, count: 7)
-        chart.labels = localizedWeekdayInitials()
+        chart.values = snapshot.sleepTrend.isEmpty
+            ? Array(repeating: nil, count: 7)
+            : snapshot.sleepTrend.map(\.hours)
+        chart.labels = snapshot.sleepTrend.isEmpty
+            ? localizedWeekdayInitials()
+            : snapshot.sleepTrend.map { AppleHealthUIFormatting.weekdayInitial(for: $0.date) }
         chart.lineColor = WellnarioPalette.violet
         chart.emptyText = L10n.text("sleep.trend.empty")
         chart.accessibilityIdentifier = "sleep.trend.chart"
+        chart.accessibilityLabel = L10n.text("sleep.trend.accessibility")
+        chart.accessibilityValue = snapshot.sleepTrend.compactMap(\.hours).isEmpty
+            ? L10n.text("sleep.trend.empty")
+            : L10n.text("sleep.trend.accessibility")
         let chartCard = makeCard(containing: chart, identifier: "sleep.trend.card")
         contentStack.addArrangedSubview(chartCard)
 
@@ -82,19 +100,62 @@ final class SleepViewController: WellnessScrollViewController {
         contentStack.addArrangedSubview(makeFactorCard())
     }
 
-    private func makeLatestSessionCard() -> PremiumCardView {
+    private func makeSourceBanner(snapshot: AppleHealthSnapshot) -> FeedbackBannerView {
+        let banner = FeedbackBannerView()
+        switch appleHealthService.state {
+        case .unavailable:
+            banner.configure(message: L10n.text("apple_health.unavailable"), tone: .warning)
+        case .notConfigured:
+            banner.configure(
+                message: L10n.text("sleep.source.empty"),
+                tone: .information,
+                actionTitle: L10n.text("integrations.connect")
+            )
+            banner.onAction = { [weak self] in self?.onOpenSettings?() }
+        case .syncing:
+            banner.configure(message: L10n.text("apple_health.syncing"), tone: .information)
+        case .failed:
+            banner.configure(
+                message: L10n.text("apple_health.sync_failed"),
+                tone: .warning,
+                actionTitle: L10n.text("apple_health.sync_now")
+            )
+            banner.onAction = { [weak self] in self?.syncNow() }
+        case .ready:
+            let message = snapshot.lastSyncedAt.map(AppleHealthUIFormatting.syncedAt)
+                ?? L10n.text("apple_health.configured")
+            banner.configure(
+                message: message,
+                tone: .success,
+                actionTitle: L10n.text("apple_health.sync_now")
+            )
+            banner.onAction = { [weak self] in self?.syncNow() }
+        }
+        return banner
+    }
+
+    private func makeLatestSessionCard(_ session: AppleHealthSleepSession?) -> PremiumCardView {
         let moon = UIImageView(image: UIImage(systemName: "moon.stars.fill"))
         moon.tintColor = WellnarioPalette.violet
         moon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 29, weight: .semibold)
 
         let titleLabel = UILabel()
         titleLabel.applyWellnarioStyle(.cardTitle, color: WellnarioPalette.textPrimary)
-        titleLabel.text = L10n.text("sleep.latest.empty.title")
+        titleLabel.text = session.map { AppleHealthUIFormatting.duration($0.asleepSeconds) }
+            ?? L10n.text("sleep.latest.empty.title")
         titleLabel.numberOfLines = 0
 
         let bodyLabel = UILabel()
         bodyLabel.applyWellnarioStyle(.body, color: WellnarioPalette.textSecondary)
-        bodyLabel.text = L10n.text("sleep.latest.empty.body")
+        if let session {
+            let range = AppleHealthUIFormatting.sleepRange(session)
+            let sources = session.sourceNames.joined(separator: ", ")
+            bodyLabel.text = sources.isEmpty
+                ? range
+                : L10n.text("apple_health.sleep.range_source", range, sources)
+        } else {
+            bodyLabel.text = L10n.text("sleep.latest.empty.body")
+        }
         bodyLabel.numberOfLines = 0
 
         let iconContainer = UIView()
@@ -137,10 +198,11 @@ final class SleepViewController: WellnessScrollViewController {
         titleLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
         titleLabel.text = title
         titleLabel.numberOfLines = 2
-
         let valueLabel = UILabel()
         valueLabel.applyWellnarioStyle(.metric, color: WellnarioPalette.textPrimary)
         valueLabel.text = value
+        valueLabel.adjustsFontSizeToFitWidth = true
+        valueLabel.minimumScaleFactor = 0.72
         let detailLabel = UILabel()
         detailLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)
         detailLabel.text = detail
@@ -158,6 +220,16 @@ final class SleepViewController: WellnessScrollViewController {
         card.accessibilityLabel = title
         card.accessibilityValue = [value, detail].joined(separator: ", ")
         return card
+    }
+
+    private func stageValue(_ seconds: TimeInterval?) -> String {
+        guard let seconds, seconds > 0 else { return "—" }
+        return AppleHealthUIFormatting.duration(seconds)
+    }
+
+    private func stageDetail(_ seconds: TimeInterval?) -> String {
+        guard let seconds, seconds > 0 else { return L10n.text("sleep.no_data") }
+        return L10n.text("sleep.from_apple_health")
     }
 
     private func makeFactorCard() -> PremiumCardView {
@@ -190,10 +262,18 @@ final class SleepViewController: WellnessScrollViewController {
     }
 
     private func localizedWeekdayInitials() -> [String] {
-        let formatter = DateFormatter()
-        formatter.locale = LocalizationManager.shared.locale
-        return Array(formatter.veryShortWeekdaySymbols.prefix(7))
+        let calendar = Calendar.autoupdatingCurrent
+        let today = calendar.startOfDay(for: Date())
+        return (0..<7).reversed().compactMap { offset in
+            calendar.date(byAdding: .day, value: -offset, to: today)
+                .map(AppleHealthUIFormatting.weekdayInitial)
+        }
+    }
+
+    private func syncNow() {
+        Task { try? await appleHealthService.sync() }
     }
 
     @objc private func openSettings() { onOpenSettings?() }
+    @objc private func appleHealthDidChange() { buildContent() }
 }

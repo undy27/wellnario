@@ -75,6 +75,12 @@ final class IntegrationRowControl: UIControl {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    func configureStatus(_ text: String, tone: UIColor) {
+        statusLabel.text = text
+        statusLabel.textColor = tone
+        accessibilityValue = text
+    }
+
     private func setUp() {
         backgroundColor = WellnarioPalette.surfaceElevated
         applyContinuousCorners(WellnarioRadius.control)
@@ -134,9 +140,16 @@ final class IntegrationRowControl: UIControl {
 @MainActor
 final class IntegrationSetupViewController: WellnessScrollViewController {
     private let provider: IntegrationProvider
+    private let appleHealthService: AppleHealthSyncing
+    private let statusBanner = FeedbackBannerView()
+    private let connectButton = PrimaryButton()
 
-    init(provider: IntegrationProvider) {
+    init(
+        provider: IntegrationProvider,
+        appleHealthService: AppleHealthSyncing
+    ) {
         self.provider = provider
+        self.appleHealthService = appleHealthService
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -148,7 +161,14 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
         title = provider.title
         navigationItem.largeTitleDisplayMode = .never
         view.accessibilityIdentifier = "\(provider.accessibilityIdentifier).detail"
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appleHealthDidChange),
+            name: .appleHealthSyncDidChange,
+            object: appleHealthService
+        )
         buildContent()
+        updateStatus()
     }
 
     private func buildContent() {
@@ -196,10 +216,48 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
         privacy.configure(message: L10n.text("integrations.privacy"), tone: .success)
         contentStack.addArrangedSubview(privacy)
 
-        let connectButton = PrimaryButton(title: L10n.text("integrations.connect"))
+        if provider == .appleHealth {
+            contentStack.addArrangedSubview(statusBanner)
+        }
+
         connectButton.accessibilityIdentifier = "\(provider.accessibilityIdentifier).connect"
         connectButton.addTarget(self, action: #selector(connect), for: .touchUpInside)
         contentStack.addArrangedSubview(connectButton)
+    }
+
+    private func updateStatus() {
+        guard provider == .appleHealth else {
+            connectButton.setTitle(L10n.text("integrations.connect"), for: .normal)
+            return
+        }
+
+        connectButton.isLoading = appleHealthService.state == .syncing
+        switch appleHealthService.state {
+        case .unavailable:
+            statusBanner.configure(message: L10n.text("apple_health.unavailable"), tone: .warning)
+            connectButton.setTitle(L10n.text("integrations.connect"), for: .normal)
+            connectButton.isEnabled = false
+        case .notConfigured:
+            statusBanner.configure(
+                message: L10n.text("apple_health.permission_explanation"),
+                tone: .information
+            )
+            connectButton.setTitle(L10n.text("integrations.connect"), for: .normal)
+            connectButton.isEnabled = true
+        case .syncing:
+            statusBanner.configure(message: L10n.text("apple_health.syncing"), tone: .information)
+            connectButton.setTitle(L10n.text("apple_health.sync_now"), for: .normal)
+        case .failed:
+            statusBanner.configure(message: L10n.text("apple_health.sync_failed"), tone: .warning)
+            connectButton.setTitle(L10n.text("apple_health.try_again"), for: .normal)
+            connectButton.isEnabled = true
+        case .ready:
+            let message = appleHealthService.snapshot.lastSyncedAt.map(AppleHealthUIFormatting.syncedAt)
+                ?? L10n.text("apple_health.configured_privacy")
+            statusBanner.configure(message: message, tone: .success)
+            connectButton.setTitle(L10n.text("apple_health.sync_now"), for: .normal)
+            connectButton.isEnabled = true
+        }
     }
 
     private func dataRows() -> [UIView] {
@@ -238,12 +296,16 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
     }
 
     @objc private func connect() {
+        if provider == .appleHealth {
+            connectAppleHealth()
+            return
+        }
+
         let title: String
         let message: String
         switch provider {
         case .appleHealth:
-            title = L10n.text("integrations.apple_health.authorization.title")
-            message = L10n.text("integrations.apple_health.authorization.message")
+            return
         case .oura:
             title = L10n.text("integrations.oura.authorization.title")
             message = L10n.text("integrations.oura.authorization.message")
@@ -252,4 +314,33 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
         alert.addAction(UIAlertAction(title: L10n.Common.done, style: .default))
         present(alert, animated: true)
     }
+
+    private func connectAppleHealth() {
+        Task {
+            do {
+                if appleHealthService.isConfigured {
+                    try await appleHealthService.sync()
+                } else {
+                    try await appleHealthService.requestAuthorizationAndSync()
+                }
+                let alert = UIAlertController(
+                    title: L10n.text("apple_health.connected.title"),
+                    message: L10n.text("apple_health.connected.message"),
+                    preferredStyle: .alert
+                )
+                alert.addAction(UIAlertAction(title: L10n.Common.done, style: .default))
+                present(alert, animated: true)
+            } catch {
+                let alert = UIAlertController(
+                    title: L10n.Common.error,
+                    message: L10n.text("apple_health.sync_failed"),
+                    preferredStyle: .alert
+                )
+                alert.addAction(UIAlertAction(title: L10n.Common.done, style: .default))
+                present(alert, animated: true)
+            }
+        }
+    }
+
+    @objc private func appleHealthDidChange() { updateStatus() }
 }

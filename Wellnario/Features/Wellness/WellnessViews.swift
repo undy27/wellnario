@@ -291,7 +291,7 @@ final class WellnessTrendChartView: UIView {
         drawLabels(in: chartRect)
 
         let validValues = values.compactMap { $0 }
-        guard validValues.count > 1 else {
+        guard !validValues.isEmpty else {
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: WellnarioTypography.font(for: .secondary),
                 .foregroundColor: WellnarioPalette.textTertiary
@@ -320,7 +320,15 @@ final class WellnessTrendChartView: UIView {
                 y: chartRect.maxY - chartRect.height * CGFloat((value - lower) / range)
             ))
         }
-        guard points.count > 1 else { return }
+        guard points.count > 1 else {
+            if let point = points.first {
+                lineColor.withAlphaComponent(0.20).setFill()
+                UIBezierPath(ovalIn: CGRect(x: point.x - 7, y: point.y - 7, width: 14, height: 14)).fill()
+                lineColor.setFill()
+                UIBezierPath(ovalIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)).fill()
+            }
+            return
+        }
 
         let fillPath = UIBezierPath()
         fillPath.move(to: CGPoint(x: points[0].x, y: chartRect.maxY))
