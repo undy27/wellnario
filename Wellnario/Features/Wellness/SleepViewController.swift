@@ -2,12 +2,22 @@ import UIKit
 
 @MainActor
 final class SleepViewController: WellnessScrollViewController {
+    private enum TrendMetric: Int, CaseIterable {
+        case quality
+        case duration
+        case rem
+        case deep
+        case light
+    }
+
     var onOpenSettings: (() -> Void)?
 
     private let appleHealthService: AppleHealthSyncing
     private let trendChart = WellnessTrendChartView()
     private var selectedTrendPeriod = AppleHealthSleepTrendPeriod.sevenDays
+    private var selectedTrendMetric = TrendMetric.duration
     private lazy var trendPeriodControl: UISegmentedControl = makeTrendPeriodControl()
+    private lazy var trendMetricControl: UISegmentedControl = makeTrendMetricControl()
 
     init(appleHealthService: AppleHealthSyncing) {
         self.appleHealthService = appleHealthService
@@ -80,11 +90,17 @@ final class SleepViewController: WellnessScrollViewController {
 
         configureTrendChart(with: snapshot)
         let trendContent = UIStackView(
-            arrangedSubviews: [trendChart, trendPeriodControl],
+            arrangedSubviews: [trendMetricControl, trendChart, trendPeriodControl],
             axis: .vertical,
             spacing: WellnarioSpacing.xSmall
         )
-        let chartCard = makeCard(containing: trendContent, identifier: "sleep.trend.card")
+        let chartCard = PremiumCardView()
+        chartCard.accessibilityIdentifier = "sleep.trend.card"
+        chartCard.contentView.addForAutoLayout(trendContent)
+        trendContent.pinEdges(
+            to: chartCard.contentView,
+            insets: NSDirectionalEdgeInsets(top: 16, leading: 8, bottom: 16, trailing: 8)
+        )
         contentStack.addArrangedSubview(chartCard)
 
         contentStack.setCustomSpacing(WellnarioSpacing.large, after: chartCard)
@@ -97,24 +113,23 @@ final class SleepViewController: WellnessScrollViewController {
             from: snapshot.sleepTrend,
             period: selectedTrendPeriod
         )
-        trendChart.values = trend.map(\.hours)
+        let values = trend.map(trendValue)
+        trendChart.values = values
         trendChart.labels = trendLabels(for: trend, period: selectedTrendPeriod)
-        trendChart.lineColor = WellnarioPalette.violet
-        trendChart.emptyText = L10n.text("sleep.trend.empty")
+        trendChart.lineColor = trendMetricColor(selectedTrendMetric)
+        trendChart.emptyText = selectedTrendMetric == .quality
+            ? L10n.text("sleep.trend.quality.empty")
+            : L10n.text("sleep.trend.empty")
         trendChart.smoothingWindow = smoothingWindow(for: selectedTrendPeriod, pointCount: trend.count)
         trendChart.averageTitle = L10n.text("sleep.trend.average")
-        trendChart.valueFormatter = { value in
-            L10n.text(
-                "sleep.trend.hours.short",
-                AppleHealthUIFormatting.number(value, maximumFractionDigits: 1)
-            )
-        }
+        trendChart.valueFormatter = trendValueFormatter(selectedTrendMetric)
         trendChart.accessibilityIdentifier = "sleep.trend.chart"
         trendChart.accessibilityLabel = L10n.text(
             "sleep.trend.accessibility.format",
+            trendMetricTitle(selectedTrendMetric),
             trendPeriodTitle(selectedTrendPeriod)
         )
-        let validValues = trend.compactMap(\.hours)
+        let validValues = values.compactMap { $0 }
         if let minimum = validValues.min(), let maximum = validValues.max() {
             let average = validValues.reduce(0, +) / Double(validValues.count)
             trendChart.accessibilityValue = L10n.text(
@@ -125,6 +140,40 @@ final class SleepViewController: WellnessScrollViewController {
             )
         } else {
             trendChart.accessibilityValue = L10n.text("sleep.trend.empty")
+        }
+    }
+
+    private func trendValue(_ day: AppleHealthSleepDay) -> Double? {
+        switch selectedTrendMetric {
+        case .quality: day.qualityScore
+        case .duration: day.hours
+        case .rem: day.remHours
+        case .deep: day.deepHours
+        case .light: day.lightHours
+        }
+    }
+
+    private func trendValueFormatter(_ metric: TrendMetric) -> (Double) -> String {
+        switch metric {
+        case .quality:
+            { AppleHealthUIFormatting.number($0, maximumFractionDigits: 0) }
+        case .duration, .rem, .deep, .light:
+            { value in
+                L10n.text(
+                    "sleep.trend.hours.short",
+                    AppleHealthUIFormatting.number(value, maximumFractionDigits: 1)
+                )
+            }
+        }
+    }
+
+    private func trendMetricColor(_ metric: TrendMetric) -> UIColor {
+        switch metric {
+        case .quality: WellnarioPalette.cyan
+        case .duration: WellnarioPalette.violet
+        case .rem: WellnarioPalette.magenta
+        case .deep: WellnarioPalette.information
+        case .light: WellnarioPalette.warning
         }
     }
 
@@ -161,6 +210,35 @@ final class SleepViewController: WellnessScrollViewController {
         control.accessibilityLabel = L10n.text("sleep.trend.period.selector.accessibility")
         control.addTarget(self, action: #selector(trendPeriodDidChange), for: .valueChanged)
         return control
+    }
+
+    private func makeTrendMetricControl() -> UISegmentedControl {
+        let control = UISegmentedControl(items: TrendMetric.allCases.map(trendMetricTitle))
+        control.selectedSegmentIndex = selectedTrendMetric.rawValue
+        control.apportionsSegmentWidthsByContent = true
+        control.selectedSegmentTintColor = WellnarioPalette.violet
+        control.setTitleTextAttributes([
+            .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: WellnarioPalette.textSecondary
+        ], for: .normal)
+        control.setTitleTextAttributes([
+            .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: UIColor.white
+        ], for: .selected)
+        control.accessibilityIdentifier = "sleep.trend.metric.selector"
+        control.accessibilityLabel = L10n.text("sleep.trend.metric.selector.accessibility")
+        control.addTarget(self, action: #selector(trendMetricDidChange), for: .valueChanged)
+        return control
+    }
+
+    private func trendMetricTitle(_ metric: TrendMetric) -> String {
+        switch metric {
+        case .quality: L10n.text("sleep.trend.metric.quality")
+        case .duration: L10n.text("sleep.trend.metric.duration")
+        case .rem: L10n.text("sleep.trend.metric.rem")
+        case .deep: L10n.text("sleep.trend.metric.deep")
+        case .light: L10n.text("sleep.trend.metric.light")
+        }
     }
 
     private func trendPeriodTitle(_ period: AppleHealthSleepTrendPeriod) -> String {
@@ -368,6 +446,13 @@ final class SleepViewController: WellnessScrollViewController {
             return
         }
         selectedTrendPeriod = period
+        configureTrendChart(with: appleHealthService.snapshot)
+    }
+    @objc private func trendMetricDidChange() {
+        guard let metric = TrendMetric(rawValue: trendMetricControl.selectedSegmentIndex) else {
+            return
+        }
+        selectedTrendMetric = metric
         configureTrendChart(with: appleHealthService.snapshot)
     }
 }

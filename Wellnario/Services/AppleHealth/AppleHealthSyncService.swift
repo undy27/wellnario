@@ -22,6 +22,26 @@ struct AppleHealthSleepSession: Codable, Equatable, Sendable {
 struct AppleHealthSleepDay: Codable, Equatable, Sendable {
     let date: Date
     let hours: Double?
+    let qualityScore: Double?
+    let remHours: Double?
+    let deepHours: Double?
+    let lightHours: Double?
+
+    init(
+        date: Date,
+        hours: Double?,
+        qualityScore: Double? = nil,
+        remHours: Double? = nil,
+        deepHours: Double? = nil,
+        lightHours: Double? = nil
+    ) {
+        self.date = date
+        self.hours = hours
+        self.qualityScore = qualityScore
+        self.remHours = remHours
+        self.deepHours = deepHours
+        self.lightHours = lightHours
+    }
 }
 
 enum AppleHealthSleepTrendPeriod: Int, CaseIterable, Sendable {
@@ -230,13 +250,22 @@ enum AppleHealthSleepAggregator {
             start = min(calendar.startOfDay(for: earliest), today)
         }
 
-        var hoursByDay: [Date: Double] = [:]
+        var entriesByDay: [Date: AppleHealthSleepDay] = [:]
         for entry in history {
-            guard let hours = entry.hours else { continue }
-            hoursByDay[calendar.startOfDay(for: entry.date)] = hours
+            entriesByDay[calendar.startOfDay(for: entry.date)] = entry
         }
         return daySequence(from: start, through: today, calendar: calendar).map { day in
-            AppleHealthSleepDay(date: day, hours: hoursByDay[day])
+            guard let entry = entriesByDay[day] else {
+                return AppleHealthSleepDay(date: day, hours: nil)
+            }
+            return AppleHealthSleepDay(
+                date: day,
+                hours: entry.hours,
+                qualityScore: entry.qualityScore,
+                remHours: entry.remHours,
+                deepHours: entry.deepHours,
+                lightHours: entry.lightHours
+            )
         }
     }
 
@@ -247,17 +276,27 @@ enum AppleHealthSleepAggregator {
         calendar: Calendar
     ) -> [AppleHealthSleepDay] {
         let days = daySequence(from: start, through: end, calendar: calendar)
-        var secondsByDay: [Date: TimeInterval] = [:]
+        var sessionsByDay: [Date: [AppleHealthSleepSession]] = [:]
         for session in sessions {
             let day = calendar.startOfDay(for: session.endDate)
             guard day >= start, day <= end else { continue }
-            secondsByDay[day, default: 0] += session.asleepSeconds
+            sessionsByDay[day, default: []].append(session)
         }
         return days.map { day in
-            let seconds = secondsByDay[day, default: 0]
+            let dailySessions = sessionsByDay[day, default: []]
+            let asleepSeconds = dailySessions.reduce(0) { $0 + $1.asleepSeconds }
+            let remSeconds = dailySessions.reduce(0) { $0 + $1.remSeconds }
+            let deepSeconds = dailySessions.reduce(0) { $0 + $1.deepSeconds }
+            let lightSeconds = dailySessions.reduce(0) { $0 + $1.coreSeconds }
             return AppleHealthSleepDay(
                 date: day,
-                hours: seconds > 0 ? seconds / 3_600 : nil
+                hours: asleepSeconds > 0 ? asleepSeconds / 3_600 : nil,
+                // Apple Health's Sleep Score isn't exposed through the public HealthKit API.
+                // Keep this nil until an authorized source supplies a real score.
+                qualityScore: nil,
+                remHours: remSeconds > 0 ? remSeconds / 3_600 : nil,
+                deepHours: deepSeconds > 0 ? deepSeconds / 3_600 : nil,
+                lightHours: lightSeconds > 0 ? lightSeconds / 3_600 : nil
             )
         }
     }

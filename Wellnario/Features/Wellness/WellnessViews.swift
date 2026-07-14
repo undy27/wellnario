@@ -307,7 +307,7 @@ final class WellnessTrendChartView: UIView {
     }
 
     override func draw(_ rect: CGRect) {
-        let chartRect = rect.inset(by: UIEdgeInsets(top: 18, left: 46, bottom: 30, right: 8))
+        let chartRect = rect.inset(by: UIEdgeInsets(top: 18, left: 42, bottom: 30, right: 2))
         drawGrid(in: chartRect)
         drawLabels(in: chartRect)
 

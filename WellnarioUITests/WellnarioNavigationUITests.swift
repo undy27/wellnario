@@ -59,10 +59,21 @@ final class WellnarioNavigationUITests: XCTestCase {
         let app = launch(language: "es", initialTab: "sleep")
         let selector = app.segmentedControls["sleep.trend.period.selector"]
         XCTAssertTrue(selector.waitForExistence(timeout: 5))
+        let metricSelector = app.segmentedControls["sleep.trend.metric.selector"]
+        XCTAssertTrue(metricSelector.waitForExistence(timeout: 3))
 
         for title in ["7d", "30d", "6m", "Desde el principio"] {
             XCTAssertTrue(selector.buttons[title].exists, "Missing sleep trend period: \(title)")
         }
+        for title in ["Calidad", "Duración", "REM", "Profundo", "Ligero"] {
+            XCTAssertTrue(metricSelector.buttons[title].exists, "Missing sleep trend metric: \(title)")
+        }
+
+        let rem = metricSelector.buttons["REM"]
+        for _ in 0..<4 where !rem.isHittable { app.swipeUp() }
+        XCTAssertTrue(rem.isHittable)
+        rem.tap()
+        XCTAssertTrue(rem.isSelected)
 
         for title in ["30d", "6m", "Desde el principio"] {
             let period = selector.buttons[title]

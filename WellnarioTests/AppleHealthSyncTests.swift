@@ -21,6 +21,18 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertEqual(session.remSeconds, 3_600, accuracy: 0.001)
         XCTAssertEqual(session.awakeSeconds, 10 * 60, accuracy: 0.001)
         XCTAssertEqual(session.sourceNames, ["Apple Watch", "iPhone"])
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let trend = AppleHealthSleepAggregator.sevenDayTrend(
+            sessions: [session],
+            endingAt: try utcDate(2026, 7, 10, hour: 12),
+            calendar: calendar
+        )
+        XCTAssertEqual(try XCTUnwrap(trend.last?.lightHours), 1, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(trend.last?.deepHours), 1, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(trend.last?.remHours), 1, accuracy: 0.001)
+        XCTAssertNil(trend.last?.qualityScore)
     }
 
     func testSleepAggregationSeparatesSessionsAfterThreeHourGapAndBuildsSevenDayTrend() throws {
@@ -56,9 +68,9 @@ final class AppleHealthSyncTests: XCTestCase {
             asleepSeconds: 8 * 3_600,
             inBedSeconds: 8 * 3_600,
             awakeSeconds: 0,
-            coreSeconds: 0,
-            deepSeconds: 0,
-            remSeconds: 0,
+            coreSeconds: 5 * 3_600,
+            deepSeconds: 1 * 3_600,
+            remSeconds: 2 * 3_600,
             sourceNames: ["Test"]
         )
         let recentSession = AppleHealthSleepSession(
@@ -111,6 +123,9 @@ final class AppleHealthSyncTests: XCTestCase {
         )
         XCTAssertEqual(try XCTUnwrap(sevenDays[5].hours), 7, accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(allTime.first?.hours), 8, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(allTime.first?.lightHours), 5, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(allTime.first?.deepHours), 1, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(allTime.first?.remHours), 2, accuracy: 0.001)
         XCTAssertEqual(allTime.last?.date, calendar.startOfDay(for: endingAt))
     }
 
@@ -128,6 +143,14 @@ final class AppleHealthSyncTests: XCTestCase {
             sourceName: "Apple Watch"
         )
         snapshot.stepsToday = 8_432
+        snapshot.sleepTrend = [AppleHealthSleepDay(
+            date: date,
+            hours: 7.5,
+            qualityScore: 86,
+            remHours: 1.5,
+            deepHours: 1.2,
+            lightHours: 4.8
+        )]
 
         cache.isConfigured = true
         cache.save(snapshot)
