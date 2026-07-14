@@ -36,9 +36,9 @@
 /* Primary navigation */
 "tab.today" = "Today";
 "tab.supplements" = "Supplements";
-"tab.diary" = "Log";
-"tab.trends" = "Trends";
-"tab.more" = "More";
+"tab.sleep" = "Sleep";
+"tab.health" = "Health";
+"tab.fitness" = "Fitness";
 
 /* Today dashboard */
 "today.title" = "Today";
@@ -81,6 +81,122 @@
 "today.suggestion.in_target" = "Your configured actives are within today's target.";
 "today.suggestion.log_first" = "Log your first intake today to update the summary.";
 "today.suggestion.review" = "Review your targets and upcoming expiry dates.";
+"today.wellness_summary" = "Your status today";
+"today.quick_actions" = "Quick actions";
+"today.intake.singular" = "intake today";
+"today.intake.plural" = "intakes today";
+"today.supplements.title" = "Today's supplements";
+"today.supplements.empty" = "You have not logged an intake today yet.";
+
+/* Wellness dashboard */
+"wellness.no_data" = "No data";
+"wellness.sleep" = "Sleep";
+"wellness.recovery" = "Recovery";
+"wellness.stress" = "Stress";
+"wellness.supplements" = "Supplements";
+"wellness.fitness" = "Fitness";
+"quick.intake.title" = "Add intake";
+"quick.intake.detail" = "Log a supplement";
+"quick.workout.title" = "Start workout";
+"quick.workout.detail" = "Strength, cardio, or mobility";
+"quick.lab.title" = "Upload lab results";
+"quick.lab.detail" = "Import a PDF or image";
+"quick.factor.title" = "Add sleep factor";
+"quick.factor.detail" = "Nap, dinner, stress, and more";
+
+/* Sleep */
+"sleep.title" = "Sleep";
+"sleep.source.empty" = "Connect Apple Health or Oura to import your sleep sessions.";
+"sleep.latest.title" = "Latest session";
+"sleep.latest.detail" = "Most recent";
+"sleep.latest.empty.title" = "No session yet";
+"sleep.latest.empty.body" = "Once you sync a source, duration, stages, and quality of your latest sleep will appear here.";
+"sleep.duration" = "Duration";
+"sleep.score" = "Score";
+"sleep.no_data" = "No data";
+"sleep.trend.title" = "Sleep trend";
+"sleep.trend.period" = "Last 7 days";
+"sleep.trend.empty" = "No sessions to display";
+"sleep.factors.title" = "Logged factors";
+"sleep.factors.empty.title" = "No recent factors";
+"sleep.factors.empty.body" = "Add a nap, heavy dinner, or another factor from Today.";
+"sleep.factors.last_logged" = "Last logged factor";
+"sleep.factor.add.title" = "Sleep factor";
+"sleep.factor.suggested" = "Suggested";
+"sleep.factor.custom" = "My factors";
+"sleep.factor.custom.empty" = "Create your own factors with the + button.";
+"sleep.factor.custom.add.title" = "New factor";
+"sleep.factor.custom.add.message" = "Give it a short name so you can reuse it whenever needed.";
+"sleep.factor.custom.placeholder" = "E.g. Warm bedroom";
+"sleep.factor.nap" = "Nap";
+"sleep.factor.heavy_dinner" = "Heavy dinner";
+"sleep.factor.alcohol" = "Alcohol";
+"sleep.factor.late_training" = "Late workout";
+"sleep.factor.stress" = "Stressful day";
+"sleep.factor.screen_time" = "Screens before bed";
+"sleep.factor.logged" = "Factor logged: %@";
+
+/* Health */
+"health.title" = "Health";
+"health.biological_age.title" = "Biological age";
+"health.biological_age.estimate" = "ESTIMATED BIOLOGICAL AGE";
+"health.biological_age.years" = "years";
+"health.biological_age.empty" = "Add enough biomarkers to calculate a reliable estimate.";
+"health.biomarkers.title" = "Biomarkers";
+"health.biomarkers.current" = "Current values";
+"health.biomarker.hrv" = "Heart rate variability";
+"health.biomarker.hrv.unit" = "ms · recent average";
+"health.biomarker.resting_hr" = "Resting heart rate";
+"health.biomarker.resting_hr.unit" = "bpm · recent average";
+"health.biomarker.vo2" = "VO₂ max";
+"health.biomarker.vo2.unit" = "ml/kg/min";
+"health.biomarker.glucose" = "Glucose";
+"health.biomarker.glucose.unit" = "mg/dL · latest lab";
+"health.source.empty" = "Connect a source or upload lab results to complete your biomarkers.";
+"lab.imported.title" = "Lab results ready";
+"lab.imported.message" = "%@ has been selected for processing.";
+
+/* Fitness */
+"fitness.title" = "Fitness";
+"fitness.this_week" = "THIS WEEK";
+"fitness.workouts" = "workouts";
+"fitness.workouts_this_week" = "workouts this week";
+"fitness.hero.empty" = "Start your first workout to see weekly progress here.";
+"fitness.start_workout" = "Start workout";
+"fitness.week.title" = "Weekly activity";
+"fitness.week.detail" = "Monday to Sunday";
+"fitness.recent.title" = "Recent workouts";
+"fitness.recent.empty.title" = "No workouts yet";
+"fitness.recent.empty.body" = "Your strength, cardio, and mobility sessions will appear here.";
+"workout.start.title" = "New workout";
+"workout.start.heading" = "What are you training?";
+"workout.start.body" = "Choose a type to begin the session and start tracking time.";
+"workout.type" = "Workout type";
+"workout.strength" = "Strength";
+"workout.cardio" = "Cardio";
+"workout.mobility" = "Mobility";
+"workout.started" = "%@ workout started";
+
+/* Data integrations */
+"integrations.title" = "Data sources";
+"integrations.footer" = "You decide what to share. You can revoke access at any time.";
+"integrations.connect" = "Connect";
+"integrations.not_connected" = "Not connected";
+"integrations.apple_health.description" = "Health, activity, and workouts";
+"integrations.apple_health.detail" = "Privately import sleep, heart rate, activity, and workouts through Apple Health permissions.";
+"integrations.oura.description" = "Sleep and recovery through the Oura API";
+"integrations.oura.detail" = "Connect your account with OAuth and the official Oura API to sync sleep, readiness, activity, and cardiovascular signals.";
+"integrations.data.title" = "Data it can import";
+"integrations.data.sleep" = "Sleep and sleep stages";
+"integrations.data.heart" = "Heart rate and variability";
+"integrations.data.activity" = "Activity and energy";
+"integrations.data.workouts" = "Workouts";
+"integrations.data.recovery" = "Recovery and readiness";
+"integrations.privacy" = "Connections are read-only and require your explicit permission.";
+"integrations.apple_health.authorization.title" = "Connect Apple Health";
+"integrations.apple_health.authorization.message" = "Wellnario will request read-only access to the data types you choose.";
+"integrations.oura.authorization.title" = "Connect Oura";
+"integrations.oura.authorization.message" = "Connection uses OAuth and the official Oura API; Wellnario never sees your password.";
 
 /* Supplements */
 "supplements.title" = "Supplements";

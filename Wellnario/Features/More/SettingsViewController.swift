@@ -46,6 +46,31 @@ final class SettingsViewController: UIViewController {
         )
         let languageCard = makeCard(containing: languageContent, identifier: "settings.language.card")
 
+        let integrationsTitle = makeSectionTitle(L10n.text("integrations.title"))
+        let integrationsFooter = UILabel()
+        integrationsFooter.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)
+        integrationsFooter.text = L10n.text("integrations.footer")
+        integrationsFooter.numberOfLines = 0
+
+        let appleHealth = IntegrationRowControl(provider: .appleHealth)
+        let oura = IntegrationRowControl(provider: .oura)
+        appleHealth.addTarget(self, action: #selector(integrationTapped(_:)), for: .touchUpInside)
+        oura.addTarget(self, action: #selector(integrationTapped(_:)), for: .touchUpInside)
+        let integrationRows = UIStackView(
+            arrangedSubviews: [appleHealth, oura],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxSmall
+        )
+        let integrationContent = UIStackView(
+            arrangedSubviews: [integrationsTitle, integrationRows, integrationsFooter],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xSmall
+        )
+        let integrationsCard = makeCard(
+            containing: integrationContent,
+            identifier: "settings.integrations.card"
+        )
+
         let aboutCard = makeInformationCard(
             symbolName: "sparkles",
             title: L10n.Settings.about,
@@ -69,7 +94,7 @@ final class SettingsViewController: UIViewController {
         )
 
         let contentStack = UIStackView(
-            arrangedSubviews: [languageCard, aboutCard, privacyCard, disclaimerCard],
+            arrangedSubviews: [integrationsCard, languageCard, aboutCard, privacyCard, disclaimerCard],
             axis: .vertical,
             spacing: WellnarioSpacing.cardGap
         )
@@ -148,6 +173,13 @@ final class SettingsViewController: UIViewController {
         guard sender.language != LocalizationManager.shared.language else { return }
         UISelectionFeedbackGenerator().selectionChanged()
         LocalizationManager.shared.setLanguage(sender.language)
+    }
+
+    @objc private func integrationTapped(_ sender: IntegrationRowControl) {
+        navigationController?.pushViewController(
+            IntegrationSetupViewController(provider: sender.provider),
+            animated: true
+        )
     }
 }
 

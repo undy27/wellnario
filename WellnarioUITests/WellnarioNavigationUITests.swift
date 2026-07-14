@@ -6,55 +6,51 @@ final class WellnarioNavigationUITests: XCTestCase {
     }
 
     @MainActor
-    func testFiveDestinationsAndPremiumPlaceholderAreReachable() {
+    func testFiveWellnessDestinationsAreReachable() {
         let app = launch(language: "es", initialTab: "today")
         XCTAssertTrue(app.descendants(matching: .any)["wellnario.floatingTabBar"].waitForExistence(timeout: 5))
 
-        let destinationIDs = [
-            "tab.tab.supplements",
-            "tab.tab.diary",
-            "tab.tab.trends",
-            "tab.tab.more"
+        let destinations = [
+            ("tab.tab.supplements", "navigation.supplements"),
+            ("tab.tab.sleep", "sleep.root"),
+            ("tab.tab.health", "health.root"),
+            ("tab.tab.fitness", "fitness.root")
         ]
-        for identifier in destinationIDs {
+        for (identifier, rootIdentifier) in destinations {
             let button = app.buttons[identifier]
             XCTAssertTrue(button.waitForExistence(timeout: 3), "Missing tab: \(identifier)")
             button.tap()
             XCTAssertTrue(button.isSelected)
+            XCTAssertTrue(app.descendants(matching: .any)[rootIdentifier].waitForExistence(timeout: 3))
         }
-
-        XCTAssertTrue(app.descendants(matching: .any)["more.root"].waitForExistence(timeout: 3))
-        let sleep = app.descendants(matching: .any)["more.feature.sleep"]
-        XCTAssertTrue(sleep.waitForExistence(timeout: 3))
-        sleep.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["placeholder.sleep"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["placeholder.status"].exists)
     }
 
     @MainActor
     func testChangingLanguageRebuildsRootAndKeepsSettingsOpen() {
-        let app = launch(language: "es", initialTab: "more")
-        XCTAssertTrue(app.descendants(matching: .any)["more.root"].waitForExistence(timeout: 5))
-
-        let settings = app.descendants(matching: .any)["more.settings"]
+        let app = launch(language: "es", initialTab: "today")
+        let settings = app.buttons["today.settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 3))
         settings.tap()
         XCTAssertTrue(app.descendants(matching: .any)["settings.root"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["settings.integration.apple_health"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["settings.integration.oura"].exists)
 
         let english = app.descendants(matching: .any)["settings.language.en"]
         XCTAssertTrue(english.waitForExistence(timeout: 3))
+        for _ in 0..<4 where !english.isHittable { app.swipeUp() }
+        XCTAssertTrue(english.isHittable)
         english.tap()
 
         XCTAssertTrue(app.descendants(matching: .any)["settings.root"].waitForExistence(timeout: 5))
-        let moreTab = app.buttons["tab.tab.more"]
-        XCTAssertTrue(moreTab.waitForExistence(timeout: 3))
+        let todayTab = app.buttons["tab.tab.today"]
+        XCTAssertTrue(todayTab.waitForExistence(timeout: 3))
         let localized = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label == %@", "More"),
-            object: moreTab
+            predicate: NSPredicate(format: "label == %@", "Today"),
+            object: todayTab
         )
         XCTAssertEqual(XCTWaiter.wait(for: [localized], timeout: 3), .completed)
-        XCTAssertEqual(moreTab.label, "More")
-        XCTAssertTrue(moreTab.isSelected)
+        XCTAssertEqual(todayTab.label, "Today")
+        XCTAssertTrue(todayTab.isSelected)
         XCTAssertTrue(app.staticTexts["Settings"].firstMatch.exists)
     }
 

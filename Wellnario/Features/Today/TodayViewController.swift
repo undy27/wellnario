@@ -1,23 +1,32 @@
 import UIKit
+import UniformTypeIdentifiers
 
 @MainActor
 final class TodayViewController: FeatureViewController {
     var onOpenSettings: (() -> Void)?
     var onShowSupplements: (() -> Void)?
-    var onShowTrends: (() -> Void)?
+    var onShowSleep: (() -> Void)?
+    var onShowHealth: (() -> Void)?
+    var onShowFitness: (() -> Void)?
 
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
     private let dateButton = UIButton(type: .system)
-    private let profileButton = UIButton(type: .system)
-    private let insightCard = PremiumCardView()
-    private let insightTitle = UILabel()
-    private let insightMessage = UILabel()
-    private let metricStack = UIStackView()
-    private let dayCard = PremiumCardView()
-    private let dayContent = UIStackView()
-    private let activeCard = PremiumCardView()
-    private let activeContent = UIStackView()
+    private let settingsButton = UIButton(type: .system)
+
+    private let sleepCard = WellnessSummaryCard()
+    private let recoveryCard = WellnessSummaryCard()
+    private let stressCard = WellnessSummaryCard()
+    private let supplementsCard = WellnessSummaryCard()
+    private let fitnessCard = WellnessSummaryCard()
+
+    private let intakeAction = QuickActionControl()
+    private let workoutAction = QuickActionControl()
+    private let labAction = QuickActionControl()
+    private let factorAction = QuickActionControl()
+
+    private let recentCard = PremiumCardView()
+    private let recentContent = UIStackView()
 
     private var summary: DashboardSummary?
     private var selectedDate = Date()
@@ -25,23 +34,23 @@ final class TodayViewController: FeatureViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setUpView()
-        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (self: TodayViewController, _) in
-            if let summary = self.summary { self.rebuildMetrics(summary) }
-        }
         applyLocalizedCopy()
         reloadContent()
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        navigationController?.setNavigationBarHidden(true, animated: animated)
         reloadContent()
     }
 
     override func applyLocalizedCopy() {
         navigationItem.accessibilityLabel = L10n.Tab.today
         dateButton.setTitle(WellnarioFormatters.dateHeader(selectedDate), for: .normal)
-        profileButton.accessibilityLabel = L10n.More.settings
-        insightTitle.text = L10n.Today.suggestion
+        settingsButton.accessibilityLabel = L10n.Settings.title
+        configureStaticCards()
+        configureQuickActions()
+        if let summary { render(summary) }
     }
 
     override func reloadContent() {
@@ -53,12 +62,13 @@ final class TodayViewController: FeatureViewController {
             self.summary = summary
             render(summary)
         } catch {
-            showInlineError(error)
+            showError(error)
         }
     }
 
     private func setUpView() {
         navigationController?.setNavigationBarHidden(true, animated: false)
+        view.accessibilityIdentifier = "today.root"
 
         scrollView.alwaysBounceVertical = true
         scrollView.contentInsetAdjustmentBehavior = .always
@@ -70,34 +80,53 @@ final class TodayViewController: FeatureViewController {
         contentStack.spacing = WellnarioSpacing.cardGap
         scrollView.addForAutoLayout(contentStack)
         NSLayoutConstraint.activate([
-            contentStack.leadingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.leadingAnchor, constant: WellnarioSpacing.screenHorizontal),
-            contentStack.trailingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.trailingAnchor, constant: -WellnarioSpacing.screenHorizontal),
-            contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: WellnarioSpacing.medium),
-            contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -WellnarioSpacing.bottomNavigationInset),
-            contentStack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -(WellnarioSpacing.screenHorizontal * 2))
+            contentStack.leadingAnchor.constraint(
+                equalTo: scrollView.frameLayoutGuide.leadingAnchor,
+                constant: WellnarioSpacing.screenHorizontal
+            ),
+            contentStack.trailingAnchor.constraint(
+                equalTo: scrollView.frameLayoutGuide.trailingAnchor,
+                constant: -WellnarioSpacing.screenHorizontal
+            ),
+            contentStack.topAnchor.constraint(
+                equalTo: scrollView.contentLayoutGuide.topAnchor,
+                constant: WellnarioSpacing.medium
+            ),
+            contentStack.bottomAnchor.constraint(
+                equalTo: scrollView.contentLayoutGuide.bottomAnchor,
+                constant: -WellnarioSpacing.bottomNavigationInset
+            ),
+            contentStack.widthAnchor.constraint(
+                equalTo: scrollView.frameLayoutGuide.widthAnchor,
+                constant: -(WellnarioSpacing.screenHorizontal * 2)
+            )
         ])
 
         let header = makeHeader()
         contentStack.addArrangedSubview(header)
-        contentStack.setCustomSpacing(WellnarioSpacing.xLarge, after: header)
+        contentStack.setCustomSpacing(WellnarioSpacing.large, after: header)
 
-        setUpInsightCard()
-        contentStack.addArrangedSubview(insightCard)
+        contentStack.addArrangedSubview(makeSectionTitle(L10n.text("today.wellness_summary")))
+        setUpSummaryCards()
+        contentStack.addArrangedSubview(makeSummaryGrid())
 
-        metricStack.axis = .vertical
-        metricStack.spacing = WellnarioSpacing.cardGap
-        contentStack.addArrangedSubview(metricStack)
+        let summaryGrid = contentStack.arrangedSubviews.last!
+        contentStack.setCustomSpacing(WellnarioSpacing.large, after: summaryGrid)
+        contentStack.addArrangedSubview(makeSectionTitle(L10n.text("today.quick_actions")))
+        setUpQuickActions()
+        contentStack.addArrangedSubview(makeQuickActionsGrid())
 
-        setUpWideCard(dayCard, stack: dayContent)
-        contentStack.addArrangedSubview(dayCard)
-
-        setUpWideCard(activeCard, stack: activeContent)
-        contentStack.addArrangedSubview(activeCard)
+        let actionsGrid = contentStack.arrangedSubviews.last!
+        contentStack.setCustomSpacing(WellnarioSpacing.large, after: actionsGrid)
+        setUpRecentCard()
+        contentStack.addArrangedSubview(recentCard)
     }
 
     private func makeHeader() -> UIView {
         dateButton.titleLabel?.font = WellnarioTypography.font(for: .pageTitle)
         dateButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        dateButton.titleLabel?.adjustsFontSizeToFitWidth = true
+        dateButton.titleLabel?.minimumScaleFactor = 0.80
         dateButton.setTitleColor(WellnarioPalette.textPrimary, for: .normal)
         dateButton.contentHorizontalAlignment = .left
         dateButton.setImage(UIImage(systemName: "chevron.down"), for: .normal)
@@ -105,139 +134,141 @@ final class TodayViewController: FeatureViewController {
         dateButton.semanticContentAttribute = .forceRightToLeft
         dateButton.addTarget(self, action: #selector(selectDate), for: .touchUpInside)
 
-        let configuration = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
-        profileButton.setImage(UIImage(systemName: "person.fill", withConfiguration: configuration), for: .normal)
-        profileButton.tintColor = WellnarioPalette.textPrimary
-        profileButton.backgroundColor = WellnarioPalette.surfaceElevated
-        profileButton.applyContinuousCorners(26)
-        profileButton.layer.borderWidth = 1
-        profileButton.layer.borderColor = WellnarioPalette.hairline.cgColor
-        profileButton.addTarget(self, action: #selector(openSettings), for: .touchUpInside)
+        let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+        settingsButton.setImage(UIImage(systemName: "gearshape.fill", withConfiguration: configuration), for: .normal)
+        settingsButton.tintColor = WellnarioPalette.textPrimary
+        settingsButton.backgroundColor = WellnarioPalette.surfaceElevated
+        settingsButton.applyContinuousCorners(24)
+        settingsButton.layer.borderWidth = 1
+        settingsButton.layer.borderColor = WellnarioPalette.hairline.cgColor
+        settingsButton.accessibilityIdentifier = "today.settings"
+        settingsButton.addTarget(self, action: #selector(openSettings), for: .touchUpInside)
         NSLayoutConstraint.activate([
-            profileButton.widthAnchor.constraint(equalToConstant: 52),
-            profileButton.heightAnchor.constraint(equalTo: profileButton.widthAnchor)
+            settingsButton.widthAnchor.constraint(equalToConstant: 48),
+            settingsButton.heightAnchor.constraint(equalTo: settingsButton.widthAnchor)
         ])
 
         return UIStackView(
-            arrangedSubviews: [dateButton, profileButton],
+            arrangedSubviews: [dateButton, settingsButton],
             axis: .horizontal,
             spacing: WellnarioSpacing.small,
-            alignment: .center,
-            distribution: .fill
-        )
-    }
-
-    private func setUpInsightCard() {
-        insightCard.showsAccent = true
-        insightCard.isPressable = true
-        insightCard.addTarget(self, action: #selector(insightTapped), for: .touchUpInside)
-        insightCard.heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.insightCardMinimumHeight).isActive = true
-
-        let icon = UIImageView(image: UIImage(systemName: "sparkles"))
-        icon.tintColor = WellnarioPalette.cyan
-        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 22, weight: .semibold)
-
-        insightTitle.applyWellnarioStyle(.cardTitle, color: WellnarioPalette.magenta)
-        let top = UIStackView(
-            arrangedSubviews: [icon, insightTitle, UIView()],
-            axis: .horizontal,
-            spacing: WellnarioSpacing.xxSmall,
             alignment: .center
         )
+    }
 
-        insightMessage.applyWellnarioStyle(.body, color: WellnarioPalette.textSecondary)
-        insightMessage.numberOfLines = 3
+    private func makeSectionTitle(_ title: String) -> UILabel {
+        let label = UILabel()
+        label.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textPrimary)
+        label.text = title
+        label.numberOfLines = 0
+        return label
+    }
 
-        let stack = UIStackView(
-            arrangedSubviews: [top, insightMessage],
+    private func setUpSummaryCards() {
+        sleepCard.accessibilityIdentifier = "today.summary.sleep"
+        recoveryCard.accessibilityIdentifier = "today.summary.recovery"
+        stressCard.accessibilityIdentifier = "today.summary.stress"
+        supplementsCard.accessibilityIdentifier = "today.summary.supplements"
+        fitnessCard.accessibilityIdentifier = "today.summary.fitness"
+
+        sleepCard.addTarget(self, action: #selector(openSleep), for: .touchUpInside)
+        recoveryCard.addTarget(self, action: #selector(openHealth), for: .touchUpInside)
+        stressCard.addTarget(self, action: #selector(openHealth), for: .touchUpInside)
+        supplementsCard.addTarget(self, action: #selector(openSupplements), for: .touchUpInside)
+        fitnessCard.addTarget(self, action: #selector(openFitness), for: .touchUpInside)
+    }
+
+    private func configureStaticCards() {
+        let noData = L10n.text("wellness.no_data")
+        sleepCard.configure(
+            title: L10n.text("wellness.sleep"),
+            symbolName: "moon.stars.fill",
+            value: "—",
+            detail: WellnessLocalStore.lastSleepFactor ?? noData,
+            tone: WellnarioPalette.violet
+        )
+        recoveryCard.configure(
+            title: L10n.text("wellness.recovery"),
+            symbolName: "figure.cooldown",
+            value: "—",
+            detail: noData,
+            tone: WellnarioPalette.success
+        )
+        stressCard.configure(
+            title: L10n.text("wellness.stress"),
+            symbolName: "waveform.path.ecg",
+            value: "—",
+            detail: noData,
+            tone: WellnarioPalette.warning
+        )
+        fitnessCard.configure(
+            title: L10n.text("wellness.fitness"),
+            symbolName: "figure.run",
+            value: "0",
+            detail: L10n.text("fitness.workouts_this_week"),
+            tone: WellnarioPalette.magenta
+        )
+    }
+
+    private func makeSummaryGrid() -> UIView {
+        let firstRow = equalRow(sleepCard, recoveryCard)
+        let secondRow = equalRow(stressCard, supplementsCard)
+        return UIStackView(
+            arrangedSubviews: [firstRow, secondRow, fitnessCard],
             axis: .vertical,
-            spacing: WellnarioSpacing.small
+            spacing: WellnarioSpacing.cardGap
         )
-        insightCard.contentView.addForAutoLayout(stack)
-        stack.pinEdges(to: insightCard.contentView, insets: .all(WellnarioSpacing.cardPadding))
     }
 
-    private func setUpWideCard(_ card: PremiumCardView, stack: UIStackView) {
-        stack.axis = .vertical
-        stack.spacing = WellnarioSpacing.xSmall
-        card.contentView.addForAutoLayout(stack)
-        stack.pinEdges(to: card.contentView, insets: .all(WellnarioSpacing.cardPadding))
+    private func setUpQuickActions() {
+        intakeAction.accessibilityIdentifier = "today.quick.intake"
+        workoutAction.accessibilityIdentifier = "today.quick.workout"
+        labAction.accessibilityIdentifier = "today.quick.lab"
+        factorAction.accessibilityIdentifier = "today.quick.sleep_factor"
+
+        intakeAction.addTarget(self, action: #selector(logIntake), for: .touchUpInside)
+        workoutAction.addTarget(self, action: #selector(startWorkout), for: .touchUpInside)
+        labAction.addTarget(self, action: #selector(importLab), for: .touchUpInside)
+        factorAction.addTarget(self, action: #selector(addSleepFactor), for: .touchUpInside)
     }
 
-    private func render(_ summary: DashboardSummary) {
-        insightMessage.text = suggestion(for: summary)
-        rebuildMetrics(summary)
-        rebuildDayCard(summary)
-        rebuildActiveCard(summary)
+    private func configureQuickActions() {
+        intakeAction.configure(
+            title: L10n.text("quick.intake.title"),
+            detail: L10n.text("quick.intake.detail"),
+            symbolName: "pills.fill",
+            tone: WellnarioPalette.cyan
+        )
+        workoutAction.configure(
+            title: L10n.text("quick.workout.title"),
+            detail: L10n.text("quick.workout.detail"),
+            symbolName: "play.fill",
+            tone: WellnarioPalette.magenta
+        )
+        labAction.configure(
+            title: L10n.text("quick.lab.title"),
+            detail: L10n.text("quick.lab.detail"),
+            symbolName: "doc.badge.plus",
+            tone: WellnarioPalette.information
+        )
+        factorAction.configure(
+            title: L10n.text("quick.factor.title"),
+            detail: L10n.text("quick.factor.detail"),
+            symbolName: "moon.badge.plus.fill",
+            tone: WellnarioPalette.violet
+        )
     }
 
-    private func rebuildMetrics(_ summary: DashboardSummary) {
-        metricStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-
-        let inTarget = summary.activeProgress.filter { $0.status == .within }.count
-        let configuredTargets = summary.activeProgress.filter { $0.targetLower != nil }.count
-        let expiryTone: WellnarioTone = summary.expiredCount > 0 ? .danger : (summary.expiringSoonCount > 0 ? .warning : .success)
-
-        let intake = makeMetric(
-            title: L10n.text("today.intakes"),
-            symbol: "checkmark.circle",
-            value: "\(summary.consumptionCount)",
-            status: summary.consumptionCount == 0 ? L10n.text("today.none_yet") : L10n.text("today.logged"),
-            tone: summary.consumptionCount == 0 ? .neutral : .success,
-            values: recentCounts()
+    private func makeQuickActionsGrid() -> UIView {
+        UIStackView(
+            arrangedSubviews: [intakeAction, workoutAction, labAction, factorAction],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxSmall
         )
-        let targets = makeMetric(
-            title: L10n.Today.actives,
-            symbol: "scope",
-            value: configuredTargets == 0 ? "—" : "\(inTarget)/\(configuredTargets)",
-            status: configuredTargets == 0 ? L10n.text("today.configure_targets") : L10n.text("today.in_target"),
-            tone: inTarget == configuredTargets && configuredTargets > 0 ? .success : .accent,
-            values: summary.activeProgress.prefix(7).map { FeatureFormatting.double($0.consumedAmount) }
-        )
-        let inventory = makeMetric(
-            title: L10n.Today.inventory,
-            symbol: "shippingbox",
-            value: "\(summary.instanceCount)",
-            status: L10n.text("today.available_batches"),
-            tone: summary.instanceCount == 0 ? .neutral : .information,
-            values: [Double(summary.instanceCount), Double(summary.supplementCount)]
-        )
-        let expiry = makeMetric(
-            title: L10n.Today.expiry,
-            symbol: "calendar.badge.exclamationmark",
-            value: "\(summary.expiringSoonCount + summary.expiredCount)",
-            status: expiryStatus(summary),
-            tone: expiryTone,
-            values: [Double(summary.expiringSoonCount), Double(summary.expiredCount), 0]
-        )
-
-        if traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
-            [intake, targets, inventory, expiry].forEach(metricStack.addArrangedSubview)
-        } else {
-            metricStack.addArrangedSubview(makeMetricRow(intake, targets))
-            metricStack.addArrangedSubview(makeMetricRow(inventory, expiry))
-        }
     }
 
-    private func makeMetric(
-        title: String,
-        symbol: String,
-        value: String,
-        status: String,
-        tone: WellnarioTone,
-        values: [Double]
-    ) -> MetricCardView {
-        let card = MetricCardView()
-        card.configure(title: title, symbolName: symbol, value: value, status: status, tone: tone)
-        let sparkline = SparklineView()
-        sparkline.values = values.isEmpty ? [0, 0] : (values.count == 1 ? [0, values[0]] : values)
-        sparkline.lineColor = WellnarioPalette.color(for: tone)
-        card.setVisualization(sparkline)
-        return card
-    }
-
-    private func makeMetricRow(_ first: UIView, _ second: UIView) -> UIStackView {
-        let stack = UIStackView(
+    private func equalRow(_ first: UIView, _ second: UIView) -> UIStackView {
+        let row = UIStackView(
             arrangedSubviews: [first, second],
             axis: .horizontal,
             spacing: WellnarioSpacing.cardGap,
@@ -245,154 +276,84 @@ final class TodayViewController: FeatureViewController {
             distribution: .fillEqually
         )
         first.widthAnchor.constraint(equalTo: second.widthAnchor).isActive = true
-        return stack
+        return row
     }
 
-    private func rebuildDayCard(_ summary: DashboardSummary) {
-        dayContent.arrangedSubviews.forEach { $0.removeFromSuperview() }
-
-        dayContent.addArrangedSubview(sectionHeader(title: L10n.Today.summary, symbol: "clock.fill"))
-        if summary.recentConsumptions.isEmpty {
-            let label = UILabel()
-            label.applyWellnarioStyle(.body, color: WellnarioPalette.textSecondary)
-            label.text = L10n.Diary.noEntriesMessage
-            label.numberOfLines = 0
-            dayContent.addArrangedSubview(label)
-        } else {
-            summary.recentConsumptions.prefix(4).forEach { consumption in
-                dayContent.addArrangedSubview(consumptionRow(consumption))
-            }
-        }
-        let button = PrimaryButton(title: L10n.Today.logIntake)
-        button.addTarget(self, action: #selector(logIntake), for: .touchUpInside)
-        dayContent.setCustomSpacing(WellnarioSpacing.medium, after: dayContent.arrangedSubviews.last!)
-        dayContent.addArrangedSubview(button)
+    private func setUpRecentCard() {
+        recentContent.axis = .vertical
+        recentContent.spacing = WellnarioSpacing.xSmall
+        recentCard.contentView.addForAutoLayout(recentContent)
+        recentContent.pinEdges(to: recentCard.contentView, insets: .all(WellnarioSpacing.cardPadding))
+        recentCard.accessibilityIdentifier = "today.recent_supplements"
     }
 
-    private func rebuildActiveCard(_ summary: DashboardSummary) {
-        activeContent.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        activeContent.addArrangedSubview(sectionHeader(title: L10n.Today.intakeByActive, symbol: "chart.bar.fill"))
-
-        if summary.activeProgress.isEmpty {
-            let label = UILabel()
-            label.applyWellnarioStyle(.body, color: WellnarioPalette.textSecondary)
-            label.text = L10n.text("today.active_progress.empty")
-            label.numberOfLines = 0
-            activeContent.addArrangedSubview(label)
-        } else {
-            summary.activeProgress.prefix(5).forEach { progress in
-                activeContent.addArrangedSubview(activeProgressRow(progress))
-            }
-        }
-
-        let button = PrimaryButton(title: L10n.Tab.trends, style: .secondary)
-        button.addTarget(self, action: #selector(openTrends), for: .touchUpInside)
-        activeContent.setCustomSpacing(WellnarioSpacing.medium, after: activeContent.arrangedSubviews.last!)
-        activeContent.addArrangedSubview(button)
+    private func render(_ summary: DashboardSummary) {
+        supplementsCard.configure(
+            title: L10n.text("wellness.supplements"),
+            symbolName: "pills.fill",
+            value: "\(summary.consumptionCount)",
+            detail: summary.consumptionCount == 1
+                ? L10n.text("today.intake.singular")
+                : L10n.text("today.intake.plural"),
+            tone: summary.consumptionCount == 0 ? WellnarioPalette.textSecondary : WellnarioPalette.cyan
+        )
+        rebuildRecentCard(summary)
     }
 
-    private func sectionHeader(title: String, symbol: String) -> UIView {
-        let label = UILabel()
-        label.applyWellnarioStyle(.cardTitle, color: WellnarioPalette.textPrimary)
-        label.text = title
-        let image = UIImageView(image: UIImage(systemName: symbol))
-        image.tintColor = WellnarioPalette.textTertiary
-        return UIStackView(
-            arrangedSubviews: [label, UIView(), image],
+    private func rebuildRecentCard(_ summary: DashboardSummary) {
+        recentContent.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        let title = UILabel()
+        title.applyWellnarioStyle(.cardTitle, color: WellnarioPalette.textPrimary)
+        title.text = L10n.text("today.supplements.title")
+        let icon = UIImageView(image: UIImage(systemName: "pills.fill"))
+        icon.tintColor = WellnarioPalette.cyan
+        let heading = UIStackView(
+            arrangedSubviews: [title, UIView(), icon],
             axis: .horizontal,
             spacing: WellnarioSpacing.xxSmall,
             alignment: .center
         )
+        recentContent.addArrangedSubview(heading)
+
+        if summary.recentConsumptions.isEmpty {
+            let label = UILabel()
+            label.applyWellnarioStyle(.body, color: WellnarioPalette.textSecondary)
+            label.text = L10n.text("today.supplements.empty")
+            label.numberOfLines = 0
+            recentContent.addArrangedSubview(label)
+        } else {
+            summary.recentConsumptions.prefix(3).forEach { recentContent.addArrangedSubview(consumptionRow($0)) }
+        }
+
+        let button = PrimaryButton(title: L10n.text("quick.intake.title"), style: .secondary)
+        button.addTarget(self, action: #selector(logIntake), for: .touchUpInside)
+        recentContent.addArrangedSubview(button)
     }
 
     private func consumptionRow(_ consumption: Consumption) -> UIView {
         let artwork = PresentationArtworkView(kind: .capsule)
         artwork.showsBackground = true
         NSLayoutConstraint.activate([
-            artwork.widthAnchor.constraint(equalToConstant: 48),
+            artwork.widthAnchor.constraint(equalToConstant: 44),
             artwork.heightAnchor.constraint(equalTo: artwork.widthAnchor)
         ])
 
         let title = UILabel()
-        title.applyWellnarioStyle(.body, color: WellnarioPalette.textPrimary)
+        title.applyWellnarioStyle(.secondary, color: WellnarioPalette.textPrimary)
         title.text = consumption.supplementNameSnapshot
+        title.numberOfLines = 1
         let detail = UILabel()
         detail.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
         detail.text = "\(FeatureFormatting.decimal(consumption.quantity)) \(consumption.unit.symbol(languageCode: catalogLanguage.rawValue)) · \(WellnarioFormatters.time(consumption.consumedAt, timeZoneID: consumption.timeZoneID))"
+        detail.numberOfLines = 1
         let labels = UIStackView(arrangedSubviews: [title, detail], axis: .vertical, spacing: 2)
-        return UIStackView(arrangedSubviews: [artwork, labels], axis: .horizontal, spacing: WellnarioSpacing.xSmall, alignment: .center)
-    }
-
-    private func activeProgressRow(_ progress: ActiveDailyProgress) -> UIView {
-        let name = UILabel()
-        name.applyWellnarioStyle(.secondary, color: WellnarioPalette.textPrimary)
-        name.text = progress.active.localizedName(language: catalogLanguage)
-
-        let amount = UILabel()
-        amount.applyWellnarioStyle(.caption, color: statusColor(progress.status))
-        amount.text = "\(FeatureFormatting.decimal(progress.consumedAmount)) \(progress.unit.symbol(languageCode: catalogLanguage.rawValue))"
-        amount.setContentHuggingPriority(.required, for: .horizontal)
-
-        let header = UIStackView(arrangedSubviews: [name, amount], axis: .horizontal, spacing: 8, alignment: .firstBaseline)
-        let progressView = TargetProgressView()
-        if let lower = progress.targetLower, let upper = progress.targetUpper {
-            let upperDouble = max(FeatureFormatting.double(upper), 0.001)
-            progressView.set(
-                value: FeatureFormatting.double(progress.consumedAmount),
-                targetRange: FeatureFormatting.double(lower)...upperDouble,
-                domain: 0...max(upperDouble * 1.35, FeatureFormatting.double(progress.consumedAmount)),
-                unit: progress.unit.symbol(languageCode: catalogLanguage.rawValue),
-                animated: view.window != nil
-            )
-        } else {
-            progressView.set(value: 0, targetRange: 0...0, domain: 0...1, unit: "", animated: false)
-        }
-        return UIStackView(arrangedSubviews: [header, progressView], axis: .vertical, spacing: 6)
-    }
-
-    private func statusColor(_ status: TargetProgressStatus) -> UIColor {
-        switch status {
-        case .within: WellnarioPalette.success
-        case .above: WellnarioPalette.warning
-        case .below: WellnarioPalette.cyan
-        case .noTarget: WellnarioPalette.textSecondary
-        }
-    }
-
-    private func suggestion(for summary: DashboardSummary) -> String {
-        if summary.supplementCount == 0 { return L10n.text("today.suggestion.first_supplement") }
-        if summary.expiredCount > 0 { return L10n.text("today.suggestion.expired", summary.expiredCount) }
-        if summary.consumptionCount == 0 { return L10n.text("today.suggestion.log_first") }
-        let inTarget = summary.activeProgress.filter { $0.status == .within }.count
-        if inTarget > 0 { return L10n.text("today.suggestion.in_target", inTarget) }
-        return L10n.text("today.suggestion.review")
-    }
-
-    private func expiryStatus(_ summary: DashboardSummary) -> String {
-        if summary.expiredCount > 0 { return L10n.text("expiry.expired_count", summary.expiredCount) }
-        if summary.expiringSoonCount > 0 { return L10n.text("expiry.soon_count", summary.expiringSoonCount) }
-        return L10n.text("expiry.all_good")
-    }
-
-    private func recentCounts() -> [Double] {
-        let today = LocalDay(containing: selectedDate, in: .current)
-        guard let from = try? today.adding(days: -6),
-              let days = try? repository.diary(from: from, through: today) else {
-            return [0, 0]
-        }
-        let counts = Dictionary(uniqueKeysWithValues: days.map { ($0.day, $0.consumptions.count) })
-        return (0..<7).compactMap { offset in
-            (try? from.adding(days: offset)).map { Double(counts[$0] ?? 0) }
-        }
-    }
-
-    private func showInlineError(_ error: Error) {
-        metricStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let empty = EmptyStateView()
-        empty.configure(kind: .other, title: L10n.Common.error, message: error.localizedDescription, actionTitle: L10n.Common.retry)
-        empty.onAction = { [weak self] in self?.reloadContent() }
-        empty.heightAnchor.constraint(greaterThanOrEqualToConstant: 280).isActive = true
-        metricStack.addArrangedSubview(empty)
+        return UIStackView(
+            arrangedSubviews: [artwork, labels],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.xSmall,
+            alignment: .center
+        )
     }
 
     @objc private func selectDate() {
@@ -417,21 +378,6 @@ final class TodayViewController: FeatureViewController {
         presentSheet(controller)
     }
 
-    @objc private func openSettings() { onOpenSettings?() }
-
-    @objc private func insightTapped() {
-        guard summary?.supplementCount ?? 0 > 0 else {
-            addSupplement()
-            return
-        }
-        logIntake()
-    }
-
-    @objc private func addSupplement() {
-        if let onShowSupplements { onShowSupplements() }
-        else { presentSheet(SupplementEditorViewController(repository: repository), largeOnly: true) }
-    }
-
     @objc private func logIntake() {
         do {
             let instances = try repository.fetchInstances(supplementID: nil, includeArchived: false)
@@ -443,15 +389,67 @@ final class TodayViewController: FeatureViewController {
                 )
                 alert.addAction(UIAlertAction(title: L10n.Common.cancel, style: .cancel))
                 alert.addAction(UIAlertAction(title: L10n.Today.addFirstSupplement, style: .default) { [weak self] _ in
-                    self?.addSupplement()
+                    self?.onShowSupplements?()
                 })
                 present(alert, animated: true)
                 return
             }
             presentSheet(IntakeEditorViewController(repository: repository), largeOnly: true)
-        } catch { showError(error) }
+        } catch {
+            showError(error)
+        }
     }
 
-    @objc private func openTrends() { onShowTrends?() }
+    @objc private func startWorkout() {
+        let controller = WorkoutStarterViewController()
+        controller.onStarted = { [weak self] type in
+            guard let self else { return }
+            _ = FeedbackPresenter.show(
+                message: L10n.text("workout.started", type),
+                tone: .success,
+                in: self.view
+            )
+        }
+        presentSheet(controller)
+    }
 
+    @objc private func addSleepFactor() {
+        let controller = SleepFactorPickerViewController()
+        controller.onLogged = { [weak self] factor in
+            guard let self else { return }
+            self.configureStaticCards()
+            _ = FeedbackPresenter.show(
+                message: L10n.text("sleep.factor.logged", factor),
+                tone: .success,
+                in: self.view
+            )
+        }
+        presentSheet(controller)
+    }
+
+    @objc private func importLab() {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.pdf, .image])
+        picker.delegate = self
+        picker.allowsMultipleSelection = false
+        present(picker, animated: true)
+    }
+
+    @objc private func openSettings() { onOpenSettings?() }
+    @objc private func openSupplements() { onShowSupplements?() }
+    @objc private func openSleep() { onShowSleep?() }
+    @objc private func openHealth() { onShowHealth?() }
+    @objc private func openFitness() { onShowFitness?() }
+}
+
+extension TodayViewController: UIDocumentPickerDelegate {
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first else { return }
+        let alert = UIAlertController(
+            title: L10n.text("lab.imported.title"),
+            message: L10n.text("lab.imported.message", url.lastPathComponent),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: L10n.Common.done, style: .default))
+        present(alert, animated: true)
+    }
 }

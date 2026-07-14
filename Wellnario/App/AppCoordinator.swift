@@ -4,8 +4,9 @@ import UIKit
 protocol RootFeatureBuilding {
     func makeToday() -> TodayViewController
     func makeSupplements() -> SupplementsViewController
-    func makeDiary() -> DiaryViewController
-    func makeTrends() -> TrendsViewController
+    func makeSleep() -> SleepViewController
+    func makeHealth() -> HealthViewController
+    func makeFitness() -> FitnessViewController
 }
 
 @MainActor
@@ -24,12 +25,16 @@ private final class LiveRootFeatureFactory: RootFeatureBuilding {
         SupplementsViewController(repository: repository)
     }
 
-    func makeDiary() -> DiaryViewController {
-        DiaryViewController(repository: repository)
+    func makeSleep() -> SleepViewController {
+        SleepViewController()
     }
 
-    func makeTrends() -> TrendsViewController {
-        TrendsViewController(repository: repository)
+    func makeHealth() -> HealthViewController {
+        HealthViewController()
+    }
+
+    func makeFitness() -> FitnessViewController {
+        FitnessViewController()
     }
 }
 
@@ -40,7 +45,6 @@ final class AppCoordinator: NSObject {
     private let featureFactory: RootFeatureBuilding
 
     private var rootTabBarController: RootTabBarController?
-    private var moreCoordinator: MoreCoordinator?
     private var isRebuildingRoot = false
 
     init(
@@ -68,55 +72,72 @@ final class AppCoordinator: NSObject {
 
     func start() {
         let index = environment.launchConfiguration.initialTab.rawValue
-        installRoot(selectedIndex: index, restoringMoreRoute: .root, animated: false)
+        installRoot(selectedIndex: index, restoringSettings: false, animated: false)
         window.makeKeyAndVisible()
     }
 
     private func installRoot(
         selectedIndex: Int,
-        restoringMoreRoute: MoreRoute,
+        restoringSettings: Bool,
         animated: Bool
     ) {
         let oldSnapshot = animated ? window.snapshotView(afterScreenUpdates: false) : nil
 
         let todayController = featureFactory.makeToday()
         let supplementsController = featureFactory.makeSupplements()
-        let diaryController = featureFactory.makeDiary()
-        let trendsController = featureFactory.makeTrends()
+        let sleepController = featureFactory.makeSleep()
+        let healthController = featureFactory.makeHealth()
+        let fitnessController = featureFactory.makeFitness()
 
         let todayNavigation = makeNavigationController(root: todayController, identifier: "navigation.today")
         let supplementsNavigation = makeNavigationController(root: supplementsController, identifier: "navigation.supplements")
-        let diaryNavigation = makeNavigationController(root: diaryController, identifier: "navigation.diary")
-        let trendsNavigation = makeNavigationController(root: trendsController, identifier: "navigation.trends")
-        let moreNavigation = WellnarioNavigationController()
-        moreNavigation.view.accessibilityIdentifier = "navigation.more"
+        let sleepNavigation = makeNavigationController(root: sleepController, identifier: "navigation.sleep")
+        let healthNavigation = makeNavigationController(root: healthController, identifier: "navigation.health")
+        let fitnessNavigation = makeNavigationController(root: fitnessController, identifier: "navigation.fitness")
 
-        let moreCoordinator = MoreCoordinator(navigationController: moreNavigation)
-        moreCoordinator.start(restoring: restoringMoreRoute, animated: false)
+        if restoringSettings {
+            todayNavigation.pushViewController(SettingsViewController(), animated: false)
+        }
 
         let rootController = RootTabBarController()
         rootController.install(
             viewControllers: [
                 todayNavigation,
                 supplementsNavigation,
-                diaryNavigation,
-                trendsNavigation,
-                moreNavigation
+                sleepNavigation,
+                healthNavigation,
+                fitnessNavigation
             ],
             selectedIndex: selectedIndex
         )
 
         todayController.onOpenSettings = { [weak self] in
-            self?.showMore(route: .settings)
+            self?.showSettings()
         }
         todayController.onShowSupplements = { [weak rootController] in
             rootController?.select(index: AppLaunchConfiguration.InitialTab.supplements.rawValue)
         }
-        todayController.onShowTrends = { [weak rootController] in
-            rootController?.select(index: AppLaunchConfiguration.InitialTab.trends.rawValue)
+        todayController.onShowSleep = { [weak rootController] in
+            rootController?.select(index: AppLaunchConfiguration.InitialTab.sleep.rawValue)
+        }
+        todayController.onShowHealth = { [weak rootController] in
+            rootController?.select(index: AppLaunchConfiguration.InitialTab.health.rawValue)
+        }
+        todayController.onShowFitness = { [weak rootController] in
+            rootController?.select(index: AppLaunchConfiguration.InitialTab.fitness.rawValue)
+        }
+        sleepController.onOpenSettings = { [weak self] in
+            self?.showSettings()
+        }
+        healthController.onOpenSettings = { [weak self] in
+            self?.showSettings()
+        }
+        fitnessController.onStartWorkout = { [weak fitnessController] in
+            guard let fitnessController else { return }
+            let controller = WorkoutStarterViewController()
+            fitnessController.presentSheet(controller)
         }
 
-        self.moreCoordinator = moreCoordinator
         rootTabBarController = rootController
         window.rootViewController = rootController
         rootController.view.layoutIfNeeded()
@@ -146,9 +167,14 @@ final class AppCoordinator: NSObject {
         return navigationController
     }
 
-    private func showMore(route: MoreRoute) {
-        rootTabBarController?.select(index: AppLaunchConfiguration.InitialTab.more.rawValue)
-        moreCoordinator?.show(route, animated: true)
+    private func showSettings() {
+        guard let rootTabBarController,
+              let todayNavigation = rootTabBarController.viewControllers?.first as? UINavigationController else {
+            return
+        }
+        rootTabBarController.select(index: AppLaunchConfiguration.InitialTab.today.rawValue)
+        guard !(todayNavigation.topViewController is SettingsViewController) else { return }
+        todayNavigation.pushViewController(SettingsViewController(), animated: true)
     }
 
     @objc private func languageDidChange() {
@@ -157,10 +183,13 @@ final class AppCoordinator: NSObject {
 
         let selectedIndex = rootTabBarController?.selectedIndex
             ?? environment.launchConfiguration.initialTab.rawValue
-        let moreRoute = moreCoordinator?.currentRoute ?? .root
+        let settingsIsVisible = rootTabBarController?.viewControllers?.first
+            .flatMap { $0 as? UINavigationController }?
+            .viewControllers
+            .contains { $0 is SettingsViewController } ?? false
         installRoot(
             selectedIndex: selectedIndex,
-            restoringMoreRoute: moreRoute,
+            restoringSettings: settingsIsVisible,
             animated: true
         )
         isRebuildingRoot = false

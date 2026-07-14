@@ -19,8 +19,11 @@ No existe aún un servidor: todos los datos permanecen en el dispositivo. La UI 
 - Catálogo inicial bilingüe de activos y presentaciones; creación de activos propios.
 - Objetivos personales por activo con historial de vigencia.
 - Registro, edición y eliminación de tomas con fecha, hora, cantidad, lote y notas.
-- Diario agrupado por día, panel de hoy, alertas de caducidad y acceso rápido a una toma.
-- Tendencias semanales, mensuales, anuales y personalizadas con consumo diario, media y banda objetivo.
+- Navegación principal por Hoy, Suplementos, Sueño, Salud y Fitness.
+- Panel Hoy con resúmenes de sueño, recuperación, estrés, suplementos y fitness, más accesos rápidos.
+- Resumen y tendencia de sueño, biomarcadores actuales y estimación de edad biológica preparados para fuentes conectadas.
+- Acceso a Apple Health y a la API de Oura desde Ajustes.
+- Diario y tendencias de suplementos conservados en sus flujos de detalle.
 - Historial consistente: cada toma guarda una instantánea de producto, lote y aportes activos, de modo que una edición posterior no altera las gráficas pasadas.
 - Archivado seguro para registros que ya tienen historial y borrado físico para registros sin uso.
 - Dynamic Type, VoiceOver, estados vacíos, reducción de movimiento/transparencia y contraste adaptado.
@@ -60,7 +63,7 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO test
 ```
 
-Las pruebas de interfaz aceptan estos argumentos de lanzamiento internos: `--ui-testing`, `--reset-data`, `--language es|en` y `--initial-tab today|supplements|diary|trends|more`.
+Las pruebas de interfaz aceptan estos argumentos de lanzamiento internos: `--ui-testing`, `--reset-data`, `--language es|en` y `--initial-tab today|supplements|sleep|health|fitness`.
 
 ## TestFlight
 

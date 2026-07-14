@@ -44,9 +44,10 @@ final class WellnarioSupplementFlowUITests: XCTestCase {
         instanceSave.tap()
         XCTAssertTrue(app.staticTexts["Bote prueba"].waitForExistence(timeout: 5))
 
-        app.buttons["tab.tab.diary"].tap()
-        let addIntake = app.buttons["diary.add"]
+        app.buttons["tab.tab.today"].tap()
+        let addIntake = app.descendants(matching: .any)["today.quick.intake"]
         XCTAssertTrue(addIntake.waitForExistence(timeout: 5))
+        reveal(addIntake, in: app)
         addIntake.tap()
         XCTAssertTrue(app.descendants(matching: .any)["intake.editor"].waitForExistence(timeout: 3))
 

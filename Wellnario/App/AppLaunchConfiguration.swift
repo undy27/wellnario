@@ -4,17 +4,17 @@ struct AppLaunchConfiguration: Sendable {
     enum InitialTab: Int, CaseIterable, Sendable {
         case today
         case supplements
-        case diary
-        case trends
-        case more
+        case sleep
+        case health
+        case fitness
 
         init?(argument: String) {
             switch argument.lowercased() {
             case "today", "hoy": self = .today
             case "supplements", "suplementos": self = .supplements
-            case "diary", "diario": self = .diary
-            case "trends", "tendencias": self = .trends
-            case "more", "mas", "más": self = .more
+            case "sleep", "sueno", "sueño", "diary", "diario": self = .sleep
+            case "health", "salud", "trends", "tendencias": self = .health
+            case "fitness", "more", "mas", "más": self = .fitness
             default: return nil
             }
         }

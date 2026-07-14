@@ -14,11 +14,11 @@ struct FloatingTabItem: Equatable, Sendable {
     }
 
     static let wellnarioDefaults: [FloatingTabItem] = [
-        FloatingTabItem(titleKey: "tab.today", symbolName: "calendar", selectedSymbolName: "calendar.circle.fill"),
+        FloatingTabItem(titleKey: "tab.today", symbolName: "sun.max", selectedSymbolName: "sun.max.fill"),
         FloatingTabItem(titleKey: "tab.supplements", symbolName: "pills", selectedSymbolName: "pills.fill"),
-        FloatingTabItem(titleKey: "tab.diary", symbolName: "clock", selectedSymbolName: "clock.fill"),
-        FloatingTabItem(titleKey: "tab.trends", symbolName: "chart.bar.xaxis", selectedSymbolName: "chart.bar.xaxis"),
-        FloatingTabItem(titleKey: "tab.more", symbolName: "square.grid.2x2", selectedSymbolName: "square.grid.2x2.fill")
+        FloatingTabItem(titleKey: "tab.sleep", symbolName: "moon.stars", selectedSymbolName: "moon.stars.fill"),
+        FloatingTabItem(titleKey: "tab.health", symbolName: "heart", selectedSymbolName: "heart.fill"),
+        FloatingTabItem(titleKey: "tab.fitness", symbolName: "figure.run", selectedSymbolName: "figure.run")
     ]
 }
 

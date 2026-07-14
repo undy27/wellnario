@@ -137,9 +137,10 @@ enum L10n {
     @MainActor enum Tab {
         static var today: String { text("tab.today") }
         static var supplements: String { text("tab.supplements") }
-        static var diary: String { text("tab.diary") }
-        static var trends: String { text("tab.trends") }
-        static var more: String { text("tab.more") }
+        static var sleep: String { text("tab.sleep") }
+        static var health: String { text("tab.health") }
+        static var fitness: String { text("tab.fitness") }
+        static var trends: String { text("trends.title") }
     }
 
     @MainActor enum Today {

@@ -251,6 +251,7 @@ final class FeedbackBannerView: UIView {
         actionButton.titleLabel?.adjustsFontForContentSizeCategory = true
         actionButton.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
         actionButton.setContentHuggingPriority(.required, for: .horizontal)
+        actionButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         actionButton.heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.minimumTouchTarget).isActive = true
         actionButton.widthAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.minimumTouchTarget).isActive = true
 
