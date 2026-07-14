@@ -5,6 +5,9 @@ final class SleepViewController: WellnessScrollViewController {
     var onOpenSettings: (() -> Void)?
 
     private let appleHealthService: AppleHealthSyncing
+    private let trendChart = WellnessTrendChartView()
+    private var selectedTrendPeriod = AppleHealthSleepTrendPeriod.sevenDays
+    private lazy var trendPeriodControl: UISegmentedControl = makeTrendPeriodControl()
 
     init(appleHealthService: AppleHealthSyncing) {
         self.appleHealthService = appleHealthService
@@ -73,31 +76,91 @@ final class SleepViewController: WellnessScrollViewController {
         contentStack.addArrangedSubview(metricRow)
 
         contentStack.setCustomSpacing(WellnarioSpacing.large, after: metricRow)
-        contentStack.addArrangedSubview(makeSectionTitle(
-            L10n.text("sleep.trend.title"),
-            detail: L10n.text("sleep.trend.period")
-        ))
+        contentStack.addArrangedSubview(makeSectionTitle(L10n.text("sleep.trend.title")))
 
-        let chart = WellnessTrendChartView()
-        chart.values = snapshot.sleepTrend.isEmpty
-            ? Array(repeating: nil, count: 7)
-            : snapshot.sleepTrend.map(\.hours)
-        chart.labels = snapshot.sleepTrend.isEmpty
-            ? localizedWeekdayInitials()
-            : snapshot.sleepTrend.map { AppleHealthUIFormatting.weekdayInitial(for: $0.date) }
-        chart.lineColor = WellnarioPalette.violet
-        chart.emptyText = L10n.text("sleep.trend.empty")
-        chart.accessibilityIdentifier = "sleep.trend.chart"
-        chart.accessibilityLabel = L10n.text("sleep.trend.accessibility")
-        chart.accessibilityValue = snapshot.sleepTrend.compactMap(\.hours).isEmpty
-            ? L10n.text("sleep.trend.empty")
-            : L10n.text("sleep.trend.accessibility")
-        let chartCard = makeCard(containing: chart, identifier: "sleep.trend.card")
+        configureTrendChart(with: snapshot)
+        let trendContent = UIStackView(
+            arrangedSubviews: [trendChart, trendPeriodControl],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xSmall
+        )
+        let chartCard = makeCard(containing: trendContent, identifier: "sleep.trend.card")
         contentStack.addArrangedSubview(chartCard)
 
         contentStack.setCustomSpacing(WellnarioSpacing.large, after: chartCard)
         contentStack.addArrangedSubview(makeSectionTitle(L10n.text("sleep.factors.title")))
         contentStack.addArrangedSubview(makeFactorCard())
+    }
+
+    private func configureTrendChart(with snapshot: AppleHealthSnapshot) {
+        let trend = AppleHealthSleepAggregator.trend(
+            from: snapshot.sleepTrend,
+            period: selectedTrendPeriod
+        )
+        trendChart.values = trend.map(\.hours)
+        trendChart.labels = trendLabels(for: trend, period: selectedTrendPeriod)
+        trendChart.lineColor = WellnarioPalette.violet
+        trendChart.emptyText = L10n.text("sleep.trend.empty")
+        trendChart.accessibilityIdentifier = "sleep.trend.chart"
+        trendChart.accessibilityLabel = L10n.text(
+            "sleep.trend.accessibility.format",
+            trendPeriodTitle(selectedTrendPeriod)
+        )
+        trendChart.accessibilityValue = trend.compactMap(\.hours).isEmpty
+            ? L10n.text("sleep.trend.empty")
+            : trendChart.accessibilityLabel
+    }
+
+    private func makeTrendPeriodControl() -> UISegmentedControl {
+        let control = UISegmentedControl(items: AppleHealthSleepTrendPeriod.allCases.map(trendPeriodTitle))
+        control.selectedSegmentIndex = selectedTrendPeriod.rawValue
+        control.apportionsSegmentWidthsByContent = true
+        control.selectedSegmentTintColor = WellnarioPalette.violet
+        control.setTitleTextAttributes([
+            .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
+            .foregroundColor: WellnarioPalette.textSecondary
+        ], for: .normal)
+        control.setTitleTextAttributes([
+            .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
+            .foregroundColor: UIColor.white
+        ], for: .selected)
+        control.accessibilityIdentifier = "sleep.trend.period.selector"
+        control.accessibilityLabel = L10n.text("sleep.trend.period.selector.accessibility")
+        control.addTarget(self, action: #selector(trendPeriodDidChange), for: .valueChanged)
+        return control
+    }
+
+    private func trendPeriodTitle(_ period: AppleHealthSleepTrendPeriod) -> String {
+        switch period {
+        case .sevenDays: L10n.text("sleep.trend.period.7d")
+        case .thirtyDays: L10n.text("sleep.trend.period.30d")
+        case .sixMonths: L10n.text("sleep.trend.period.6m")
+        case .allTime: L10n.text("sleep.trend.period.all")
+        }
+    }
+
+    private func trendLabels(
+        for trend: [AppleHealthSleepDay],
+        period: AppleHealthSleepTrendPeriod
+    ) -> [String] {
+        guard !trend.isEmpty else { return [] }
+        if period == .sevenDays {
+            return trend.map { AppleHealthUIFormatting.weekdayInitial(for: $0.date) }
+        }
+
+        let labelCount = min(5, trend.count)
+        let indexes = Set((0..<labelCount).map { labelIndex in
+            guard labelCount > 1 else { return 0 }
+            return Int((Double(labelIndex) * Double(trend.count - 1) / Double(labelCount - 1)).rounded())
+        })
+        let formatter = DateFormatter()
+        formatter.locale = LocalizationManager.shared.locale
+        let spansMoreThanAYear = (trend.last?.date.timeIntervalSince(trend.first?.date ?? Date()) ?? 0)
+            >= 365 * 24 * 60 * 60
+        formatter.setLocalizedDateFormatFromTemplate(spansMoreThanAYear ? "MMMyy" : "dMMM")
+        return trend.enumerated().map { index, entry in
+            indexes.contains(index) ? formatter.string(from: entry.date) : ""
+        }
     }
 
     private func makeSourceBanner(snapshot: AppleHealthSnapshot) -> FeedbackBannerView {
@@ -261,19 +324,17 @@ final class SleepViewController: WellnessScrollViewController {
         return card
     }
 
-    private func localizedWeekdayInitials() -> [String] {
-        let calendar = Calendar.autoupdatingCurrent
-        let today = calendar.startOfDay(for: Date())
-        return (0..<7).reversed().compactMap { offset in
-            calendar.date(byAdding: .day, value: -offset, to: today)
-                .map(AppleHealthUIFormatting.weekdayInitial)
-        }
-    }
-
     private func syncNow() {
         Task { try? await appleHealthService.sync() }
     }
 
     @objc private func openSettings() { onOpenSettings?() }
     @objc private func appleHealthDidChange() { buildContent() }
+    @objc private func trendPeriodDidChange() {
+        guard let period = AppleHealthSleepTrendPeriod(rawValue: trendPeriodControl.selectedSegmentIndex) else {
+            return
+        }
+        selectedTrendPeriod = period
+        configureTrendChart(with: appleHealthService.snapshot)
+    }
 }

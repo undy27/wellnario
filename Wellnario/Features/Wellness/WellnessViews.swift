@@ -301,7 +301,6 @@ final class WellnessTrendChartView: UIView {
                 at: CGPoint(x: rect.midX - size.width / 2, y: chartRect.midY - size.height / 2),
                 withAttributes: attributes
             )
-            accessibilityLabel = emptyText
             return
         }
 
@@ -376,6 +375,7 @@ final class WellnessTrendChartView: UIView {
             .foregroundColor: WellnarioPalette.textTertiary
         ]
         for (index, label) in labels.enumerated() {
+            guard !label.isEmpty else { continue }
             let size = label.size(withAttributes: attributes)
             let x = rect.minX + rect.width * CGFloat(index) / CGFloat(labels.count - 1)
             label.draw(

@@ -115,7 +115,12 @@
 "sleep.score" = "Puntuación";
 "sleep.no_data" = "Sin datos";
 "sleep.trend.title" = "Tendencia de sueño";
-"sleep.trend.period" = "Últimos 7 días";
+"sleep.trend.period.7d" = "7d";
+"sleep.trend.period.30d" = "30d";
+"sleep.trend.period.6m" = "6m";
+"sleep.trend.period.all" = "Desde el principio";
+"sleep.trend.period.selector.accessibility" = "Período de la tendencia de sueño";
+"sleep.trend.accessibility.format" = "Duración diaria del sueño. Período: %@";
 "sleep.trend.empty" = "Sin sesiones para mostrar";
 "sleep.factors.title" = "Factores registrados";
 "sleep.factors.empty.title" = "Ningún factor reciente";
@@ -544,4 +549,3 @@
 "sleep.deep" = "Sueño profundo";
 "sleep.rem" = "Sueño REM";
 "sleep.from_apple_health" = "Apple Health";
-"sleep.trend.accessibility" = "Duración diaria del sueño durante los últimos siete días";

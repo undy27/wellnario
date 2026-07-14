@@ -53,6 +53,7 @@ targets:
           - es
           - en
         NSHealthShareUsageDescription: Wellnario imports your sleep, activity, heart, and workout data after you choose what to share.
+        NSHealthUpdateUsageDescription: Wellnario uses HealthKit to keep your wellness data connected with Apple Health. This version is read-only and does not save health samples.
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
           UISceneConfigurations:
@@ -78,6 +79,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.wellnario.tests
         TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: true
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/Wellnario.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Wellnario
         BUNDLE_LOADER: $(TEST_HOST)
 
@@ -92,6 +94,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.wellnario.uitests
         TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: true
 
 schemes:
   Wellnario:

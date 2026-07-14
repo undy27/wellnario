@@ -27,6 +27,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Wellnario imports your sleep, activity, heart, and workout data after you choose what to share.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Wellnario uses HealthKit to keep your wellness data connected with Apple Health. This version is read-only and does not save health samples.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

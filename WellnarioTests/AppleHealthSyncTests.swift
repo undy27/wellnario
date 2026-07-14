@@ -45,6 +45,74 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertNil(trend[6].hours)
     }
 
+    func testAllTimeSleepTrendCanBeFilteredByPeriod() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let endingAt = try utcDate(2026, 7, 14, hour: 12)
+        let oldSession = AppleHealthSleepSession(
+            startDate: try utcDate(2025, 12, 31, hour: 22),
+            endDate: try utcDate(2026, 1, 1, hour: 6),
+            asleepSeconds: 8 * 3_600,
+            inBedSeconds: 8 * 3_600,
+            awakeSeconds: 0,
+            coreSeconds: 0,
+            deepSeconds: 0,
+            remSeconds: 0,
+            sourceNames: ["Test"]
+        )
+        let recentSession = AppleHealthSleepSession(
+            startDate: try utcDate(2026, 7, 12, hour: 23),
+            endDate: try utcDate(2026, 7, 13, hour: 6),
+            asleepSeconds: 7 * 3_600,
+            inBedSeconds: 7 * 3_600,
+            awakeSeconds: 0,
+            coreSeconds: 0,
+            deepSeconds: 0,
+            remSeconds: 0,
+            sourceNames: ["Test"]
+        )
+
+        let history = AppleHealthSleepAggregator.allTimeTrend(
+            sessions: [oldSession, recentSession],
+            endingAt: endingAt,
+            calendar: calendar
+        )
+        let sevenDays = AppleHealthSleepAggregator.trend(
+            from: history,
+            period: .sevenDays,
+            endingAt: endingAt,
+            calendar: calendar
+        )
+        let thirtyDays = AppleHealthSleepAggregator.trend(
+            from: history,
+            period: .thirtyDays,
+            endingAt: endingAt,
+            calendar: calendar
+        )
+        let sixMonths = AppleHealthSleepAggregator.trend(
+            from: history,
+            period: .sixMonths,
+            endingAt: endingAt,
+            calendar: calendar
+        )
+        let allTime = AppleHealthSleepAggregator.trend(
+            from: history,
+            period: .allTime,
+            endingAt: endingAt,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(sevenDays.count, 7)
+        XCTAssertEqual(thirtyDays.count, 30)
+        XCTAssertEqual(
+            sixMonths.first?.date,
+            calendar.date(byAdding: .month, value: -6, to: calendar.startOfDay(for: endingAt))
+        )
+        XCTAssertEqual(try XCTUnwrap(sevenDays[5].hours), 7, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(allTime.first?.hours), 8, accuracy: 0.001)
+        XCTAssertEqual(allTime.last?.date, calendar.startOfDay(for: endingAt))
+    }
+
     func testSnapshotCacheRoundTripsHealthData() throws {
         let suiteName = "AppleHealthSyncTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

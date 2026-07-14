@@ -24,6 +24,13 @@ struct AppleHealthSleepDay: Codable, Equatable, Sendable {
     let hours: Double?
 }
 
+enum AppleHealthSleepTrendPeriod: Int, CaseIterable, Sendable {
+    case sevenDays
+    case thirtyDays
+    case sixMonths
+    case allTime
+}
+
 enum AppleHealthWorkoutKind: String, Codable, Equatable, Sendable {
     case walking
     case running
@@ -188,19 +195,88 @@ enum AppleHealthSleepAggregator {
         calendar: Calendar = .autoupdatingCurrent
     ) -> [AppleHealthSleepDay] {
         let today = calendar.startOfDay(for: date)
-        return (0..<7).reversed().compactMap { offset in
-            guard let day = calendar.date(byAdding: .day, value: -offset, to: today),
-                  let next = calendar.date(byAdding: .day, value: 1, to: day) else {
-                return nil
-            }
-            let seconds = sessions
-                .filter { $0.endDate >= day && $0.endDate < next }
-                .reduce(0) { $0 + $1.asleepSeconds }
+        let start = calendar.date(byAdding: .day, value: -6, to: today) ?? today
+        return dailyTrend(sessions: sessions, from: start, through: today, calendar: calendar)
+    }
+
+    static func allTimeTrend(
+        sessions: [AppleHealthSleepSession],
+        endingAt date: Date = Date(),
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> [AppleHealthSleepDay] {
+        guard let earliestSession = sessions.min(by: { $0.endDate < $1.endDate }) else { return [] }
+        let start = calendar.startOfDay(for: earliestSession.endDate)
+        let today = calendar.startOfDay(for: date)
+        return dailyTrend(sessions: sessions, from: start, through: today, calendar: calendar)
+    }
+
+    static func trend(
+        from history: [AppleHealthSleepDay],
+        period: AppleHealthSleepTrendPeriod,
+        endingAt date: Date = Date(),
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> [AppleHealthSleepDay] {
+        let today = calendar.startOfDay(for: date)
+        let start: Date
+        switch period {
+        case .sevenDays:
+            start = calendar.date(byAdding: .day, value: -6, to: today) ?? today
+        case .thirtyDays:
+            start = calendar.date(byAdding: .day, value: -29, to: today) ?? today
+        case .sixMonths:
+            start = calendar.date(byAdding: .month, value: -6, to: today) ?? today
+        case .allTime:
+            guard let earliest = history.map(\.date).min() else { return [] }
+            start = min(calendar.startOfDay(for: earliest), today)
+        }
+
+        var hoursByDay: [Date: Double] = [:]
+        for entry in history {
+            guard let hours = entry.hours else { continue }
+            hoursByDay[calendar.startOfDay(for: entry.date)] = hours
+        }
+        return daySequence(from: start, through: today, calendar: calendar).map { day in
+            AppleHealthSleepDay(date: day, hours: hoursByDay[day])
+        }
+    }
+
+    private static func dailyTrend(
+        sessions: [AppleHealthSleepSession],
+        from start: Date,
+        through end: Date,
+        calendar: Calendar
+    ) -> [AppleHealthSleepDay] {
+        let days = daySequence(from: start, through: end, calendar: calendar)
+        var secondsByDay: [Date: TimeInterval] = [:]
+        for session in sessions {
+            let day = calendar.startOfDay(for: session.endDate)
+            guard day >= start, day <= end else { continue }
+            secondsByDay[day, default: 0] += session.asleepSeconds
+        }
+        return days.map { day in
+            let seconds = secondsByDay[day, default: 0]
             return AppleHealthSleepDay(
                 date: day,
                 hours: seconds > 0 ? seconds / 3_600 : nil
             )
         }
+    }
+
+    private static func daySequence(
+        from start: Date,
+        through end: Date,
+        calendar: Calendar
+    ) -> [Date] {
+        guard start <= end else { return [] }
+        var days: [Date] = []
+        var day = calendar.startOfDay(for: start)
+        let lastDay = calendar.startOfDay(for: end)
+        while day <= lastDay {
+            days.append(day)
+            guard let next = calendar.date(byAdding: .day, value: 1, to: day), next > day else { break }
+            day = next
+        }
+        return days
     }
 
     private static func makeSession(_ segments: [Segment]) -> AppleHealthSleepSession? {
@@ -365,7 +441,7 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             let updated = AppleHealthSnapshot(
                 lastSyncedAt: now,
                 latestSleepSession: sleepSessions.last,
-                sleepTrend: AppleHealthSleepAggregator.sevenDayTrend(
+                sleepTrend: AppleHealthSleepAggregator.allTimeTrend(
                     sessions: sleepSessions,
                     endingAt: now,
                     calendar: calendar
@@ -427,9 +503,8 @@ final class AppleHealthSyncService: AppleHealthSyncing {
         endingAt endDate: Date
     ) async throws -> [AppleHealthSleepSession] {
         guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return [] }
-        let startDate = calendar.date(byAdding: .day, value: -14, to: endDate) ?? .distantPast
         let predicate = HKQuery.predicateForSamples(
-            withStart: startDate,
+            withStart: .distantPast,
             end: endDate,
             options: [.strictEndDate]
         )

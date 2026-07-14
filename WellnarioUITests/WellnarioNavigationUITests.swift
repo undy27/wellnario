@@ -55,6 +55,23 @@ final class WellnarioNavigationUITests: XCTestCase {
     }
 
     @MainActor
+    func testSleepTrendPeriodSelectorOffersAllRanges() {
+        let app = launch(language: "es", initialTab: "sleep")
+        let selector = app.segmentedControls["sleep.trend.period.selector"]
+        XCTAssertTrue(selector.waitForExistence(timeout: 5))
+
+        for title in ["7d", "30d", "6m", "Desde el principio"] {
+            XCTAssertTrue(selector.buttons[title].exists, "Missing sleep trend period: \(title)")
+        }
+
+        let thirtyDays = selector.buttons["30d"]
+        for _ in 0..<4 where !thirtyDays.isHittable { app.swipeUp() }
+        XCTAssertTrue(thirtyDays.isHittable)
+        thirtyDays.tap()
+        XCTAssertTrue(thirtyDays.isSelected)
+    }
+
+    @MainActor
     func testArchivedRecoveryCenterIsReachable() {
         let app = launch(language: "es", initialTab: "supplements")
         let more = app.buttons["supplements.more"]

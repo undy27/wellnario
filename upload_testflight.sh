@@ -136,6 +136,8 @@ verify_ipa() {
   local info_plist
   local actual_bundle_id
   local actual_build_number
+  local health_share_purpose
+  local health_update_purpose
 
   mkdir -p "$verification_directory"
   unzip -q "$ipa_path" -d "$verification_directory"
@@ -154,6 +156,17 @@ verify_ipa() {
   fi
   if [ "$actual_build_number" != "$expected_build_number" ]; then
     printf 'Error: IPA build number is %s; expected %s.\n' "$actual_build_number" "$expected_build_number" >&2
+    exit 1
+  fi
+
+  health_share_purpose="$(/usr/libexec/PlistBuddy -c 'Print :NSHealthShareUsageDescription' "$info_plist" 2>/dev/null || true)"
+  health_update_purpose="$(/usr/libexec/PlistBuddy -c 'Print :NSHealthUpdateUsageDescription' "$info_plist" 2>/dev/null || true)"
+  if [ -z "$health_share_purpose" ]; then
+    printf 'Error: IPA is missing NSHealthShareUsageDescription.\n' >&2
+    exit 1
+  fi
+  if [ -z "$health_update_purpose" ]; then
+    printf 'Error: IPA is missing NSHealthUpdateUsageDescription.\n' >&2
     exit 1
   fi
 }
