@@ -64,11 +64,13 @@ final class WellnarioNavigationUITests: XCTestCase {
             XCTAssertTrue(selector.buttons[title].exists, "Missing sleep trend period: \(title)")
         }
 
-        let thirtyDays = selector.buttons["30d"]
-        for _ in 0..<4 where !thirtyDays.isHittable { app.swipeUp() }
-        XCTAssertTrue(thirtyDays.isHittable)
-        thirtyDays.tap()
-        XCTAssertTrue(thirtyDays.isSelected)
+        for title in ["30d", "6m", "Desde el principio"] {
+            let period = selector.buttons[title]
+            for _ in 0..<4 where !period.isHittable { app.swipeUp() }
+            XCTAssertTrue(period.isHittable)
+            period.tap()
+            XCTAssertTrue(period.isSelected)
+        }
     }
 
     @MainActor

@@ -101,14 +101,47 @@ final class SleepViewController: WellnessScrollViewController {
         trendChart.labels = trendLabels(for: trend, period: selectedTrendPeriod)
         trendChart.lineColor = WellnarioPalette.violet
         trendChart.emptyText = L10n.text("sleep.trend.empty")
+        trendChart.smoothingWindow = smoothingWindow(for: selectedTrendPeriod, pointCount: trend.count)
+        trendChart.averageTitle = L10n.text("sleep.trend.average")
+        trendChart.valueFormatter = { value in
+            L10n.text(
+                "sleep.trend.hours.short",
+                AppleHealthUIFormatting.number(value, maximumFractionDigits: 1)
+            )
+        }
         trendChart.accessibilityIdentifier = "sleep.trend.chart"
         trendChart.accessibilityLabel = L10n.text(
             "sleep.trend.accessibility.format",
             trendPeriodTitle(selectedTrendPeriod)
         )
-        trendChart.accessibilityValue = trend.compactMap(\.hours).isEmpty
-            ? L10n.text("sleep.trend.empty")
-            : trendChart.accessibilityLabel
+        let validValues = trend.compactMap(\.hours)
+        if let minimum = validValues.min(), let maximum = validValues.max() {
+            let average = validValues.reduce(0, +) / Double(validValues.count)
+            trendChart.accessibilityValue = L10n.text(
+                "sleep.trend.accessibility.values",
+                trendChart.valueFormatter(average),
+                trendChart.valueFormatter(minimum),
+                trendChart.valueFormatter(maximum)
+            )
+        } else {
+            trendChart.accessibilityValue = L10n.text("sleep.trend.empty")
+        }
+    }
+
+    private func smoothingWindow(
+        for period: AppleHealthSleepTrendPeriod,
+        pointCount: Int
+    ) -> Int {
+        switch period {
+        case .sevenDays, .thirtyDays:
+            1
+        case .sixMonths:
+            7
+        case .allTime:
+            if pointCount >= 365 { 30 }
+            else if pointCount >= 180 { 14 }
+            else { 7 }
+        }
     }
 
     private func makeTrendPeriodControl() -> UISegmentedControl {

@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import XCTest
 @testable import Wellnario
 
@@ -133,6 +134,36 @@ final class AppleHealthSyncTests: XCTestCase {
 
         XCTAssertTrue(cache.isConfigured)
         XCTAssertEqual(cache.load(), snapshot)
+    }
+
+    func testTrendMovingAverageSmoothsValuesAndPreservesEmptySeries() throws {
+        let values: [Double?] = [6, 9, 3, 12, 5]
+        let smoothed = WellnessTrendSmoothing.movingAverage(values, window: 3)
+
+        XCTAssertEqual(try XCTUnwrap(smoothed[0]), 7.5, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(smoothed[1]), 6, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(smoothed[2]), 8, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(smoothed[4]), 8.5, accuracy: 0.001)
+        XCTAssertEqual(
+            WellnessTrendSmoothing.movingAverage([nil, nil], window: 7),
+            [nil, nil]
+        )
+    }
+
+    @MainActor
+    func testTrendChartRendersAverageAndYAxisLabels() throws {
+        let chart = WellnessTrendChartView(frame: CGRect(x: 0, y: 0, width: 360, height: 190))
+        chart.values = [6.5, 7.2, 8.1, 7.4, 6.9, 8.4, 7.8]
+        chart.labels = ["L", "M", "X", "J", "V", "S", "D"]
+        chart.smoothingWindow = 7
+        chart.averageTitle = "Media"
+        chart.valueFormatter = { String(format: "%.1f h", $0) }
+
+        let image = UIGraphicsImageRenderer(bounds: chart.bounds).image { _ in
+            chart.drawHierarchy(in: chart.bounds, afterScreenUpdates: true)
+        }
+
+        XCTAssertGreaterThan(try XCTUnwrap(image.pngData()).count, 1_000)
     }
 
     private func segment(

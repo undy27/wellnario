@@ -121,6 +121,9 @@
 "sleep.trend.period.all" = "Desde el principio";
 "sleep.trend.period.selector.accessibility" = "Período de la tendencia de sueño";
 "sleep.trend.accessibility.format" = "Duración diaria del sueño. Período: %@";
+"sleep.trend.accessibility.values" = "Media %@; mínimo %@; máximo %@";
+"sleep.trend.average" = "Media";
+"sleep.trend.hours.short" = "%@ h";
 "sleep.trend.empty" = "Sin sesiones para mostrar";
 "sleep.factors.title" = "Factores registrados";
 "sleep.factors.empty.title" = "Ningún factor reciente";

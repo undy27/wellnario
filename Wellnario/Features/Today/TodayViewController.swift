@@ -260,7 +260,7 @@ final class TodayViewController: FeatureViewController {
         return UIStackView(
             arrangedSubviews: [firstRow, secondRow, fitnessCard],
             axis: .vertical,
-            spacing: WellnarioSpacing.cardGap
+            spacing: 10
         )
     }
 
@@ -315,7 +315,7 @@ final class TodayViewController: FeatureViewController {
         let row = UIStackView(
             arrangedSubviews: [first, second],
             axis: .horizontal,
-            spacing: WellnarioSpacing.cardGap,
+            spacing: 10,
             alignment: .fill,
             distribution: .fillEqually
         )

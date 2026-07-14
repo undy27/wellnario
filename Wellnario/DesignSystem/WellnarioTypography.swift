@@ -6,6 +6,9 @@ enum WellnarioTextStyle: Sendable {
     case pageTitle
     case cardTitle
     case metric
+    case summaryTitle
+    case summaryMetric
+    case summaryDetail
     case sectionTitle
     case body
     case secondary
@@ -25,6 +28,12 @@ enum WellnarioTypography {
             scaledFont(size: 20, weight: .semibold, textStyle: .title3)
         case .metric:
             scaledFont(size: 36, weight: .bold, textStyle: .largeTitle, design: .rounded, tabular: true)
+        case .summaryTitle:
+            scaledFont(size: 15, weight: .semibold, textStyle: .subheadline)
+        case .summaryMetric:
+            scaledFont(size: 26, weight: .bold, textStyle: .title2, design: .rounded, tabular: true)
+        case .summaryDetail:
+            scaledFont(size: 11, weight: .medium, textStyle: .caption2)
         case .sectionTitle:
             scaledFont(size: 18, weight: .semibold, textStyle: .headline)
         case .body:

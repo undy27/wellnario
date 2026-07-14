@@ -127,13 +127,13 @@ final class WellnessSummaryCard: PremiumCardView {
     }
 
     private func setUp() {
-        symbolContainer.applyContinuousCorners(14)
+        symbolContainer.applyContinuousCorners(11)
         NSLayoutConstraint.activate([
-            symbolContainer.widthAnchor.constraint(equalToConstant: 40),
+            symbolContainer.widthAnchor.constraint(equalToConstant: 34),
             symbolContainer.heightAnchor.constraint(equalTo: symbolContainer.widthAnchor)
         ])
 
-        symbolView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+        symbolView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
         symbolView.contentMode = .scaleAspectFit
         symbolContainer.addForAutoLayout(symbolView)
         NSLayoutConstraint.activate([
@@ -142,36 +142,37 @@ final class WellnessSummaryCard: PremiumCardView {
         ])
 
         chevronView.tintColor = WellnarioPalette.textTertiary
-        chevronView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        chevronView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
         chevronView.setContentHuggingPriority(.required, for: .horizontal)
 
-        titleLabel.applyWellnarioStyle(.cardTitle, color: WellnarioPalette.textPrimary)
-        titleLabel.numberOfLines = 2
+        titleLabel.applyWellnarioStyle(.summaryTitle, color: WellnarioPalette.textPrimary)
+        titleLabel.numberOfLines = 1
+        titleLabel.adjustsFontSizeToFitWidth = true
+        titleLabel.minimumScaleFactor = 0.78
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        valueLabel.applyWellnarioStyle(.metric, color: WellnarioPalette.textPrimary)
+        valueLabel.applyWellnarioStyle(.summaryMetric, color: WellnarioPalette.textPrimary)
         valueLabel.adjustsFontSizeToFitWidth = true
-        valueLabel.minimumScaleFactor = 0.74
+        valueLabel.minimumScaleFactor = 0.76
         valueLabel.numberOfLines = 1
 
-        detailLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
+        detailLabel.applyWellnarioStyle(.summaryDetail, color: WellnarioPalette.textSecondary)
         detailLabel.numberOfLines = 2
 
         let heading = UIStackView(
-            arrangedSubviews: [symbolContainer, UIView(), chevronView],
+            arrangedSubviews: [symbolContainer, titleLabel, UIView(), chevronView],
             axis: .horizontal,
-            spacing: WellnarioSpacing.xxSmall,
+            spacing: 7,
             alignment: .center
         )
         let stack = UIStackView(
-            arrangedSubviews: [heading, titleLabel, valueLabel, detailLabel],
+            arrangedSubviews: [heading, valueLabel, detailLabel],
             axis: .vertical,
-            spacing: 6
+            spacing: WellnarioSpacing.xxxSmall
         )
-        stack.setCustomSpacing(WellnarioSpacing.xSmall, after: heading)
         contentView.addForAutoLayout(stack)
-        stack.pinEdges(to: contentView, insets: .all(WellnarioSpacing.small))
-        heightAnchor.constraint(greaterThanOrEqualToConstant: 166).isActive = true
+        stack.pinEdges(to: contentView, insets: .all(WellnarioSpacing.xSmall))
+        heightAnchor.constraint(greaterThanOrEqualToConstant: 112).isActive = true
         isAccessibilityElement = true
     }
 }
@@ -258,12 +259,32 @@ final class QuickActionControl: UIControl {
     }
 }
 
+enum WellnessTrendSmoothing {
+    static func movingAverage(_ values: [Double?], window: Int) -> [Double?] {
+        guard window > 1, !values.isEmpty else { return values }
+        let leadingRadius = window / 2
+        let trailingRadius = max(window - leadingRadius - 1, 0)
+        return values.indices.map { index in
+            let lowerBound = max(values.startIndex, index - leadingRadius)
+            let upperBound = min(values.index(before: values.endIndex), index + trailingRadius)
+            let samples = values[lowerBound...upperBound].compactMap { $0 }
+            guard !samples.isEmpty else { return nil }
+            return samples.reduce(0, +) / Double(samples.count)
+        }
+    }
+}
+
 @MainActor
 final class WellnessTrendChartView: UIView {
     var values: [Double?] = [] { didSet { setNeedsDisplay() } }
     var labels: [String] = [] { didSet { setNeedsDisplay() } }
     var lineColor = WellnarioPalette.violet { didSet { setNeedsDisplay() } }
     var emptyText = "" { didSet { setNeedsDisplay() } }
+    var smoothingWindow = 1 { didSet { setNeedsDisplay() } }
+    var averageTitle = "" { didSet { setNeedsDisplay() } }
+    var valueFormatter: (Double) -> String = { String(format: "%.1f", $0) } {
+        didSet { setNeedsDisplay() }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -286,7 +307,7 @@ final class WellnessTrendChartView: UIView {
     }
 
     override func draw(_ rect: CGRect) {
-        let chartRect = rect.inset(by: UIEdgeInsets(top: 14, left: 8, bottom: 30, right: 8))
+        let chartRect = rect.inset(by: UIEdgeInsets(top: 18, left: 46, bottom: 30, right: 8))
         drawGrid(in: chartRect)
         drawLabels(in: chartRect)
 
@@ -307,12 +328,17 @@ final class WellnessTrendChartView: UIView {
         let minimum = validValues.min() ?? 0
         let maximum = validValues.max() ?? 1
         let padding = max((maximum - minimum) * 0.18, 0.4)
-        let lower = minimum - padding
-        let range = max((maximum + padding) - lower, 0.001)
+        let lower = max(0, minimum - padding)
+        let upper = maximum + padding
+        let range = max(upper - lower, 0.001)
+        let average = validValues.reduce(0, +) / Double(validValues.count)
+        drawYAxisLabels(minimum: lower, maximum: upper, in: chartRect)
+
+        let displayedValues = WellnessTrendSmoothing.movingAverage(values, window: smoothingWindow)
         let pointCount = max(values.count, 2)
 
         var points: [CGPoint] = []
-        for (index, value) in values.enumerated() {
+        for (index, value) in displayedValues.enumerated() {
             guard let value else { continue }
             points.append(CGPoint(
                 x: chartRect.minX + chartRect.width * CGFloat(index) / CGFloat(pointCount - 1),
@@ -326,6 +352,7 @@ final class WellnessTrendChartView: UIView {
                 lineColor.setFill()
                 UIBezierPath(ovalIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)).fill()
             }
+            drawAverageLine(value: average, lower: lower, range: range, in: chartRect)
             return
         }
 
@@ -347,12 +374,65 @@ final class WellnessTrendChartView: UIView {
         linePath.lineJoinStyle = .round
         linePath.stroke()
 
+        drawAverageLine(value: average, lower: lower, range: range, in: chartRect)
+
         if let last = points.last {
             lineColor.withAlphaComponent(0.20).setFill()
             UIBezierPath(ovalIn: CGRect(x: last.x - 7, y: last.y - 7, width: 14, height: 14)).fill()
             lineColor.setFill()
             UIBezierPath(ovalIn: CGRect(x: last.x - 3.5, y: last.y - 3.5, width: 7, height: 7)).fill()
         }
+    }
+
+    private func drawYAxisLabels(minimum: Double, maximum: Double, in rect: CGRect) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: WellnarioTypography.font(for: .summaryDetail),
+            .foregroundColor: WellnarioPalette.textSecondary
+        ]
+        let maximumText = valueFormatter(maximum)
+        let minimumText = valueFormatter(minimum)
+        let maximumSize = maximumText.size(withAttributes: attributes)
+        let minimumSize = minimumText.size(withAttributes: attributes)
+        maximumText.draw(
+            at: CGPoint(x: rect.minX - maximumSize.width - 7, y: rect.minY - maximumSize.height / 2),
+            withAttributes: attributes
+        )
+        minimumText.draw(
+            at: CGPoint(x: rect.minX - minimumSize.width - 7, y: rect.maxY - minimumSize.height / 2),
+            withAttributes: attributes
+        )
+    }
+
+    private func drawAverageLine(value: Double, lower: Double, range: Double, in rect: CGRect) {
+        let y = rect.maxY - rect.height * CGFloat((value - lower) / range)
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: rect.minX, y: y))
+        path.addLine(to: CGPoint(x: rect.maxX, y: y))
+        path.setLineDash([6, 4], count: 2, phase: 0)
+        lineColor.withAlphaComponent(0.72).setStroke()
+        path.lineWidth = 1.5
+        path.stroke()
+
+        guard !averageTitle.isEmpty else { return }
+        let text = "\(averageTitle) \(valueFormatter(value))"
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: WellnarioTypography.font(for: .summaryDetail),
+            .foregroundColor: lineColor
+        ]
+        let size = text.size(withAttributes: attributes)
+        let labelRect = CGRect(
+            x: rect.maxX - size.width - 8,
+            y: min(max(rect.minY + 3, y - size.height - 5), rect.maxY - size.height - 3),
+            width: size.width + 8,
+            height: size.height + 3
+        )
+        let background = UIBezierPath(roundedRect: labelRect, cornerRadius: 5)
+        WellnarioPalette.surfaceElevated.withAlphaComponent(0.92).setFill()
+        background.fill()
+        text.draw(
+            at: CGPoint(x: labelRect.minX + 4, y: labelRect.minY + 1),
+            withAttributes: attributes
+        )
     }
 
     private func drawGrid(in rect: CGRect) {
