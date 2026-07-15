@@ -259,6 +259,11 @@ enum L10n {
         static var spanish: String { text("settings.language.spanish") }
         static var english: String { text("settings.language.english") }
         static var languageFooter: String { text("settings.language.footer") }
+        static var appearance: String { text("settings.appearance") }
+        static var appearanceDark: String { text("settings.appearance.dark") }
+        static var appearanceLight: String { text("settings.appearance.light") }
+        static var appearanceSystem: String { text("settings.appearance.system") }
+        static var appearanceFooter: String { text("settings.appearance.footer") }
         static var about: String { text("settings.about") }
         static var aboutBody: String { text("settings.about.body") }
         static var privacy: String { text("settings.privacy") }

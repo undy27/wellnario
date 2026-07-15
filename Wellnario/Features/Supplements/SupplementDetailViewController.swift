@@ -94,7 +94,6 @@ final class SupplementDetailViewController: FeatureViewController {
 
     private func makeHero(_ supplement: Supplement) -> PremiumCardView {
         let card = PremiumCardView()
-        card.showsAccent = true
         let kind = presentation.map { PresentationKind(name: $0.localizedName(language: catalogLanguage)) } ?? .other
         let artwork = PresentationArtworkView(kind: kind)
         artwork.primaryColor = WellnarioPalette.cyan

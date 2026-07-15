@@ -4,11 +4,19 @@ import UIKit
 final class SettingsViewController: UIViewController {
     private let spanishButton = LanguageChoiceControl(language: .spanish)
     private let englishButton = LanguageChoiceControl(language: .english)
+    private let darkAppearanceButton = AppearanceChoiceControl(mode: .dark)
+    private let lightAppearanceButton = AppearanceChoiceControl(mode: .light)
+    private let systemAppearanceButton = AppearanceChoiceControl(mode: .system)
     private let appleHealthRow = IntegrationRowControl(provider: .appleHealth)
     private let appleHealthService: AppleHealthSyncing
+    private let appearanceManager: WellnarioAppearanceManager
 
-    init(appleHealthService: AppleHealthSyncing) {
+    init(
+        appleHealthService: AppleHealthSyncing,
+        appearanceManager: WellnarioAppearanceManager = .shared
+    ) {
         self.appleHealthService = appleHealthService
+        self.appearanceManager = appearanceManager
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -19,6 +27,7 @@ final class SettingsViewController: UIViewController {
         super.viewDidLoad()
         setUpView()
         updateSelection()
+        updateAppearanceSelection()
         updateAppleHealthStatus()
         NotificationCenter.default.addObserver(
             self,
@@ -28,11 +37,25 @@ final class SettingsViewController: UIViewController {
         )
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
+    }
+
     private func setUpView() {
         view.backgroundColor = WellnarioPalette.background
         view.accessibilityIdentifier = "settings.root"
         title = L10n.Settings.title
         navigationItem.largeTitleDisplayMode = .never
+        let backButton = UIBarButtonItem(
+            image: UIImage(systemName: "chevron.backward"),
+            style: .plain,
+            target: self,
+            action: #selector(closeSettings)
+        )
+        backButton.accessibilityIdentifier = "settings.back"
+        backButton.accessibilityLabel = L10n.Common.back
+        navigationItem.leftBarButtonItem = backButton
 
         let scrollView = UIScrollView()
         scrollView.alwaysBounceVertical = true
@@ -62,6 +85,34 @@ final class SettingsViewController: UIViewController {
             spacing: WellnarioSpacing.xSmall
         )
         let languageCard = makeCard(containing: languageContent, identifier: "settings.language.card")
+
+        let appearanceTitle = makeSectionTitle(L10n.Settings.appearance)
+        let appearanceFooter = UILabel()
+        appearanceFooter.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)
+        appearanceFooter.text = L10n.Settings.appearanceFooter
+        appearanceFooter.numberOfLines = 0
+
+        darkAppearanceButton.accessibilityIdentifier = "settings.appearance.dark"
+        lightAppearanceButton.accessibilityIdentifier = "settings.appearance.light"
+        systemAppearanceButton.accessibilityIdentifier = "settings.appearance.system"
+        for button in [darkAppearanceButton, lightAppearanceButton, systemAppearanceButton] {
+            button.addTarget(self, action: #selector(appearanceTapped(_:)), for: .touchUpInside)
+        }
+
+        let appearanceChoices = UIStackView(
+            arrangedSubviews: [darkAppearanceButton, lightAppearanceButton, systemAppearanceButton],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxSmall
+        )
+        let appearanceContent = UIStackView(
+            arrangedSubviews: [appearanceTitle, appearanceChoices, appearanceFooter],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xSmall
+        )
+        let appearanceCard = makeCard(
+            containing: appearanceContent,
+            identifier: "settings.appearance.card"
+        )
 
         let integrationsTitle = makeSectionTitle(L10n.text("integrations.title"))
         let integrationsFooter = UILabel()
@@ -110,7 +161,14 @@ final class SettingsViewController: UIViewController {
         )
 
         let contentStack = UIStackView(
-            arrangedSubviews: [integrationsCard, languageCard, aboutCard, privacyCard, disclaimerCard],
+            arrangedSubviews: [
+                integrationsCard,
+                appearanceCard,
+                languageCard,
+                aboutCard,
+                privacyCard,
+                disclaimerCard
+            ],
             axis: .vertical,
             spacing: WellnarioSpacing.cardGap
         )
@@ -185,6 +243,13 @@ final class SettingsViewController: UIViewController {
         englishButton.isSelected = language == .english
     }
 
+    private func updateAppearanceSelection() {
+        let mode = appearanceManager.mode
+        darkAppearanceButton.isSelected = mode == .dark
+        lightAppearanceButton.isSelected = mode == .light
+        systemAppearanceButton.isSelected = mode == .system
+    }
+
     private func updateAppleHealthStatus() {
         let status: String
         let tone: UIColor
@@ -214,6 +279,13 @@ final class SettingsViewController: UIViewController {
         LocalizationManager.shared.setLanguage(sender.language)
     }
 
+    @objc private func appearanceTapped(_ sender: AppearanceChoiceControl) {
+        guard sender.mode != appearanceManager.mode else { return }
+        UISelectionFeedbackGenerator().selectionChanged()
+        appearanceManager.setMode(sender.mode)
+        updateAppearanceSelection()
+    }
+
     @objc private func integrationTapped(_ sender: IntegrationRowControl) {
         navigationController?.pushViewController(
             IntegrationSetupViewController(
@@ -222,6 +294,10 @@ final class SettingsViewController: UIViewController {
             ),
             animated: true
         )
+    }
+
+    @objc private func closeSettings() {
+        navigationController?.popViewController(animated: true)
     }
 
     @objc private func appleHealthDidChange() { updateAppleHealthStatus() }
@@ -288,14 +364,114 @@ private final class LanguageChoiceControl: UIControl {
         accessibilityTraits = [.button]
         accessibilityLabel = language.nativeDisplayName
         updateAppearance()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+            (self: LanguageChoiceControl, _: UITraitCollection) in
+            self.updateAppearance()
+        }
     }
 
     private func updateAppearance() {
         checkView.image = UIImage(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-        checkView.tintColor = isSelected ? WellnarioPalette.cyan : WellnarioPalette.textTertiary
-        layer.borderColor = (isSelected ? WellnarioPalette.cyan.withAlphaComponent(0.55) : WellnarioPalette.hairline).cgColor
+        checkView.tintColor = isSelected ? WellnarioPalette.fuchsia : WellnarioPalette.textTertiary
+        layer.borderColor = (isSelected ? WellnarioPalette.fuchsia.withAlphaComponent(0.55) : WellnarioPalette.hairline).cgColor
         backgroundColor = isSelected
-            ? WellnarioPalette.cyan.withAlphaComponent(0.10)
+            ? WellnarioPalette.fuchsia.withAlphaComponent(0.10)
+            : WellnarioPalette.surfaceElevated
+        if isSelected {
+            accessibilityTraits.insert(.selected)
+            accessibilityValue = L10n.Common.status
+        } else {
+            accessibilityTraits.remove(.selected)
+            accessibilityValue = nil
+        }
+    }
+}
+
+@MainActor
+private final class AppearanceChoiceControl: UIControl {
+    let mode: WellnarioAppearanceMode
+
+    override var isSelected: Bool {
+        didSet { updateAppearance() }
+    }
+
+    override var isHighlighted: Bool {
+        didSet {
+            WellnarioMotion.spring(duration: 0.16) {
+                self.transform = self.isHighlighted
+                    ? CGAffineTransform(scaleX: 0.985, y: 0.985)
+                    : .identity
+            }
+        }
+    }
+
+    private let titleLabel = UILabel()
+    private let checkView = UIImageView()
+
+    init(mode: WellnarioAppearanceMode) {
+        self.mode = mode
+        super.init(frame: .zero)
+        setUp()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setUp() {
+        backgroundColor = WellnarioPalette.surfaceElevated
+        applyContinuousCorners(WellnarioRadius.control)
+        layer.borderWidth = 1
+        heightAnchor.constraint(greaterThanOrEqualToConstant: 58).isActive = true
+
+        titleLabel.applyWellnarioStyle(.body, color: WellnarioPalette.textPrimary)
+        titleLabel.text = title
+
+        checkView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
+        checkView.setContentHuggingPriority(.required, for: .horizontal)
+
+        let row = UIStackView(
+            arrangedSubviews: [titleLabel, checkView],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.small,
+            alignment: .center
+        )
+        row.isUserInteractionEnabled = false
+        addForAutoLayout(row)
+        row.pinEdges(
+            to: self,
+            insets: NSDirectionalEdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
+        )
+
+        isAccessibilityElement = true
+        accessibilityTraits = [.button]
+        accessibilityLabel = title
+        updateAppearance()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+            (self: AppearanceChoiceControl, _: UITraitCollection) in
+            self.updateAppearance()
+        }
+    }
+
+    private var title: String {
+        switch mode {
+        case .dark: L10n.Settings.appearanceDark
+        case .light: L10n.Settings.appearanceLight
+        case .system: L10n.Settings.appearanceSystem
+        }
+    }
+
+    private func updateAppearance() {
+        checkView.image = UIImage(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+        checkView.tintColor = isSelected ? WellnarioPalette.fuchsia : WellnarioPalette.textTertiary
+        layer.borderColor = (
+            isSelected
+                ? WellnarioPalette.fuchsia.withAlphaComponent(0.55)
+                : WellnarioPalette.hairline
+        ).cgColor
+        backgroundColor = isSelected
+            ? WellnarioPalette.fuchsia.withAlphaComponent(0.10)
             : WellnarioPalette.surfaceElevated
         if isSelected {
             accessibilityTraits.insert(.selected)

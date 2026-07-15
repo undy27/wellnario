@@ -24,24 +24,24 @@ final class RootTabBarController: UITabBarController {
         setViewControllers(viewControllers, animated: false)
         let safeIndex = min(max(0, selectedIndex), max(0, viewControllers.count - 1))
         self.selectedIndex = safeIndex
-        floatingTabBar.selectedIndex = safeIndex
+        floatingTabBar.setSelectedIndex(safeIndex, animated: false)
     }
 
     func select(index: Int, animated: Bool = true) {
         guard let viewControllers, viewControllers.indices.contains(index) else { return }
+        guard let rootView = view else { return }
         guard selectedIndex != index else {
             (selectedViewController as? UINavigationController)?.popToRootViewController(animated: animated)
             return
         }
 
-        let changes = {
-            self.selectedIndex = index
-            self.floatingTabBar.selectedIndex = index
-        }
+        floatingTabBar.setSelectedIndex(index, animated: animated)
+        let contentContainer = selectedViewController?.view.superview ?? rootView
+        let changes = { self.selectedIndex = index }
 
         if animated && WellnarioMotion.animationsEnabled {
             UIView.transition(
-                with: view,
+                with: contentContainer,
                 duration: WellnarioMotion.standard,
                 options: [.transitionCrossDissolve, .allowAnimatedContent, .allowUserInteraction],
                 animations: changes

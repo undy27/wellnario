@@ -1,14 +1,10 @@
 import UIKit
 
-/// A reusable dark card with a subtle surface gradient, continuous corners and
-/// an optional signature accent. It behaves like a control when `isPressable`
-/// is enabled and automatically softens its motion for Reduce Motion users.
+/// A reusable dark card with a subtle surface gradient and continuous corners.
+/// It behaves like a control when `isPressable` is enabled and automatically
+/// softens its motion for Reduce Motion users.
 class PremiumCardView: UIControl {
     let contentView = UIView()
-
-    var showsAccent: Bool = false {
-        didSet { accentLayer.isHidden = !showsAccent }
-    }
 
     var isPressable: Bool = false {
         didSet {
@@ -39,7 +35,6 @@ class PremiumCardView: UIControl {
 
     private let surfaceLayer = CAGradientLayer()
     private let borderLayer = CAShapeLayer()
-    private let accentLayer = CAGradientLayer()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -66,14 +61,6 @@ class PremiumCardView: UIControl {
             cornerRadius: WellnarioRadius.card
         ).cgPath
 
-        let accentHeight: CGFloat = 3
-        accentLayer.frame = CGRect(
-            x: 1,
-            y: max(0, bounds.height - accentHeight - 1),
-            width: max(0, bounds.width - 2),
-            height: accentHeight
-        )
-        accentLayer.cornerRadius = accentHeight / 2
         layer.shadowPath = UIBezierPath(
             roundedRect: bounds,
             cornerRadius: WellnarioRadius.card
@@ -86,21 +73,14 @@ class PremiumCardView: UIControl {
         layer.cornerCurve = .continuous
         applyPremiumShadow()
 
-        surfaceLayer.colors = WellnarioPalette.surfaceGradient.map(\.cgColor)
         surfaceLayer.startPoint = CGPoint(x: 0.5, y: 0)
         surfaceLayer.endPoint = CGPoint(x: 0.5, y: 1)
         layer.insertSublayer(surfaceLayer, at: 0)
 
         borderLayer.fillColor = UIColor.clear.cgColor
-        borderLayer.strokeColor = WellnarioPalette.cardTopHighlight.cgColor
         borderLayer.lineWidth = 1
         layer.addSublayer(borderLayer)
-
-        accentLayer.colors = WellnarioPalette.signatureGradient.map(\.cgColor)
-        accentLayer.startPoint = CGPoint(x: 0, y: 0.5)
-        accentLayer.endPoint = CGPoint(x: 1, y: 0.5)
-        accentLayer.isHidden = true
-        layer.addSublayer(accentLayer)
+        updateLayerColors()
 
         addForAutoLayout(contentView)
         contentView.pinEdges(to: self)
@@ -113,6 +93,10 @@ class PremiumCardView: UIControl {
             name: UIAccessibility.darkerSystemColorsStatusDidChangeNotification,
             object: nil
         )
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+            (self: PremiumCardView, _: UITraitCollection) in
+            self.updateLayerColors()
+        }
     }
 
     private func updatePressedState() {
@@ -125,7 +109,16 @@ class PremiumCardView: UIControl {
     }
 
     @objc private func accessibilityAppearanceDidChange() {
-        borderLayer.strokeColor = WellnarioPalette.cardTopHighlight.cgColor
+        updateLayerColors()
+    }
+
+    private func updateLayerColors() {
+        surfaceLayer.colors = WellnarioPalette.surfaceGradient.map {
+            $0.resolvedColor(with: traitCollection).cgColor
+        }
+        borderLayer.strokeColor = WellnarioPalette.cardTopHighlight
+            .resolvedColor(with: traitCollection)
+            .cgColor
     }
 
     private func accessibilityText(in view: UIView) -> [String] {

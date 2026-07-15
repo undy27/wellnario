@@ -16,6 +16,7 @@ final class FitnessViewController: WellnessScrollViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.text("fitness.title")
+        navigationItem.largeTitleDisplayMode = .never
         view.accessibilityIdentifier = "fitness.root"
         NotificationCenter.default.addObserver(
             self,
@@ -24,6 +25,13 @@ final class FitnessViewController: WellnessScrollViewController {
             object: appleHealthService
         )
         buildContent()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
+        navigationController?.navigationBar.prefersLargeTitles = false
+        navigationItem.largeTitleDisplayMode = .never
     }
 
     private func buildContent() {
@@ -97,7 +105,6 @@ final class FitnessViewController: WellnessScrollViewController {
             alignment: .center
         )
         let card = makeCard(containing: content, identifier: "fitness.weekly.summary")
-        card.showsAccent = true
         card.isAccessibilityElement = true
         card.accessibilityLabel = L10n.text("fitness.this_week")
         card.accessibilityValue = "\(valueLabel.text ?? "0") \(L10n.text("fitness.workouts")), \(detail.text ?? "")"

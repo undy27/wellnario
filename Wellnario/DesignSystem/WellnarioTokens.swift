@@ -1,48 +1,107 @@
 import UIKit
 
-/// Semantic color roles used throughout Wellnario's dark, Peakwatch-inspired UI.
+enum WellnarioAppearanceMode: String, CaseIterable, Sendable {
+    case dark
+    case light
+    case system
+
+    var interfaceStyle: UIUserInterfaceStyle {
+        switch self {
+        case .dark: .dark
+        case .light: .light
+        case .system: .unspecified
+        }
+    }
+}
+
+@MainActor
+final class WellnarioAppearanceManager {
+    static let shared = WellnarioAppearanceManager()
+    static let didChangeNotification = Notification.Name("wellnario.appearance.didChange")
+
+    private static let preferenceKey = "wellnario.appearance.mode"
+    private let defaults: UserDefaults
+    private(set) var mode: WellnarioAppearanceMode
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        mode = defaults.string(forKey: Self.preferenceKey)
+            .flatMap(WellnarioAppearanceMode.init(rawValue:))
+            ?? .dark
+    }
+
+    func setMode(_ mode: WellnarioAppearanceMode) {
+        guard self.mode != mode else { return }
+        self.mode = mode
+        defaults.set(mode.rawValue, forKey: Self.preferenceKey)
+        NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+    }
+
+    func apply(to window: UIWindow) {
+        window.overrideUserInterfaceStyle = mode.interfaceStyle
+    }
+}
+
+/// Semantic color roles used throughout Wellnario in light and dark appearances.
 ///
 /// Feature code should use these roles instead of literal colors so increased
 /// contrast and reduced-transparency behavior remains consistent.
 @MainActor
 enum WellnarioPalette {
-    static let background = UIColor(hex: 0x050507)
-    static let surface = UIColor(hex: 0x19191D)
-    static let surfaceElevated = UIColor(hex: 0x222229)
-    static let surfacePressed = UIColor(hex: 0x2A2A32)
-    static let fieldBackground = UIColor(hex: 0x222229)
+    static let background = adaptive(light: 0xF6F6FA, dark: 0x050507)
+    static let surface = adaptive(light: 0xFFFFFF, dark: 0x19191D)
+    static let surfaceElevated = adaptive(light: 0xEEEEF4, dark: 0x222229)
+    static let surfacePressed = adaptive(light: 0xE3E3EB, dark: 0x2A2A32)
+    static let fieldBackground = adaptive(light: 0xF0F0F5, dark: 0x222229)
 
-    static let textPrimary = UIColor(hex: 0xF7F7FA)
-    static let textSecondary = UIColor(hex: 0xB0B0BA)
-    static let textTertiary = UIColor(hex: 0x8B8B95)
-    static let textDisabled = UIColor(hex: 0x5D5D66)
+    static let textPrimary = adaptive(light: 0x17171D, dark: 0xF7F7FA)
+    static let textSecondary = adaptive(light: 0x555560, dark: 0xB0B0BA)
+    static let textTertiary = adaptive(light: 0x73737F, dark: 0x8B8B95)
+    static let textDisabled = adaptive(light: 0xA0A0AA, dark: 0x5D5D66)
+    static let onAccent = UIColor.white
 
-    static let cyan = UIColor(hex: 0x40DCE6)
-    static let violet = UIColor(hex: 0x806CFF)
-    static let magenta = UIColor(hex: 0xD94EEC)
-    static let pink = UIColor(hex: 0xFF3E7D)
+    static let cyan = adaptive(light: 0x007F8C, dark: 0x40DCE6)
+    static let violet = adaptive(light: 0x6852E5, dark: 0x806CFF)
+    static let fuchsia = adaptive(light: 0xB72BC9, dark: 0xD94EEC)
+    static let magenta = fuchsia
+    static let pink = adaptive(light: 0xD91F5C, dark: 0xFF3E7D)
 
-    static let success = UIColor(hex: 0x66E26F)
-    static let warning = UIColor(hex: 0xFFB44D)
-    static let danger = UIColor(hex: 0xFF5C72)
-    static let information = UIColor(hex: 0x5BA7FF)
+    static let success = adaptive(light: 0x238A31, dark: 0x66E26F)
+    static let warning = adaptive(light: 0xA85F00, dark: 0xFFB44D)
+    static let danger = adaptive(light: 0xC72F48, dark: 0xFF5C72)
+    static let information = adaptive(light: 0x256EC4, dark: 0x5BA7FF)
+    static let synchronizationBannerOpacity: CGFloat = 0.45
 
     static var hairline: UIColor {
-        UIColor.white.withAlphaComponent(UIAccessibility.isDarkerSystemColorsEnabled ? 0.18 : 0.08)
+        adaptive(
+            light: 0x111118,
+            dark: 0xFFFFFF,
+            alpha: UIAccessibility.isDarkerSystemColorsEnabled ? 0.18 : 0.09
+        )
     }
 
     static var cardTopHighlight: UIColor {
-        UIColor.white.withAlphaComponent(UIAccessibility.isDarkerSystemColorsEnabled ? 0.14 : 0.06)
+        adaptive(
+            light: 0x111118,
+            dark: 0xFFFFFF,
+            alpha: UIAccessibility.isDarkerSystemColorsEnabled ? 0.16 : 0.07
+        )
     }
 
     static var glassSurface: UIColor {
-        UIAccessibility.isReduceTransparencyEnabled
-            ? UIColor(hex: 0x202025)
-            : UIColor(hex: 0x202025, alpha: 0.86)
+        adaptive(
+            light: 0xFFFFFF,
+            dark: 0x202025,
+            lightAlpha: UIAccessibility.isReduceTransparencyEnabled ? 1 : 0.88,
+            darkAlpha: UIAccessibility.isReduceTransparencyEnabled ? 1 : 0.86
+        )
     }
 
     static let signatureGradient = [cyan, violet, magenta, pink]
-    static let surfaceGradient = [UIColor(hex: 0x202024), surface]
+    static let surfaceGradient = [
+        adaptive(light: 0xFFFFFF, dark: 0x202024),
+        adaptive(light: 0xF1F1F6, dark: 0x19191D)
+    ]
 
     static func color(for tone: WellnarioTone) -> UIColor {
         switch tone {
@@ -52,6 +111,34 @@ enum WellnarioPalette {
         case .warning: warning
         case .danger: danger
         case .information: information
+        }
+    }
+
+    private static func adaptive(
+        light: UInt32,
+        dark: UInt32,
+        alpha: CGFloat = 1
+    ) -> UIColor {
+        adaptive(
+            light: light,
+            dark: dark,
+            lightAlpha: alpha,
+            darkAlpha: alpha
+        )
+    }
+
+    private static func adaptive(
+        light: UInt32,
+        dark: UInt32,
+        lightAlpha: CGFloat,
+        darkAlpha: CGFloat
+    ) -> UIColor {
+        UIColor { traits in
+            if traits.userInterfaceStyle == .dark {
+                UIColor(hex: dark, alpha: darkAlpha)
+            } else {
+                UIColor(hex: light, alpha: lightAlpha)
+            }
         }
     }
 }

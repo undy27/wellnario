@@ -132,12 +132,7 @@ final class SkeletonView: UIView {
         applyContinuousCorners(WellnarioRadius.small)
         clipsToBounds = true
 
-        let base = WellnarioPalette.surfaceElevated
-        gradientLayer.colors = [
-            base.cgColor,
-            UIColor.white.withAlphaComponent(0.08).cgColor,
-            base.cgColor
-        ]
+        updateColors()
         gradientLayer.locations = [0, 0.5, 1]
         gradientLayer.startPoint = CGPoint(x: 0, y: 0.5)
         gradientLayer.endPoint = CGPoint(x: 1, y: 0.5)
@@ -149,6 +144,17 @@ final class SkeletonView: UIView {
             name: UIAccessibility.reduceMotionStatusDidChangeNotification,
             object: nil
         )
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+            (self: SkeletonView, _: UITraitCollection) in
+            self.updateColors()
+        }
+    }
+
+    private func updateColors() {
+        let base = WellnarioPalette.surfaceElevated.resolvedColor(with: traitCollection)
+        let highlight = WellnarioPalette.textPrimary.resolvedColor(with: traitCollection)
+            .withAlphaComponent(0.08)
+        gradientLayer.colors = [base.cgColor, highlight.cgColor, base.cgColor]
     }
 
     @objc private func reduceMotionChanged() {
@@ -202,6 +208,9 @@ final class FeedbackBannerView: UIView {
     let actionButton = UIButton(type: .system)
 
     var onAction: (() -> Void)?
+    var backgroundOpacityOverride: CGFloat? {
+        didSet { updateToneAppearance() }
+    }
 
     private(set) var tone: WellnarioTone = .information
 
@@ -221,15 +230,11 @@ final class FeedbackBannerView: UIView {
         actionTitle: String? = nil
     ) {
         self.tone = tone
-        let color = WellnarioPalette.color(for: tone)
-        backgroundColor = color.withAlphaComponent(UIAccessibility.isReduceTransparencyEnabled ? 0.22 : 0.15)
-        layer.borderColor = color.withAlphaComponent(0.40).cgColor
         iconView.image = UIImage(systemName: Self.symbolName(for: tone))
-        iconView.tintColor = color
         messageLabel.text = message
         actionButton.setTitle(actionTitle, for: .normal)
         actionButton.isHidden = actionTitle == nil
-        actionButton.setTitleColor(color, for: .normal)
+        updateToneAppearance()
         accessibilityLabel = [Self.accessibilityPrefix(for: tone), message].joined(separator: ". ")
         let hasAction = actionTitle != nil
         isAccessibilityElement = !hasAction
@@ -266,10 +271,26 @@ final class FeedbackBannerView: UIView {
 
         isAccessibilityElement = true
         accessibilityTraits = [.staticText]
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+            (self: FeedbackBannerView, _: UITraitCollection) in
+            self.updateToneAppearance()
+        }
     }
 
     @objc private func actionTapped() {
         onAction?()
+    }
+
+    private func updateToneAppearance() {
+        let color = WellnarioPalette.color(for: tone)
+        let opacity = backgroundOpacityOverride
+            ?? (UIAccessibility.isReduceTransparencyEnabled ? 0.22 : 0.15)
+        backgroundColor = color.withAlphaComponent(opacity)
+        layer.borderColor = color.resolvedColor(with: traitCollection)
+            .withAlphaComponent(0.40)
+            .cgColor
+        iconView.tintColor = color
+        actionButton.setTitleColor(color, for: .normal)
     }
 
     private static func symbolName(for tone: WellnarioTone) -> String {

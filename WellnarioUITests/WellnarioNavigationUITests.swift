@@ -55,18 +55,89 @@ final class WellnarioNavigationUITests: XCTestCase {
     }
 
     @MainActor
+    func testSettingsCanReturnToToday() {
+        let app = launch(language: "es", initialTab: "today")
+        let settings = app.buttons["today.settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        settings.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["settings.root"].waitForExistence(timeout: 3))
+        let back = app.buttons["settings.back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 3))
+        back.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["today.root"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.descendants(matching: .any)["settings.root"].exists)
+    }
+
+    @MainActor
+    func testChangingAppearanceKeepsSettingsOpenAndPersistsSelection() {
+        let app = launch(language: "es", initialTab: "today")
+        let settings = app.buttons["today.settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        settings.tap()
+
+        let light = app.descendants(matching: .any)["settings.appearance.light"]
+        XCTAssertTrue(light.waitForExistence(timeout: 3))
+        for _ in 0..<3 where !light.isHittable { app.swipeUp() }
+        XCTAssertTrue(light.isHittable)
+        light.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["settings.root"].waitForExistence(timeout: 5))
+        let rebuiltLight = app.descendants(matching: .any)["settings.appearance.light"]
+        XCTAssertTrue(rebuiltLight.waitForExistence(timeout: 3))
+        XCTAssertTrue(rebuiltLight.isSelected)
+        XCTAssertTrue(app.buttons["tab.tab.today"].isSelected)
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Configuración — modo claro"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
+    func testAppleHealthSetupShowsSourceSelectionSection() {
+        let app = launch(language: "es", initialTab: "today")
+        let settings = app.buttons["today.settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        settings.tap()
+
+        let appleHealth = app.descendants(matching: .any)["settings.integration.apple_health"]
+        XCTAssertTrue(appleHealth.waitForExistence(timeout: 3))
+        appleHealth.tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["settings.integration.apple_health.detail"]
+                .waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["settings.integration.apple_health.sources"]
+                .waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(
+            app.staticTexts["settings.integration.apple_health.sources.empty"]
+                .waitForExistence(timeout: 3)
+        )
+    }
+
+    @MainActor
     func testSleepTrendPeriodSelectorOffersAllRanges() {
         let app = launch(language: "es", initialTab: "sleep")
         let selector = app.segmentedControls["sleep.trend.period.selector"]
         XCTAssertTrue(selector.waitForExistence(timeout: 5))
         let metricSelector = app.segmentedControls["sleep.trend.metric.selector"]
         XCTAssertTrue(metricSelector.waitForExistence(timeout: 3))
+        let referenceSelector = app.segmentedControls["sleep.trend.reference.selector"]
+        XCTAssertTrue(referenceSelector.waitForExistence(timeout: 3))
 
         for title in ["7d", "30d", "6m", "Desde el principio"] {
             XCTAssertTrue(selector.buttons[title].exists, "Missing sleep trend period: \(title)")
         }
         for title in ["Calidad", "Duración", "REM", "Profundo", "Ligero"] {
             XCTAssertTrue(metricSelector.buttons[title].exists, "Missing sleep trend metric: \(title)")
+        }
+        for title in ["Media", "Tendencia"] {
+            XCTAssertTrue(referenceSelector.buttons[title].exists, "Missing sleep reference line: \(title)")
         }
 
         let rem = metricSelector.buttons["REM"]
@@ -81,6 +152,41 @@ final class WellnarioNavigationUITests: XCTestCase {
             XCTAssertTrue(period.isHittable)
             period.tap()
             XCTAssertTrue(period.isSelected)
+        }
+    }
+
+    @MainActor
+    func testSleepTitleRemainsVisibleWhileContentScrolls() {
+        let app = launch(language: "es", initialTab: "sleep")
+        let navigationBar = app.navigationBars["Sueño"]
+        XCTAssertTrue(navigationBar.waitForExistence(timeout: 5))
+        let title = navigationBar.staticTexts["Sueño"]
+        XCTAssertTrue(title.exists)
+        let initialFrame = title.frame
+
+        app.swipeUp()
+
+        XCTAssertTrue(title.exists)
+        XCTAssertEqual(title.frame.minY, initialFrame.minY, accuracy: 1)
+        XCTAssertEqual(title.frame.height, initialFrame.height, accuracy: 1)
+    }
+
+    @MainActor
+    func testHealthAndFitnessTitlesRemainVisibleWhileContentScrolls() {
+        for (tab, titleText) in [("health", "Salud"), ("fitness", "Fitness")] {
+            let app = launch(language: "es", initialTab: tab)
+            let navigationBar = app.navigationBars[titleText]
+            XCTAssertTrue(navigationBar.waitForExistence(timeout: 5))
+            let title = navigationBar.staticTexts[titleText]
+            XCTAssertTrue(title.exists)
+            let initialFrame = title.frame
+
+            app.swipeUp()
+
+            XCTAssertTrue(title.exists)
+            XCTAssertEqual(title.frame.minY, initialFrame.minY, accuracy: 1)
+            XCTAssertEqual(title.frame.height, initialFrame.height, accuracy: 1)
+            app.terminate()
         }
     }
 
@@ -134,6 +240,7 @@ final class WellnarioNavigationUITests: XCTestCase {
             "--ui-testing",
             "--reset-data",
             "--language", language,
+            "--appearance", "dark",
             "--initial-tab", initialTab
         ]
         app.launch()

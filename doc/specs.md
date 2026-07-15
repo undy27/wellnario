@@ -2,7 +2,7 @@
 
 ## Descripción y objetivos
 
-Wellnario es una app multiplataforma (iOS, macOS, Web) para gestionar aspectos de la salud que, destacando algunos que no están cubiertos por la mayoría de las apps generalistas de salud que hay en el mercadoles.
+Wellnario es una app multiplataforma (iOS, macOS, Web) para gestionar aspectos de la salud, destacando algunos que no están cubiertos por la mayoría de las apps generalistas de salud del mercado.
 
 ### Funcionalidades
 
@@ -115,11 +115,69 @@ Wellnario es una app multiplataforma (iOS, macOS, Web) para gestionar aspectos d
 
 ## Interfaz de usuario
 
-Inicialmente desarrollaremos únicamente la funcionalidad de gestión de suplementos, pero crearemos placeholders de menús y opciones de menú para las otras funcionalidades
+### Navegación principal
 
-Instrucciones para el diseño de la interfaz:
+- La barra inferior contiene cinco destinos: **Hoy**, **Suplementos**, **Sueño**, **Salud** y **Fitness**.
+- La selección se representa mediante una cápsula fucsia animada. La transición replica el lenguaje de movimiento de los selectores internos: la cápsula cambia de tamaño y transparencia mientras se desplaza.
+- Los títulos de Sueño, Salud y Fitness permanecen visibles mientras se desplaza el contenido.
 
-El menú de configuración permitirá escoger idioma (entre inglés y español). La app será multilenguaje.
+### Hoy
+
+- Muestra tarjetas resumen compactas de Sueño, Recuperación, Estrés, Suplementos y Fitness.
+- Ofrece accesos directos para:
+    - Añadir una toma de suplementos.
+    - Iniciar un entrenamiento.
+    - Cargar una analítica.
+    - Registrar un factor que pueda influir en el sueño, tanto predefinido como creado por el usuario.
+
+### Sueño
+
+- La última sesión de sueño se presenta en una única tarjeta con duración, horario, fuente y un hipnograma nocturno.
+- El hipnograma representa Despierto, REM, Ligero y Profundo a lo largo de la noche, e indica a la derecha la duración total de cada fase con formato compacto, por ejemplo `1h 43m`.
+- La tarjeta de estado de Apple Health sólo aparece cuando la integración está configurada. Permanece fija bajo el título, utiliza un 45 % de opacidad y conserva el mismo tamaño durante la sincronización y una vez completada.
+- La gráfica de tendencia permite seleccionar las métricas Calidad, Duración, REM, Profundo y Ligero. Calidad corresponde a la puntuación de sueño disponible en Apple Health.
+- Los intervalos disponibles son 7 días, 30 días, 6 meses y Desde el principio:
+    - 7 días y 30 días: un dato por día.
+    - 6 meses: una media por semana cuando existe al menos un mes de datos; en caso contrario, un dato por día.
+    - Desde el principio: una media por año cuando existen al menos dos años de datos; en caso contrario, un dato por día.
+- Las curvas de 6 meses y Desde el principio se suavizan para facilitar la lectura.
+- La escala vertical se ajusta al rango real visible y muestra sus valores mínimo y máximo.
+- El usuario puede mantener el dedo y arrastrarlo por la gráfica para consultar fecha y valor, con respuesta háptica al cambiar de punto.
+- Un selector persistente permite mostrar exclusivamente Media o Tendencia. La opción predeterminada es Tendencia:
+    - La media se dibuja en cyan.
+    - La tendencia es una regresión lineal calculada con todos los datos diarios del intervalo, aunque la serie visible esté agregada. Se muestra en verde cuando asciende y en rojo cuando desciende, con sus valores inicial y final rotulados sobre la línea.
+
+### Salud y Fitness
+
+- Salud muestra los biomarcadores actuales y la edad biológica estimada.
+- Su tarjeta de sincronización sigue la misma posición fija, tamaño y transparencia que la de Sueño.
+- Fitness muestra el resumen de actividad y entrenamientos, con acceso directo para iniciar una sesión.
+
+### Integración con Apple Health
+
+- La configuración permite conectar Wellnario con Apple Health y solicitar permisos de lectura y escritura con las descripciones de privacidad requeridas por iOS.
+- La sincronización se ejecuta únicamente al conectar Apple Health, al arrancar la app o al abandonar la selección de fuentes después de modificarla.
+- Las fuentes disponibles se organizan en secciones desplegables: Sueño, Corazón, Actividad y Entrenamientos.
+- Cada fuente puede activarse o desactivarse por categoría, permitiendo excluir dispositivos o aplicaciones cuyos datos no sean fiables.
+- Los cambios de fuentes se acumulan en pantalla y provocan una sola resincronización al salir, siempre que haya modificaciones.
+- La configuración también ofrece la conexión con Oura mediante su API.
+
+### Apariencia y accesibilidad
+
+- En Configuración se puede seleccionar **Oscuro**, **Claro** o **Sistema**.
+- Oscuro es el modo predeterminado para instalaciones que aún no tengan una preferencia guardada.
+- La selección persiste entre ejecuciones. Sistema sigue en vivo la apariencia configurada en iOS.
+- La interfaz clara dispone de una paleta semántica completa para fondos, superficies, tarjetas, textos, campos, estados, gráficas y navegación, manteniendo el contraste y la jerarquía visual.
+- Todos los selectores de la app utilizan fucsia como color de selección.
+- La app responde inmediatamente a los cambios de tamaño de texto de iOS, tanto al aumentarlo como al reducirlo, sin necesidad de reiniciarla.
+- Se respetan Reducir movimiento, Reducir transparencia, colores de mayor contraste y Dynamic Type.
+
+### Configuración general
+
+- El menú de configuración permite escoger idioma entre inglés y español. La app es multilenguaje.
+- Configuración siempre ofrece una navegación de vuelta al resumen de Hoy.
+
+### Dirección visual
 
 Intenta hacer la interfaz de usuario lo más parecida posible a la de la app Peakwatch
 

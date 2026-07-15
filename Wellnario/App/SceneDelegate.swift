@@ -19,6 +19,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         bootstrap(in: window)
     }
 
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        coordinator?.refreshSystemAppearanceIfNeeded()
+        coordinator?.refreshDynamicTypeIfNeeded()
+    }
+
     private func bootstrap(in window: UIWindow) {
         do {
             let environment = try AppEnvironment()

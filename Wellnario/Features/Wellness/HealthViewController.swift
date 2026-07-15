@@ -3,8 +3,13 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class HealthViewController: WellnessScrollViewController, UIDocumentPickerDelegate {
+    private static let sourceBannerHeight: CGFloat = 76
+
     var onOpenSettings: (() -> Void)?
     private let appleHealthService: AppleHealthSyncing
+    private let sourceBanner = FeedbackBannerView()
+    private var isSourceBannerVisible = false
+    private var appliedSourceBannerInset: CGFloat = 0
 
     init(appleHealthService: AppleHealthSyncing) {
         self.appleHealthService = appleHealthService
@@ -17,6 +22,7 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.text("health.title")
+        navigationItem.largeTitleDisplayMode = .never
         view.accessibilityIdentifier = "health.root"
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             image: UIImage(systemName: "gearshape"),
@@ -31,11 +37,25 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
             name: .appleHealthSyncDidChange,
             object: appleHealthService
         )
+        setUpSourceBanner()
         buildContent()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
+        navigationController?.navigationBar.prefersLargeTitles = false
+        navigationItem.largeTitleDisplayMode = .never
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateScrollInsetsForSourceBanner()
     }
 
     private func buildContent() {
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        updateSourceBanner()
         contentStack.addArrangedSubview(makeBiologicalAgeCard())
         contentStack.setCustomSpacing(WellnarioSpacing.large, after: contentStack.arrangedSubviews.last!)
         contentStack.addArrangedSubview(makeSectionTitle(
@@ -54,8 +74,60 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
         importButton.accessibilityIdentifier = "health.import_lab"
         importButton.addTarget(self, action: #selector(importLab), for: .touchUpInside)
         contentStack.addArrangedSubview(importButton)
+    }
 
-        contentStack.addArrangedSubview(makeSourceBanner())
+    private func setUpSourceBanner() {
+        sourceBanner.accessibilityIdentifier = "health.source.banner"
+        sourceBanner.backgroundOpacityOverride = WellnarioPalette.synchronizationBannerOpacity
+        sourceBanner.isHidden = true
+        view.addForAutoLayout(sourceBanner)
+        NSLayoutConstraint.activate([
+            sourceBanner.leadingAnchor.constraint(
+                equalTo: view.leadingAnchor,
+                constant: WellnarioSpacing.screenHorizontal
+            ),
+            sourceBanner.trailingAnchor.constraint(
+                equalTo: view.trailingAnchor,
+                constant: -WellnarioSpacing.screenHorizontal
+            ),
+            sourceBanner.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.topAnchor,
+                constant: WellnarioSpacing.xxxSmall
+            ),
+            sourceBanner.heightAnchor.constraint(equalToConstant: Self.sourceBannerHeight)
+        ])
+        view.bringSubviewToFront(sourceBanner)
+    }
+
+    private func updateSourceBanner() {
+        guard appleHealthService.isConfigured else {
+            isSourceBannerVisible = false
+            sourceBanner.isHidden = true
+            view.setNeedsLayout()
+            return
+        }
+
+        isSourceBannerVisible = true
+        sourceBanner.isHidden = false
+        configureSourceBanner(sourceBanner)
+        view.bringSubviewToFront(sourceBanner)
+        view.setNeedsLayout()
+    }
+
+    private func updateScrollInsetsForSourceBanner() {
+        let targetInset = isSourceBannerVisible
+            ? sourceBanner.bounds.height + WellnarioSpacing.xxxSmall
+            : 0
+        guard abs(targetInset - appliedSourceBannerInset) > 0.5 else { return }
+
+        let previousAdjustedTop = scrollView.adjustedContentInset.top
+        let wasAtTop = scrollView.contentOffset.y <= -previousAdjustedTop + 1
+        appliedSourceBannerInset = targetInset
+        scrollView.contentInset.top = targetInset
+        scrollView.verticalScrollIndicatorInsets.top = targetInset
+        if wasAtTop {
+            scrollView.contentOffset.y = -scrollView.adjustedContentInset.top
+        }
     }
 
     private func makeBiologicalAgeCard() -> PremiumCardView {
@@ -96,7 +168,6 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
             alignment: .center
         )
         let card = makeCard(containing: content, identifier: "health.biological_age")
-        card.showsAccent = true
         card.isAccessibilityElement = true
         card.accessibilityLabel = L10n.text("health.biological_age.title")
         card.accessibilityValue = L10n.text("sleep.no_data")
@@ -188,8 +259,8 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
         )
     }
 
-    private func makeSourceBanner() -> FeedbackBannerView {
-        let banner = FeedbackBannerView()
+    private func configureSourceBanner(_ banner: FeedbackBannerView) {
+        banner.onAction = nil
         switch appleHealthService.state {
         case .unavailable:
             banner.configure(message: L10n.text("apple_health.unavailable"), tone: .warning)
@@ -219,7 +290,6 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
             )
             banner.onAction = { [weak self] in self?.syncNow() }
         }
-        return banner
     }
 
     private func actionConfiguration(title: String, symbolName: String, color: UIColor) -> UIButton.Configuration {

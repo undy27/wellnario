@@ -51,17 +51,22 @@ final class AppCoordinator: NSObject {
     private let window: UIWindow
     private let environment: AppEnvironment
     private let featureFactory: RootFeatureBuilding
+    private let appearanceManager: WellnarioAppearanceManager
 
     private var rootTabBarController: RootTabBarController?
     private var isRebuildingRoot = false
+    private var appliedContentSizeCategory: UIContentSizeCategory?
+    private var appliedSystemInterfaceStyle: UIUserInterfaceStyle?
 
     init(
         window: UIWindow,
         environment: AppEnvironment,
-        featureFactory: RootFeatureBuilding? = nil
+        featureFactory: RootFeatureBuilding? = nil,
+        appearanceManager: WellnarioAppearanceManager = .shared
     ) {
         self.window = window
         self.environment = environment
+        self.appearanceManager = appearanceManager
         self.featureFactory = featureFactory
             ?? LiveRootFeatureFactory(
                 repository: environment.repository,
@@ -75,6 +80,18 @@ final class AppCoordinator: NSObject {
             name: LocalizationManager.didChangeNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(contentSizeCategoryDidChange),
+            name: UIContentSizeCategory.didChangeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appearanceDidChange),
+            name: WellnarioAppearanceManager.didChangeNotification,
+            object: appearanceManager
+        )
     }
 
     deinit {
@@ -82,10 +99,36 @@ final class AppCoordinator: NSObject {
     }
 
     func start() {
+        appearanceManager.apply(to: window)
+        window.backgroundColor = WellnarioPalette.background
         let index = environment.launchConfiguration.initialTab.rawValue
         installRoot(selectedIndex: index, restoringSettings: false, animated: false)
         window.makeKeyAndVisible()
+        appliedSystemInterfaceStyle = window.traitCollection.userInterfaceStyle
+        refreshDynamicTypeIfNeeded(force: true)
         Task { await environment.appleHealthService.syncIfConfigured() }
+    }
+
+    func refreshSystemAppearanceIfNeeded() {
+        guard appearanceManager.mode == .system else { return }
+        let currentStyle = window.traitCollection.userInterfaceStyle
+        guard currentStyle != .unspecified,
+              currentStyle != appliedSystemInterfaceStyle,
+              !isRebuildingRoot else { return }
+        appliedSystemInterfaceStyle = currentStyle
+        rebuildRootPreservingState(animated: false)
+    }
+
+    func refreshDynamicTypeIfNeeded(force: Bool = false) {
+        guard let rootView = window.rootViewController?.viewIfLoaded else { return }
+        let category = rootView.traitCollection.preferredContentSizeCategory
+        guard force || appliedContentSizeCategory != category else { return }
+        appliedContentSizeCategory = category
+
+        rootView.refreshWellnarioDynamicType(compatibleWith: rootView.traitCollection)
+        UIView.performWithoutAnimation {
+            rootView.layoutIfNeeded()
+        }
     }
 
     private func installRoot(
@@ -209,6 +252,33 @@ final class AppCoordinator: NSObject {
             selectedIndex: selectedIndex,
             restoringSettings: settingsIsVisible,
             animated: true
+        )
+        isRebuildingRoot = false
+    }
+
+    @objc private func contentSizeCategoryDidChange() {
+        refreshDynamicTypeIfNeeded(force: true)
+    }
+
+    @objc private func appearanceDidChange() {
+        appearanceManager.apply(to: window)
+        appliedSystemInterfaceStyle = window.traitCollection.userInterfaceStyle
+        rebuildRootPreservingState(animated: true)
+    }
+
+    private func rebuildRootPreservingState(animated: Bool) {
+        guard !isRebuildingRoot else { return }
+        isRebuildingRoot = true
+        let selectedIndex = rootTabBarController?.selectedIndex
+            ?? environment.launchConfiguration.initialTab.rawValue
+        let settingsIsVisible = rootTabBarController?.viewControllers?.first
+            .flatMap { $0 as? UINavigationController }?
+            .viewControllers
+            .contains { $0 is SettingsViewController } ?? false
+        installRoot(
+            selectedIndex: selectedIndex,
+            restoringSettings: settingsIsVisible,
+            animated: animated
         )
         isRebuildingRoot = false
     }

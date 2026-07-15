@@ -85,14 +85,14 @@ final class ArchivedItemsViewController: FeatureViewController {
         view.addForAutoLayout(descriptionLabel)
 
         segmentedControl.selectedSegmentIndex = mode.rawValue
-        segmentedControl.selectedSegmentTintColor = WellnarioPalette.surfacePressed
+        segmentedControl.selectedSegmentTintColor = WellnarioPalette.fuchsia
         segmentedControl.backgroundColor = WellnarioPalette.surface
         segmentedControl.setTitleTextAttributes([
             .foregroundColor: WellnarioPalette.textSecondary,
             .font: WellnarioTypography.font(for: .caption)
         ], for: .normal)
         segmentedControl.setTitleTextAttributes([
-            .foregroundColor: WellnarioPalette.cyan,
+            .foregroundColor: UIColor.white,
             .font: WellnarioTypography.font(for: .caption)
         ], for: .selected)
         segmentedControl.accessibilityIdentifier = "archive.segments"
@@ -403,7 +403,9 @@ final class ArchivedItemsViewController: FeatureViewController {
 
     private func selectMode(_ mode: Mode) {
         self.mode = mode
-        segmentedControl.selectedSegmentIndex = mode.rawValue
+        if segmentedControl.selectedSegmentIndex != mode.rawValue {
+            segmentedControl.selectedSegmentIndex = mode.rawValue
+        }
         query = ""
         searchController.searchBar.text = nil
         tableView.reloadData()

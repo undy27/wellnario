@@ -7,6 +7,20 @@ struct AppleHealthMeasurement: Codable, Equatable, Sendable {
     let sourceName: String
 }
 
+enum AppleHealthSleepStage: String, Codable, Equatable, Sendable {
+    case awake
+    case rem
+    case core
+    case deep
+    case asleepUnspecified
+}
+
+struct AppleHealthSleepStageInterval: Codable, Equatable, Sendable {
+    let startDate: Date
+    let endDate: Date
+    let stage: AppleHealthSleepStage
+}
+
 struct AppleHealthSleepSession: Codable, Equatable, Sendable {
     let startDate: Date
     let endDate: Date
@@ -17,6 +31,61 @@ struct AppleHealthSleepSession: Codable, Equatable, Sendable {
     let deepSeconds: TimeInterval
     let remSeconds: TimeInterval
     let sourceNames: [String]
+    let stageIntervals: [AppleHealthSleepStageInterval]
+
+    init(
+        startDate: Date,
+        endDate: Date,
+        asleepSeconds: TimeInterval,
+        inBedSeconds: TimeInterval,
+        awakeSeconds: TimeInterval,
+        coreSeconds: TimeInterval,
+        deepSeconds: TimeInterval,
+        remSeconds: TimeInterval,
+        sourceNames: [String],
+        stageIntervals: [AppleHealthSleepStageInterval] = []
+    ) {
+        self.startDate = startDate
+        self.endDate = endDate
+        self.asleepSeconds = asleepSeconds
+        self.inBedSeconds = inBedSeconds
+        self.awakeSeconds = awakeSeconds
+        self.coreSeconds = coreSeconds
+        self.deepSeconds = deepSeconds
+        self.remSeconds = remSeconds
+        self.sourceNames = sourceNames
+        self.stageIntervals = stageIntervals
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case startDate
+        case endDate
+        case asleepSeconds
+        case inBedSeconds
+        case awakeSeconds
+        case coreSeconds
+        case deepSeconds
+        case remSeconds
+        case sourceNames
+        case stageIntervals
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        startDate = try container.decode(Date.self, forKey: .startDate)
+        endDate = try container.decode(Date.self, forKey: .endDate)
+        asleepSeconds = try container.decode(TimeInterval.self, forKey: .asleepSeconds)
+        inBedSeconds = try container.decode(TimeInterval.self, forKey: .inBedSeconds)
+        awakeSeconds = try container.decode(TimeInterval.self, forKey: .awakeSeconds)
+        coreSeconds = try container.decode(TimeInterval.self, forKey: .coreSeconds)
+        deepSeconds = try container.decode(TimeInterval.self, forKey: .deepSeconds)
+        remSeconds = try container.decode(TimeInterval.self, forKey: .remSeconds)
+        sourceNames = try container.decode([String].self, forKey: .sourceNames)
+        stageIntervals = try container.decodeIfPresent(
+            [AppleHealthSleepStageInterval].self,
+            forKey: .stageIntervals
+        ) ?? []
+    }
 }
 
 struct AppleHealthSleepDay: Codable, Equatable, Sendable {
@@ -51,6 +120,29 @@ enum AppleHealthSleepTrendPeriod: Int, CaseIterable, Sendable {
     case allTime
 }
 
+enum AppleHealthSleepTrendGranularity: Equatable, Sendable {
+    case day
+    case week
+    case month
+    case year
+}
+
+struct AppleHealthSleepTrendSeries: Equatable, Sendable {
+    let entries: [AppleHealthSleepDay]
+    let dailyEntries: [AppleHealthSleepDay]
+    let granularity: AppleHealthSleepTrendGranularity
+
+    init(
+        entries: [AppleHealthSleepDay],
+        dailyEntries: [AppleHealthSleepDay]? = nil,
+        granularity: AppleHealthSleepTrendGranularity
+    ) {
+        self.entries = entries
+        self.dailyEntries = dailyEntries ?? entries
+        self.granularity = granularity
+    }
+}
+
 enum AppleHealthWorkoutKind: String, Codable, Equatable, Sendable {
     case walking
     case running
@@ -70,6 +162,26 @@ struct AppleHealthWorkout: Codable, Equatable, Sendable {
     let durationSeconds: TimeInterval
     let activeEnergyKilocalories: Double?
     let sourceName: String
+}
+
+enum AppleHealthDataKind: String, Codable, CaseIterable, Equatable, Sendable {
+    case sleep
+    case heart
+    case activity
+    case workouts
+}
+
+struct AppleHealthDataSource: Codable, Equatable, Identifiable, Sendable {
+    let identifier: String
+    let name: String
+    let dataKinds: [AppleHealthDataKind]
+
+    var id: String { identifier }
+}
+
+struct AppleHealthSourceSelection: Codable, Equatable, Hashable, Sendable {
+    let sourceIdentifier: String
+    let dataKind: AppleHealthDataKind
 }
 
 struct AppleHealthSnapshot: Codable, Equatable, Sendable {
@@ -120,10 +232,17 @@ protocol AppleHealthSyncing: AnyObject {
     var snapshot: AppleHealthSnapshot { get }
     var state: AppleHealthSyncState { get }
     var isConfigured: Bool { get }
+    var availableSources: [AppleHealthDataSource] { get }
+    var disabledSourceSelections: Set<AppleHealthSourceSelection> { get }
 
     func requestAuthorizationAndSync() async throws
     func sync() async throws
     func syncIfConfigured() async
+    func setSourceEnabled(
+        _ identifier: String,
+        for dataKind: AppleHealthDataKind,
+        isEnabled: Bool
+    )
 }
 
 struct AppleHealthSnapshotCache {
@@ -160,6 +279,57 @@ struct AppleHealthSnapshotCache {
     }
 }
 
+struct AppleHealthSourcePreferences {
+    private let defaults: UserDefaults
+    private let sourcesKey: String
+    private let disabledSelectionsKey: String
+    private let legacyDisabledSourcesKey: String
+
+    init(
+        defaults: UserDefaults = .standard,
+        sourcesKey: String = "appleHealth.sources.v1",
+        disabledSelectionsKey: String = "appleHealth.disabledSourceSelections.v2",
+        legacyDisabledSourcesKey: String = "appleHealth.disabledSources.v1"
+    ) {
+        self.defaults = defaults
+        self.sourcesKey = sourcesKey
+        self.disabledSelectionsKey = disabledSelectionsKey
+        self.legacyDisabledSourcesKey = legacyDisabledSourcesKey
+    }
+
+    func loadSources() -> [AppleHealthDataSource] {
+        guard let data = defaults.data(forKey: sourcesKey),
+              let sources = try? JSONDecoder().decode([AppleHealthDataSource].self, from: data) else {
+            return []
+        }
+        return sources
+    }
+
+    func saveSources(_ sources: [AppleHealthDataSource]) {
+        guard let data = try? JSONEncoder().encode(sources) else { return }
+        defaults.set(data, forKey: sourcesKey)
+    }
+
+    func loadDisabledSourceSelections() -> Set<AppleHealthSourceSelection> {
+        if let data = defaults.data(forKey: disabledSelectionsKey),
+           let selections = try? JSONDecoder().decode(Set<AppleHealthSourceSelection>.self, from: data) {
+            return selections
+        }
+
+        let legacyIdentifiers = Set(defaults.stringArray(forKey: legacyDisabledSourcesKey) ?? [])
+        return Set(legacyIdentifiers.flatMap { identifier in
+            AppleHealthDataKind.allCases.map {
+                AppleHealthSourceSelection(sourceIdentifier: identifier, dataKind: $0)
+            }
+        })
+    }
+
+    func saveDisabledSourceSelections(_ selections: Set<AppleHealthSourceSelection>) {
+        guard let data = try? JSONEncoder().encode(selections) else { return }
+        defaults.set(data, forKey: disabledSelectionsKey)
+    }
+}
+
 enum AppleHealthSleepAggregator {
     enum SegmentKind: Sendable {
         case inBed
@@ -173,6 +343,26 @@ enum AppleHealthSleepAggregator {
             switch self {
             case .asleepUnspecified, .core, .deep, .rem: true
             case .inBed, .awake: false
+            }
+        }
+
+        var sleepStage: AppleHealthSleepStage? {
+            switch self {
+            case .inBed: nil
+            case .awake: .awake
+            case .asleepUnspecified: .asleepUnspecified
+            case .core: .core
+            case .deep: .deep
+            case .rem: .rem
+            }
+        }
+
+        var timelinePriority: Int {
+            switch self {
+            case .awake: 3
+            case .core, .deep, .rem: 2
+            case .asleepUnspecified: 1
+            case .inBed: 0
             }
         }
     }
@@ -236,6 +426,20 @@ enum AppleHealthSleepAggregator {
         endingAt date: Date = Date(),
         calendar: Calendar = .autoupdatingCurrent
     ) -> [AppleHealthSleepDay] {
+        trendSeries(
+            from: history,
+            period: period,
+            endingAt: date,
+            calendar: calendar
+        ).entries
+    }
+
+    static func trendSeries(
+        from history: [AppleHealthSleepDay],
+        period: AppleHealthSleepTrendPeriod,
+        endingAt date: Date = Date(),
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> AppleHealthSleepTrendSeries {
         let today = calendar.startOfDay(for: date)
         let start: Date
         switch period {
@@ -246,7 +450,9 @@ enum AppleHealthSleepAggregator {
         case .sixMonths:
             start = calendar.date(byAdding: .month, value: -6, to: today) ?? today
         case .allTime:
-            guard let earliest = history.map(\.date).min() else { return [] }
+            guard let earliest = history.map(\.date).min() else {
+                return AppleHealthSleepTrendSeries(entries: [], dailyEntries: [], granularity: .day)
+            }
             start = min(calendar.startOfDay(for: earliest), today)
         }
 
@@ -254,7 +460,7 @@ enum AppleHealthSleepAggregator {
         for entry in history {
             entriesByDay[calendar.startOfDay(for: entry.date)] = entry
         }
-        return daySequence(from: start, through: today, calendar: calendar).map { day in
+        let dailyEntries = daySequence(from: start, through: today, calendar: calendar).map { day in
             guard let entry = entriesByDay[day] else {
                 return AppleHealthSleepDay(date: day, hours: nil)
             }
@@ -267,6 +473,87 @@ enum AppleHealthSleepAggregator {
                 lightHours: entry.lightHours
             )
         }
+
+        switch period {
+        case .sevenDays, .thirtyDays:
+            return AppleHealthSleepTrendSeries(entries: dailyEntries, granularity: .day)
+        case .sixMonths:
+            guard hasDataSpan(ofMonths: 1, in: dailyEntries, calendar: calendar) else {
+                return AppleHealthSleepTrendSeries(entries: dailyEntries, granularity: .day)
+            }
+            return AppleHealthSleepTrendSeries(
+                entries: aggregate(dailyEntries, by: .weekOfYear, calendar: calendar),
+                dailyEntries: dailyEntries,
+                granularity: .week
+            )
+        case .allTime:
+            if hasDataSpan(ofMonths: 24, in: dailyEntries, calendar: calendar) {
+                return AppleHealthSleepTrendSeries(
+                    entries: aggregate(dailyEntries, by: .year, calendar: calendar),
+                    dailyEntries: dailyEntries,
+                    granularity: .year
+                )
+            }
+            guard hasDataSpan(ofMonths: 3, in: dailyEntries, calendar: calendar) else {
+                return AppleHealthSleepTrendSeries(entries: dailyEntries, granularity: .day)
+            }
+            return AppleHealthSleepTrendSeries(
+                entries: aggregate(dailyEntries, by: .month, calendar: calendar),
+                dailyEntries: dailyEntries,
+                granularity: .month
+            )
+        }
+    }
+
+    private static func hasDataSpan(
+        ofMonths months: Int,
+        in entries: [AppleHealthSleepDay],
+        calendar: Calendar
+    ) -> Bool {
+        let dates = entries.filter(hasValues).map(\.date)
+        guard let first = dates.min(), let last = dates.max(),
+              let threshold = calendar.date(byAdding: .month, value: months, to: first) else {
+            return false
+        }
+        return last >= threshold
+    }
+
+    private static func aggregate(
+        _ entries: [AppleHealthSleepDay],
+        by component: Calendar.Component,
+        calendar: Calendar
+    ) -> [AppleHealthSleepDay] {
+        var entriesByBucket: [Date: [AppleHealthSleepDay]] = [:]
+        for entry in entries {
+            guard let bucket = calendar.dateInterval(of: component, for: entry.date)?.start else { continue }
+            entriesByBucket[bucket, default: []].append(entry)
+        }
+
+        return entriesByBucket.keys.sorted().map { bucket in
+            let bucketEntries = entriesByBucket[bucket, default: []]
+            return AppleHealthSleepDay(
+                date: bucket,
+                hours: average(bucketEntries.map(\.hours)),
+                qualityScore: average(bucketEntries.map(\.qualityScore)),
+                remHours: average(bucketEntries.map(\.remHours)),
+                deepHours: average(bucketEntries.map(\.deepHours)),
+                lightHours: average(bucketEntries.map(\.lightHours))
+            )
+        }
+    }
+
+    private static func average(_ values: [Double?]) -> Double? {
+        let validValues = values.compactMap { $0 }
+        guard !validValues.isEmpty else { return nil }
+        return validValues.reduce(0, +) / Double(validValues.count)
+    }
+
+    private static func hasValues(_ entry: AppleHealthSleepDay) -> Bool {
+        entry.hours != nil
+            || entry.qualityScore != nil
+            || entry.remHours != nil
+            || entry.deepHours != nil
+            || entry.lightHours != nil
     }
 
     private static func dailyTrend(
@@ -336,8 +623,55 @@ enum AppleHealthSleepAggregator {
             coreSeconds: unionDuration(segments.filter { $0.kind == .core }),
             deepSeconds: unionDuration(segments.filter { $0.kind == .deep }),
             remSeconds: unionDuration(segments.filter { $0.kind == .rem }),
-            sourceNames: Array(Set(segments.map(\.sourceName))).sorted()
+            sourceNames: Array(Set(segments.map(\.sourceName))).sorted(),
+            stageIntervals: stageTimeline(from: segments)
         )
+    }
+
+    private static func stageTimeline(from segments: [Segment]) -> [AppleHealthSleepStageInterval] {
+        let candidates = segments.filter {
+            $0.kind.sleepStage != nil && $0.endDate > $0.startDate
+        }
+        let boundaries = Array(Set(candidates.flatMap { [$0.startDate, $0.endDate] })).sorted()
+        guard boundaries.count > 1 else { return [] }
+
+        var result: [AppleHealthSleepStageInterval] = []
+        for (start, end) in zip(boundaries, boundaries.dropFirst()) where end > start {
+            let active = candidates.filter { $0.startDate < end && $0.endDate > start }
+            guard let selected = active.sorted(by: stageSegmentSort).first,
+                  let stage = selected.kind.sleepStage else {
+                continue
+            }
+
+            if let previous = result.last,
+               previous.stage == stage,
+               abs(previous.endDate.timeIntervalSince(start)) < 0.5 {
+                result[result.count - 1] = AppleHealthSleepStageInterval(
+                    startDate: previous.startDate,
+                    endDate: end,
+                    stage: stage
+                )
+            } else {
+                result.append(AppleHealthSleepStageInterval(
+                    startDate: start,
+                    endDate: end,
+                    stage: stage
+                ))
+            }
+        }
+        return result
+    }
+
+    private static func stageSegmentSort(_ lhs: Segment, _ rhs: Segment) -> Bool {
+        if lhs.kind.timelinePriority != rhs.kind.timelinePriority {
+            return lhs.kind.timelinePriority > rhs.kind.timelinePriority
+        }
+        let lhsDuration = lhs.endDate.timeIntervalSince(lhs.startDate)
+        let rhsDuration = rhs.endDate.timeIntervalSince(rhs.startDate)
+        if lhsDuration != rhsDuration {
+            return lhsDuration < rhsDuration
+        }
+        return lhs.sourceName.localizedCaseInsensitiveCompare(rhs.sourceName) == .orderedAscending
     }
 
     private static func unionDuration(_ segments: [Segment]) -> TimeInterval {
@@ -361,14 +695,27 @@ enum AppleHealthSleepAggregator {
 
 @MainActor
 final class AppleHealthSyncService: AppleHealthSyncing {
+    private struct SourceQueryFilter {
+        let predicate: NSPredicate?
+        let excludesAll: Bool
+    }
+
+    private struct SourceAccumulator {
+        var name: String
+        var dataKinds: Set<AppleHealthDataKind>
+    }
+
     private let healthStore: HKHealthStore?
     private var cache: AppleHealthSnapshotCache
+    private let sourcePreferences: AppleHealthSourcePreferences
     private let calendar: Calendar
-    private var observerQueries: [HKObserverQuery] = []
+    private var sourcesByTypeIdentifier: [String: Set<HKSource>] = [:]
     private var isRunningSync = false
 
     private(set) var snapshot: AppleHealthSnapshot
     private(set) var state: AppleHealthSyncState
+    private(set) var availableSources: [AppleHealthDataSource]
+    private(set) var disabledSourceSelections: Set<AppleHealthSourceSelection>
 
     var isConfigured: Bool { cache.isConfigured }
 
@@ -378,7 +725,10 @@ final class AppleHealthSyncService: AppleHealthSyncing {
         isEnabled: Bool = true
     ) {
         cache = AppleHealthSnapshotCache(defaults: defaults)
+        sourcePreferences = AppleHealthSourcePreferences(defaults: defaults)
         snapshot = cache.load()
+        availableSources = sourcePreferences.loadSources()
+        disabledSourceSelections = sourcePreferences.loadDisabledSourceSelections()
         self.calendar = calendar
 
         guard isEnabled, HKHealthStore.isHealthDataAvailable() else {
@@ -389,9 +739,6 @@ final class AppleHealthSyncService: AppleHealthSyncing {
 
         healthStore = HKHealthStore()
         state = cache.isConfigured ? .ready : .notConfigured
-        if cache.isConfigured {
-            startObservingUpdates()
-        }
     }
 
     func requestAuthorizationAndSync() async throws {
@@ -406,7 +753,6 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             guard didComplete else { throw AppleHealthSyncError.authorizationFailed }
             cache.isConfigured = true
             try await sync()
-            startObservingUpdates()
         } catch {
             setState(.failed)
             throw error
@@ -416,6 +762,23 @@ final class AppleHealthSyncService: AppleHealthSyncing {
     func syncIfConfigured() async {
         guard isConfigured else { return }
         try? await sync()
+    }
+
+    func setSourceEnabled(
+        _ identifier: String,
+        for dataKind: AppleHealthDataKind,
+        isEnabled: Bool
+    ) {
+        let selection = AppleHealthSourceSelection(
+            sourceIdentifier: identifier,
+            dataKind: dataKind
+        )
+        if isEnabled {
+            disabledSourceSelections.remove(selection)
+        } else {
+            disabledSourceSelections.insert(selection)
+        }
+        sourcePreferences.saveDisabledSourceSelections(disabledSourceSelections)
     }
 
     func sync() async throws {
@@ -428,6 +791,7 @@ final class AppleHealthSyncService: AppleHealthSyncing {
 
         do {
             let now = Date()
+            try await updateAvailableSources(from: healthStore)
             let sleepSessions = try await fetchSleepSessions(from: healthStore, endingAt: now)
             let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start
                 ?? calendar.startOfDay(for: now)
@@ -519,6 +883,10 @@ final class AppleHealthSyncService: AppleHealthSyncing {
 
     private func setState(_ newState: AppleHealthSyncState) {
         state = newState
+        notifyChange()
+    }
+
+    private func notifyChange() {
         NotificationCenter.default.post(name: .appleHealthSyncDidChange, object: self)
     }
 
@@ -537,16 +905,135 @@ final class AppleHealthSyncService: AppleHealthSyncing {
         }
     }
 
+    private func updateAvailableSources(from healthStore: HKHealthStore) async throws {
+        let sampleTypes = readTypes
+            .compactMap { $0 as? HKSampleType }
+            .sorted { $0.identifier < $1.identifier }
+        var catalog: [String: Set<HKSource>] = [:]
+        var accumulators: [String: SourceAccumulator] = [:]
+
+        for type in sampleTypes {
+            let sources = try await fetchSources(from: healthStore, type: type)
+            catalog[type.identifier] = sources
+            guard let dataKind = dataKind(for: type) else { continue }
+
+            for source in sources.sorted(by: sourceSort) {
+                let identifier = source.bundleIdentifier
+                var accumulator = accumulators[identifier] ?? SourceAccumulator(
+                    name: source.name,
+                    dataKinds: []
+                )
+                accumulator.dataKinds.insert(dataKind)
+                accumulators[identifier] = accumulator
+            }
+        }
+
+        sourcesByTypeIdentifier = catalog
+        availableSources = accumulators.map { identifier, accumulator in
+            AppleHealthDataSource(
+                identifier: identifier,
+                name: accumulator.name,
+                dataKinds: AppleHealthDataKind.allCases.filter(accumulator.dataKinds.contains)
+            )
+        }.sorted { lhs, rhs in
+            let comparison = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+            return comparison == .orderedSame
+                ? lhs.identifier < rhs.identifier
+                : comparison == .orderedAscending
+        }
+        sourcePreferences.saveSources(availableSources)
+    }
+
+    private func fetchSources(
+        from healthStore: HKHealthStore,
+        type: HKSampleType
+    ) async throws -> Set<HKSource> {
+        try await withCheckedThrowingContinuation { continuation in
+            let query = HKSourceQuery(sampleType: type, samplePredicate: nil) { _, sources, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: sources ?? [])
+                }
+            }
+            healthStore.execute(query)
+        }
+    }
+
+    private func dataKind(for type: HKSampleType) -> AppleHealthDataKind? {
+        switch type.identifier {
+        case HKCategoryTypeIdentifier.sleepAnalysis.rawValue:
+            .sleep
+        case HKQuantityTypeIdentifier.heartRateVariabilitySDNN.rawValue,
+             HKQuantityTypeIdentifier.restingHeartRate.rawValue,
+             HKQuantityTypeIdentifier.vo2Max.rawValue,
+             HKQuantityTypeIdentifier.bloodGlucose.rawValue:
+            .heart
+        case HKQuantityTypeIdentifier.stepCount.rawValue,
+             HKQuantityTypeIdentifier.activeEnergyBurned.rawValue:
+            .activity
+        case HKObjectType.workoutType().identifier:
+            .workouts
+        default:
+            nil
+        }
+    }
+
+    private func sourceSort(_ lhs: HKSource, _ rhs: HKSource) -> Bool {
+        let comparison = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+        return comparison == .orderedSame
+            ? lhs.bundleIdentifier < rhs.bundleIdentifier
+            : comparison == .orderedAscending
+    }
+
+    private func sourceFilter(for type: HKSampleType) -> SourceQueryFilter {
+        guard let dataKind = dataKind(for: type),
+              !disabledSourceSelections.isEmpty,
+              let knownSources = sourcesByTypeIdentifier[type.identifier],
+              !knownSources.isEmpty else {
+            return SourceQueryFilter(predicate: nil, excludesAll: false)
+        }
+        let disabledSources = knownSources.filter {
+            disabledSourceSelections.contains(AppleHealthSourceSelection(
+                sourceIdentifier: $0.bundleIdentifier,
+                dataKind: dataKind
+            ))
+        }
+        guard !disabledSources.isEmpty else {
+            return SourceQueryFilter(predicate: nil, excludesAll: false)
+        }
+
+        let allowedSources = knownSources.subtracting(disabledSources)
+        guard !allowedSources.isEmpty else {
+            return SourceQueryFilter(predicate: nil, excludesAll: true)
+        }
+        return SourceQueryFilter(
+            predicate: HKQuery.predicateForObjects(from: allowedSources),
+            excludesAll: false
+        )
+    }
+
+    private func applyingSourceFilter(
+        _ sourceFilter: SourceQueryFilter,
+        to predicate: NSPredicate
+    ) -> NSPredicate {
+        guard let sourcePredicate = sourceFilter.predicate else { return predicate }
+        return NSCompoundPredicate(andPredicateWithSubpredicates: [predicate, sourcePredicate])
+    }
+
     private func fetchSleepSessions(
         from healthStore: HKHealthStore,
         endingAt endDate: Date
     ) async throws -> [AppleHealthSleepSession] {
         guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return [] }
-        let predicate = HKQuery.predicateForSamples(
+        let sourceFilter = sourceFilter(for: type)
+        guard !sourceFilter.excludesAll else { return [] }
+        let datePredicate = HKQuery.predicateForSamples(
             withStart: .distantPast,
             end: endDate,
             options: [.strictEndDate]
         )
+        let predicate = applyingSourceFilter(sourceFilter, to: datePredicate)
         let samples = try await fetchSamples(
             from: healthStore,
             type: type,
@@ -589,11 +1076,14 @@ final class AppleHealthSyncService: AppleHealthSyncing {
         since startDate: Date
     ) async throws -> AppleHealthMeasurement? {
         guard let type = HKObjectType.quantityType(forIdentifier: identifier) else { return nil }
-        let predicate = HKQuery.predicateForSamples(
+        let sourceFilter = sourceFilter(for: type)
+        guard !sourceFilter.excludesAll else { return nil }
+        let datePredicate = HKQuery.predicateForSamples(
             withStart: startDate,
             end: Date(),
             options: [.strictEndDate]
         )
+        let predicate = applyingSourceFilter(sourceFilter, to: datePredicate)
         let samples = try await fetchSamples(
             from: healthStore,
             type: type,
@@ -617,11 +1107,14 @@ final class AppleHealthSyncService: AppleHealthSyncing {
         end: Date
     ) async throws -> Double? {
         guard let type = HKObjectType.quantityType(forIdentifier: identifier) else { return nil }
-        let predicate = HKQuery.predicateForSamples(
+        let sourceFilter = sourceFilter(for: type)
+        guard !sourceFilter.excludesAll else { return nil }
+        let datePredicate = HKQuery.predicateForSamples(
             withStart: start,
             end: end,
             options: [.strictStartDate, .strictEndDate]
         )
+        let predicate = applyingSourceFilter(sourceFilter, to: datePredicate)
         return try await withCheckedThrowingContinuation { continuation in
             let query = HKStatisticsQuery(
                 quantityType: type,
@@ -644,11 +1137,14 @@ final class AppleHealthSyncService: AppleHealthSyncing {
         end: Date
     ) async throws -> [AppleHealthWorkout] {
         let type = HKObjectType.workoutType()
-        let predicate = HKQuery.predicateForSamples(
+        let sourceFilter = sourceFilter(for: type)
+        guard !sourceFilter.excludesAll else { return [] }
+        let datePredicate = HKQuery.predicateForSamples(
             withStart: start,
             end: end,
             options: [.strictEndDate]
         )
+        let predicate = applyingSourceFilter(sourceFilter, to: datePredicate)
         let samples = try await fetchSamples(
             from: healthStore,
             type: type,
@@ -712,18 +1208,4 @@ final class AppleHealthSyncService: AppleHealthSyncing {
         }
     }
 
-    private func startObservingUpdates() {
-        guard let healthStore, observerQueries.isEmpty else { return }
-        let sampleTypes = readTypes.compactMap { $0 as? HKSampleType }
-        observerQueries = sampleTypes.map { type in
-            let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completion, _ in
-                completion()
-                Task { @MainActor [weak self] in
-                    await self?.syncIfConfigured()
-                }
-            }
-            healthStore.execute(query)
-            return query
-        }
-    }
 }

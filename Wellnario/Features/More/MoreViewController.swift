@@ -168,7 +168,6 @@ final class MoreViewController: UIViewController {
         card.isPressable = true
         card.contentView.isUserInteractionEnabled = false
         card.isAccessibilityElement = true
-        card.showsAccent = true
         card.accessibilityIdentifier = "more.settings"
         card.accessibilityLabel = L10n.More.settings
         card.addTarget(self, action: #selector(settingsTapped), for: .touchUpInside)

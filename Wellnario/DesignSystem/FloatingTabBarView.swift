@@ -31,23 +31,19 @@ final class FloatingTabBarView: UIView {
         didSet { rebuildButtons() }
     }
 
-    var selectedIndex: Int = 0 {
-        didSet {
-            guard !items.isEmpty else { return }
-            let clamped = min(max(0, selectedIndex), items.count - 1)
-            guard selectedIndex == clamped else {
-                selectedIndex = clamped
-                return
-            }
-            updateSelection(animated: oldValue != selectedIndex)
-        }
+    var selectedIndex: Int {
+        get { storedSelectedIndex }
+        set { setSelectedIndex(newValue, animated: true) }
     }
 
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+    private var storedSelectedIndex = 0
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
     private let selectionPill = UIView()
     private let stackView = UIStackView()
     private var buttons: [UIButton] = []
     private let borderLayer = CAShapeLayer()
+    private var selectionAnimationGeneration = 0
+    private var isSelectionAnimationInFlight = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -70,13 +66,24 @@ final class FloatingTabBarView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        blurView.layoutIfNeeded()
+        stackView.layoutIfNeeded()
         borderLayer.frame = bounds
         borderLayer.path = UIBezierPath(
             roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5),
             cornerRadius: bounds.height / 2
         ).cgPath
-        updatePillFrame(animated: false)
+        if !isSelectionAnimationInFlight {
+            updatePillFrame(animated: false)
+        }
         layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: bounds.height / 2).cgPath
+    }
+
+    func setSelectedIndex(_ index: Int, animated: Bool) {
+        let clamped = items.isEmpty ? 0 : min(max(0, index), items.count - 1)
+        guard storedSelectedIndex != clamped else { return }
+        storedSelectedIndex = clamped
+        updateSelection(animated: animated)
     }
 
     private func setUp() {
@@ -90,9 +97,13 @@ final class FloatingTabBarView: UIView {
         addForAutoLayout(blurView)
         blurView.pinEdges(to: self)
 
-        selectionPill.backgroundColor = UIColor.white.withAlphaComponent(0.09)
+        selectionPill.backgroundColor = WellnarioPalette.fuchsia
         selectionPill.isUserInteractionEnabled = false
         selectionPill.layer.cornerCurve = .continuous
+        selectionPill.layer.shadowColor = WellnarioPalette.fuchsia.cgColor
+        selectionPill.layer.shadowOpacity = 0.24
+        selectionPill.layer.shadowRadius = 8
+        selectionPill.layer.shadowOffset = .zero
         blurView.contentView.addSubview(selectionPill)
 
         stackView.axis = .horizontal
@@ -135,6 +146,13 @@ final class FloatingTabBarView: UIView {
             self.invalidateIntrinsicContentSize()
             self.updateButtonFonts()
         }
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+            (self: FloatingTabBarView, _: UITraitCollection) in
+            self.updateTransparency()
+            self.updateSelection(animated: false)
+            self.updateLayerColors()
+        }
+        updateLayerColors()
     }
 
     private func rebuildButtons() {
@@ -161,7 +179,7 @@ final class FloatingTabBarView: UIView {
             stackView.addArrangedSubview(button)
             return button
         }
-        selectedIndex = min(selectedIndex, max(0, items.count - 1))
+        storedSelectedIndex = min(storedSelectedIndex, max(0, items.count - 1))
         updateButtonFonts()
         updateSelection(animated: false)
     }
@@ -185,13 +203,32 @@ final class FloatingTabBarView: UIView {
             let selected = index == selectedIndex
             let title = L10n.text(item.titleKey)
             let symbol = selected ? item.selectedSymbolName : item.symbolName
-            var configuration = button.configuration
-            configuration?.title = title
-            configuration?.image = UIImage(systemName: symbol)
-            configuration?.baseForegroundColor = selected ? WellnarioPalette.cyan : WellnarioPalette.textSecondary
-            button.configuration = configuration
-            button.accessibilityLabel = title
-            button.accessibilityTraits = selected ? [.button, .selected] : [.button]
+            let changes = {
+                var configuration = button.configuration
+                configuration?.title = title
+                configuration?.image = UIImage(systemName: symbol)
+                configuration?.baseForegroundColor = selected
+                    ? UIColor.white
+                    : WellnarioPalette.textSecondary
+                button.configuration = configuration
+                button.accessibilityLabel = title
+                button.accessibilityTraits = selected ? [.button, .selected] : [.button]
+            }
+            if animated && WellnarioMotion.animationsEnabled {
+                UIView.transition(
+                    with: button,
+                    duration: WellnarioMotion.standard,
+                    options: [
+                        .transitionCrossDissolve,
+                        .allowAnimatedContent,
+                        .allowUserInteraction,
+                        .beginFromCurrentState
+                    ],
+                    animations: changes
+                )
+            } else {
+                changes()
+            }
         }
         updatePillFrame(animated: animated)
     }
@@ -201,17 +238,99 @@ final class FloatingTabBarView: UIView {
             selectionPill.frame = .zero
             return
         }
-        let button = buttons[selectedIndex]
-        let target = button.convert(button.bounds, to: blurView.contentView).insetBy(dx: 3, dy: 2)
+        let target = pillFrame(for: selectedIndex)
         let changes = {
             self.selectionPill.frame = target
             self.selectionPill.layer.cornerRadius = target.height / 2
+            self.selectionPill.alpha = 1
         }
-        if animated {
-            WellnarioMotion.spring(duration: 0.34, animations: changes)
+        if animated && WellnarioMotion.animationsEnabled {
+            selectionAnimationGeneration += 1
+            let generation = selectionAnimationGeneration
+            isSelectionAnimationInFlight = true
+
+            let presentationFrame = selectionPill.layer.presentation()?.frame
+            let presentationAlpha = selectionPill.layer.presentation().map { CGFloat($0.opacity) }
+            selectionPill.layer.removeAllAnimations()
+            selectionPill.frame = presentationFrame ?? selectionPill.frame
+            selectionPill.alpha = presentationAlpha ?? selectionPill.alpha
+
+            let start = selectionPill.frame
+            let startExpanded = constrainedPillFrame(start.insetBy(dx: -8, dy: -5))
+            let bridge = constrainedPillFrame(start.union(target).insetBy(dx: -8, dy: -5))
+            let targetExpanded = constrainedPillFrame(target.insetBy(dx: -10, dy: -5))
+
+            UIView.animateKeyframes(
+                withDuration: WellnarioMotion.emphasized,
+                delay: 0,
+                options: [
+                    .calculationModeCubic,
+                    .allowUserInteraction,
+                    .beginFromCurrentState
+                ],
+                animations: {
+                    UIView.addKeyframe(withRelativeStartTime: 0, relativeDuration: 0.24) {
+                        self.applyPillFrame(startExpanded, alpha: 0.44)
+                    }
+                    UIView.addKeyframe(withRelativeStartTime: 0.24, relativeDuration: 0.28) {
+                        self.applyPillFrame(bridge, alpha: 0.30)
+                    }
+                    UIView.addKeyframe(withRelativeStartTime: 0.52, relativeDuration: 0.26) {
+                        self.applyPillFrame(targetExpanded, alpha: 0.48)
+                    }
+                    UIView.addKeyframe(withRelativeStartTime: 0.78, relativeDuration: 0.22) {
+                        changes()
+                    }
+                }
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.selectionAnimationGeneration == generation else { return }
+                    self.isSelectionAnimationInFlight = false
+                    self.updatePillFrame(animated: false)
+                }
+            }
         } else {
+            selectionAnimationGeneration += 1
+            isSelectionAnimationInFlight = false
             changes()
         }
+    }
+
+    private func pillFrame(for index: Int) -> CGRect {
+        guard buttons.indices.contains(index) else { return .zero }
+        let button = buttons[index]
+        var frame = button.convert(button.bounds, to: blurView.contentView).insetBy(dx: 3, dy: 10)
+        guard frame.width > 0, frame.height > 0 else { return .zero }
+
+        let title = L10n.text(items[index].titleKey) as NSString
+        let titleWidth = ceil(title.size(withAttributes: [
+            .font: WellnarioTypography.font(for: .tab)
+        ]).width)
+        let contentWidth = titleWidth + 16
+        if contentWidth > frame.width {
+            let centerX = frame.midX
+            frame.size.width = contentWidth
+            frame.origin.x = centerX - contentWidth / 2
+        }
+        return constrainedPillFrame(frame)
+    }
+
+    private func constrainedPillFrame(_ frame: CGRect) -> CGRect {
+        let limits = blurView.contentView.bounds.insetBy(dx: 4, dy: 4)
+        guard limits.width > 0, limits.height > 0 else { return frame }
+
+        var result = frame
+        result.size.width = min(result.width, limits.width)
+        result.size.height = min(result.height, limits.height)
+        result.origin.x = min(max(result.minX, limits.minX), limits.maxX - result.width)
+        result.origin.y = min(max(result.minY, limits.minY), limits.maxY - result.height)
+        return result
+    }
+
+    private func applyPillFrame(_ frame: CGRect, alpha: CGFloat) {
+        selectionPill.frame = frame
+        selectionPill.layer.cornerRadius = frame.height / 2
+        selectionPill.alpha = alpha
     }
 
     private func updateTransparency() {
@@ -220,7 +339,7 @@ final class FloatingTabBarView: UIView {
             blurView.backgroundColor = WellnarioPalette.glassSurface
         } else {
             blurView.backgroundColor = .clear
-            blurView.effect = UIBlurEffect(style: .systemUltraThinMaterialDark)
+            blurView.effect = UIBlurEffect(style: .systemUltraThinMaterial)
         }
     }
 
@@ -237,7 +356,16 @@ final class FloatingTabBarView: UIView {
 
     @objc private func accessibilityAppearanceDidChange() {
         updateTransparency()
-        borderLayer.strokeColor = WellnarioPalette.hairline.cgColor
+        updateLayerColors()
         setNeedsLayout()
+    }
+
+    private func updateLayerColors() {
+        borderLayer.strokeColor = WellnarioPalette.hairline
+            .resolvedColor(with: traitCollection)
+            .cgColor
+        selectionPill.layer.shadowColor = WellnarioPalette.fuchsia
+            .resolvedColor(with: traitCollection)
+            .cgColor
     }
 }

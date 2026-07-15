@@ -88,14 +88,14 @@ final class SupplementsViewController: FeatureViewController {
         definesPresentationContext = true
 
         segmentedControl.selectedSegmentIndex = 0
-        segmentedControl.selectedSegmentTintColor = WellnarioPalette.surfacePressed
+        segmentedControl.selectedSegmentTintColor = WellnarioPalette.fuchsia
         segmentedControl.backgroundColor = WellnarioPalette.surface
         segmentedControl.setTitleTextAttributes([
             .foregroundColor: WellnarioPalette.textSecondary,
             .font: WellnarioTypography.font(for: .caption)
         ], for: .normal)
         segmentedControl.setTitleTextAttributes([
-            .foregroundColor: WellnarioPalette.cyan,
+            .foregroundColor: UIColor.white,
             .font: WellnarioTypography.font(for: .caption)
         ], for: .selected)
         segmentedControl.addTarget(self, action: #selector(modeChanged), for: .valueChanged)

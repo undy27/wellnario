@@ -62,7 +62,6 @@ final class ComingSoonViewController: UIViewController {
         statusLabel.accessibilityIdentifier = "placeholder.status"
 
         let card = PremiumCardView()
-        card.showsAccent = true
         card.contentView.isUserInteractionEnabled = false
         let textStack = UIStackView(
             arrangedSubviews: [eyebrow, titleLabel, descriptionLabel, statusLabel],
@@ -150,25 +149,16 @@ private final class OrbitalFeatureArtworkView: UIView {
         clipsToBounds = true
         applyContinuousCorners(WellnarioRadius.card)
 
-        let first = feature.accentColors.first ?? WellnarioPalette.cyan
-        let last = feature.accentColors.last ?? WellnarioPalette.violet
-        backgroundGradient.colors = [
-            first.withAlphaComponent(0.24).cgColor,
-            last.withAlphaComponent(0.10).cgColor,
-            WellnarioPalette.surface.cgColor
-        ]
         backgroundGradient.startPoint = CGPoint(x: 0.05, y: 0)
         backgroundGradient.endPoint = CGPoint(x: 0.95, y: 1)
         layer.addSublayer(backgroundGradient)
 
         outerRing.fillColor = UIColor.clear.cgColor
-        outerRing.strokeColor = first.withAlphaComponent(0.55).cgColor
         outerRing.lineWidth = 2
         outerRing.lineDashPattern = [2, 10]
         outerRing.lineCap = .round
 
         innerRing.fillColor = UIColor.clear.cgColor
-        innerRing.strokeColor = last.withAlphaComponent(0.34).cgColor
         innerRing.lineWidth = 1
 
         layer.addSublayer(orbitLayer)
@@ -179,9 +169,7 @@ private final class OrbitalFeatureArtworkView: UIView {
         symbolView.tintColor = WellnarioPalette.textPrimary
         symbolView.contentMode = .scaleAspectFit
         symbolView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 48, weight: .medium)
-        symbolView.backgroundColor = UIColor.white.withAlphaComponent(0.08)
         symbolView.layer.borderWidth = 1
-        symbolView.layer.borderColor = UIColor.white.withAlphaComponent(0.14).cgColor
         symbolView.applyContinuousCorners(38)
         addForAutoLayout(symbolView)
         NSLayoutConstraint.activate([
@@ -197,6 +185,29 @@ private final class OrbitalFeatureArtworkView: UIView {
             name: UIAccessibility.reduceMotionStatusDidChangeNotification,
             object: nil
         )
+        updateColors()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+            (self: OrbitalFeatureArtworkView, _: UITraitCollection) in
+            self.updateColors()
+        }
+    }
+
+    private func updateColors() {
+        let first = (feature.accentColors.first ?? WellnarioPalette.cyan)
+            .resolvedColor(with: traitCollection)
+        let last = (feature.accentColors.last ?? WellnarioPalette.violet)
+            .resolvedColor(with: traitCollection)
+        backgroundGradient.colors = [
+            first.withAlphaComponent(0.24).cgColor,
+            last.withAlphaComponent(0.10).cgColor,
+            WellnarioPalette.surface.resolvedColor(with: traitCollection).cgColor
+        ]
+        outerRing.strokeColor = first.withAlphaComponent(0.55).cgColor
+        innerRing.strokeColor = last.withAlphaComponent(0.34).cgColor
+        symbolView.backgroundColor = WellnarioPalette.textPrimary.withAlphaComponent(0.06)
+        symbolView.layer.borderColor = WellnarioPalette.hairline
+            .resolvedColor(with: traitCollection)
+            .cgColor
     }
 
     private func startAnimating() {

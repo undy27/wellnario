@@ -104,6 +104,10 @@ final class PresentationArtworkView: UIView {
         isAccessibilityElement = true
         accessibilityTraits = [.image]
         accessibilityLabel = kind.localizedName
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+            (self: PresentationArtworkView, _: UITraitCollection) in
+            self.setNeedsDisplay()
+        }
     }
 
     private func drawBackground(in rect: CGRect, context: CGContext) {

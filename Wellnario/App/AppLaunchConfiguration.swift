@@ -23,12 +23,15 @@ struct AppLaunchConfiguration: Sendable {
     let isUITesting: Bool
     let resetsData: Bool
     let languageOverride: AppLanguage?
+    let appearanceOverride: WellnarioAppearanceMode?
     let initialTab: InitialTab
 
     static func current(arguments: [String] = ProcessInfo.processInfo.arguments) -> AppLaunchConfiguration {
         let isUITesting = arguments.contains("--ui-testing")
         let resetsData = isUITesting && arguments.contains("--reset-data")
         let language = value(after: "--language", in: arguments).flatMap(AppLanguage.init(rawValue:))
+        let appearance = value(after: "--appearance", in: arguments)
+            .flatMap(WellnarioAppearanceMode.init(rawValue:))
         let initialTab = value(after: "--initial-tab", in: arguments)
             .flatMap(InitialTab.init(argument:)) ?? .today
 
@@ -36,6 +39,7 @@ struct AppLaunchConfiguration: Sendable {
             isUITesting: isUITesting,
             resetsData: resetsData,
             languageOverride: language,
+            appearanceOverride: appearance,
             initialTab: initialTab
         )
     }

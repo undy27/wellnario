@@ -68,7 +68,6 @@ final class PrimaryButton: UIButton {
         titleLabel?.adjustsFontForContentSizeCategory = true
         titleLabel?.adjustsFontSizeToFitWidth = true
         titleLabel?.minimumScaleFactor = 0.82
-        gradientLayer.colors = WellnarioPalette.signatureGradient.map(\.cgColor)
         gradientLayer.startPoint = CGPoint(x: 0, y: 0.5)
         gradientLayer.endPoint = CGPoint(x: 1, y: 0.5)
         layer.insertSublayer(gradientLayer, at: 0)
@@ -83,9 +82,16 @@ final class PrimaryButton: UIButton {
 
         accessibilityTraits.insert(.button)
         updateAppearance()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+            (self: PrimaryButton, _: UITraitCollection) in
+            self.updateAppearance()
+        }
     }
 
     private func updateAppearance() {
+        gradientLayer.colors = WellnarioPalette.signatureGradient.map {
+            $0.resolvedColor(with: traitCollection).cgColor
+        }
         alpha = isEnabled ? 1 : 0.52
         layer.borderWidth = 0
         gradientLayer.isHidden = true
@@ -94,7 +100,7 @@ final class PrimaryButton: UIButton {
         case .primary:
             gradientLayer.isHidden = false
             backgroundColor = WellnarioPalette.violet
-            setTitleColor(WellnarioPalette.textPrimary, for: .normal)
+            setTitleColor(WellnarioPalette.onAccent, for: .normal)
         case .secondary:
             backgroundColor = WellnarioPalette.surfaceElevated
             layer.borderWidth = 1
@@ -180,13 +186,17 @@ final class ChipButton: UIButton {
         layer.borderWidth = 1
         accessibilityTraits.insert(.button)
         updateAppearance()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+            (self: ChipButton, _: UITraitCollection) in
+            self.updateAppearance()
+        }
     }
 
     private func updateAppearance() {
         if isSelected {
-            backgroundColor = WellnarioPalette.cyan.withAlphaComponent(0.16)
-            layer.borderColor = WellnarioPalette.cyan.withAlphaComponent(0.62).cgColor
-            setTitleColor(WellnarioPalette.cyan, for: .normal)
+            backgroundColor = WellnarioPalette.fuchsia.withAlphaComponent(0.18)
+            layer.borderColor = WellnarioPalette.fuchsia.withAlphaComponent(0.68).cgColor
+            setTitleColor(WellnarioPalette.fuchsia, for: .normal)
             accessibilityTraits.insert(.selected)
         } else {
             backgroundColor = WellnarioPalette.surfaceElevated
@@ -343,6 +353,10 @@ final class FormFieldView: UIView {
         )
         addForAutoLayout(stack)
         stack.pinEdges(to: self)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+            (self: FormFieldView, _: UITraitCollection) in
+            self.updateSupportingText()
+        }
     }
 
     private func updateSupportingText() {

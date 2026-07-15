@@ -15,6 +15,9 @@ final class AppEnvironment {
         if let language = launchConfiguration.languageOverride {
             LocalizationManager.shared.setLanguage(language)
         }
+        if let appearance = launchConfiguration.appearanceOverride {
+            WellnarioAppearanceManager.shared.setMode(appearance)
+        }
 
         appleHealthService = AppleHealthSyncService(
             isEnabled: !launchConfiguration.isUITesting

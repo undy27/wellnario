@@ -15,6 +15,15 @@ enum AppleHealthUIFormatting {
         return L10n.text("apple_health.duration.hours_minutes", hours, minutes)
     }
 
+    static func compactDuration(_ seconds: TimeInterval) -> String {
+        let totalMinutes = max(Int((seconds / 60).rounded()), 0)
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        if hours == 0 { return L10n.text("apple_health.duration.compact.minutes", minutes) }
+        if minutes == 0 { return L10n.text("apple_health.duration.compact.hours", hours) }
+        return L10n.text("apple_health.duration.compact.hours_minutes", hours, minutes)
+    }
+
     static func sleepRange(_ session: AppleHealthSleepSession) -> String {
         let start = WellnarioFormatters.time(session.startDate)
         let end = WellnarioFormatters.time(session.endDate)

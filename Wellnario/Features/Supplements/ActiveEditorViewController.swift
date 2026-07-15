@@ -289,7 +289,6 @@ final class ActiveDetailViewController: FeatureViewController {
         stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
         let hero = PremiumCardView()
-        hero.showsAccent = true
         let artwork = PresentationArtworkView(kind: .other)
         artwork.primaryColor = WellnarioPalette.violet
         artwork.secondaryColor = WellnarioPalette.cyan

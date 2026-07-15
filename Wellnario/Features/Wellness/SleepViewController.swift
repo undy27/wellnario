@@ -2,6 +2,9 @@ import UIKit
 
 @MainActor
 final class SleepViewController: WellnessScrollViewController {
+    private static let trendReferenceLinePreferenceKey = "wellnario.sleep.trend.referenceLine"
+    private static let sourceBannerHeight: CGFloat = 76
+
     private enum TrendMetric: Int, CaseIterable {
         case quality
         case duration
@@ -13,14 +16,25 @@ final class SleepViewController: WellnessScrollViewController {
     var onOpenSettings: (() -> Void)?
 
     private let appleHealthService: AppleHealthSyncing
+    private let defaults: UserDefaults
+    private let sourceBanner = FeedbackBannerView()
     private let trendChart = WellnessTrendChartView()
+    private var isSourceBannerVisible = false
+    private var appliedSourceBannerInset: CGFloat = 0
     private var selectedTrendPeriod = AppleHealthSleepTrendPeriod.sevenDays
     private var selectedTrendMetric = TrendMetric.duration
+    private var selectedTrendReferenceLine: WellnessTrendReferenceLine
     private lazy var trendPeriodControl: UISegmentedControl = makeTrendPeriodControl()
     private lazy var trendMetricControl: UISegmentedControl = makeTrendMetricControl()
+    private lazy var trendReferenceLineControl: UISegmentedControl = makeTrendReferenceLineControl()
 
-    init(appleHealthService: AppleHealthSyncing) {
+    init(appleHealthService: AppleHealthSyncing, defaults: UserDefaults = .standard) {
         self.appleHealthService = appleHealthService
+        self.defaults = defaults
+        let storedReferenceLine = defaults.object(forKey: Self.trendReferenceLinePreferenceKey) as? Int
+        selectedTrendReferenceLine = storedReferenceLine
+            .flatMap(WellnessTrendReferenceLine.init(rawValue:))
+            ?? .linearTrend
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -30,6 +44,7 @@ final class SleepViewController: WellnessScrollViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.text("sleep.title")
+        navigationItem.largeTitleDisplayMode = .never
         view.accessibilityIdentifier = "sleep.root"
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             image: UIImage(systemName: "gearshape"),
@@ -44,53 +59,44 @@ final class SleepViewController: WellnessScrollViewController {
             name: .appleHealthSyncDidChange,
             object: appleHealthService
         )
+        setUpSourceBanner()
         buildContent()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
+        navigationController?.navigationBar.prefersLargeTitles = false
+        navigationItem.largeTitleDisplayMode = .never
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateScrollInsetsForSourceBanner()
     }
 
     private func buildContent() {
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let snapshot = appleHealthService.snapshot
 
-        contentStack.addArrangedSubview(makeSourceBanner(snapshot: snapshot))
+        updateSourceBanner(snapshot: snapshot)
         contentStack.addArrangedSubview(makeSectionTitle(
             L10n.text("sleep.latest.title"),
             detail: L10n.text("sleep.latest.detail")
         ))
-        contentStack.addArrangedSubview(makeLatestSessionCard(snapshot.latestSleepSession))
-
-        let session = snapshot.latestSleepSession
-        let metrics = [
-            makeMiniMetric(
-                title: L10n.text("sleep.deep"),
-                value: stageValue(session?.deepSeconds),
-                detail: stageDetail(session?.deepSeconds),
-                symbol: "circle.bottomhalf.filled",
-                tone: WellnarioPalette.violet
-            ),
-            makeMiniMetric(
-                title: L10n.text("sleep.rem"),
-                value: stageValue(session?.remSeconds),
-                detail: stageDetail(session?.remSeconds),
-                symbol: "brain.head.profile",
-                tone: WellnarioPalette.magenta
-            )
-        ]
-        let metricRow = UIStackView(
-            arrangedSubviews: metrics,
-            axis: .horizontal,
-            spacing: WellnarioSpacing.cardGap,
-            alignment: .fill,
-            distribution: .fillEqually
-        )
-        metrics[0].widthAnchor.constraint(equalTo: metrics[1].widthAnchor).isActive = true
-        contentStack.addArrangedSubview(metricRow)
-
-        contentStack.setCustomSpacing(WellnarioSpacing.large, after: metricRow)
+        let latestSessionCard = makeLatestSessionCard(snapshot.latestSleepSession)
+        contentStack.addArrangedSubview(latestSessionCard)
+        contentStack.setCustomSpacing(WellnarioSpacing.large, after: latestSessionCard)
         contentStack.addArrangedSubview(makeSectionTitle(L10n.text("sleep.trend.title")))
 
         configureTrendChart(with: snapshot)
         let trendContent = UIStackView(
-            arrangedSubviews: [trendMetricControl, trendChart, trendPeriodControl],
+            arrangedSubviews: [
+                trendMetricControl,
+                makeTrendReferenceLineControlContainer(),
+                trendChart,
+                trendPeriodControl
+            ],
             axis: .vertical,
             spacing: WellnarioSpacing.xSmall
         )
@@ -108,22 +114,83 @@ final class SleepViewController: WellnessScrollViewController {
         contentStack.addArrangedSubview(makeFactorCard())
     }
 
+    private func setUpSourceBanner() {
+        sourceBanner.accessibilityIdentifier = "sleep.source.banner"
+        sourceBanner.backgroundOpacityOverride = WellnarioPalette.synchronizationBannerOpacity
+        sourceBanner.isHidden = true
+        view.addForAutoLayout(sourceBanner)
+        NSLayoutConstraint.activate([
+            sourceBanner.leadingAnchor.constraint(
+                equalTo: view.leadingAnchor,
+                constant: WellnarioSpacing.screenHorizontal
+            ),
+            sourceBanner.trailingAnchor.constraint(
+                equalTo: view.trailingAnchor,
+                constant: -WellnarioSpacing.screenHorizontal
+            ),
+            sourceBanner.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.topAnchor,
+                constant: WellnarioSpacing.xxxSmall
+            ),
+            sourceBanner.heightAnchor.constraint(equalToConstant: Self.sourceBannerHeight)
+        ])
+        view.bringSubviewToFront(sourceBanner)
+    }
+
+    private func updateSourceBanner(snapshot: AppleHealthSnapshot) {
+        guard appleHealthService.isConfigured else {
+            isSourceBannerVisible = false
+            sourceBanner.isHidden = true
+            view.setNeedsLayout()
+            return
+        }
+
+        isSourceBannerVisible = true
+        sourceBanner.isHidden = false
+        configureSourceBanner(sourceBanner, snapshot: snapshot)
+        view.bringSubviewToFront(sourceBanner)
+        view.setNeedsLayout()
+    }
+
+    private func updateScrollInsetsForSourceBanner() {
+        let targetInset = isSourceBannerVisible
+            ? sourceBanner.bounds.height + WellnarioSpacing.xxxSmall
+            : 0
+        guard abs(targetInset - appliedSourceBannerInset) > 0.5 else { return }
+
+        let previousAdjustedTop = scrollView.adjustedContentInset.top
+        let wasAtTop = scrollView.contentOffset.y <= -previousAdjustedTop + 1
+        appliedSourceBannerInset = targetInset
+        scrollView.contentInset.top = targetInset
+        scrollView.verticalScrollIndicatorInsets.top = targetInset
+        if wasAtTop {
+            scrollView.contentOffset.y = -scrollView.adjustedContentInset.top
+        }
+    }
+
     private func configureTrendChart(with snapshot: AppleHealthSnapshot) {
-        let trend = AppleHealthSleepAggregator.trend(
+        let series = AppleHealthSleepAggregator.trendSeries(
             from: snapshot.sleepTrend,
             period: selectedTrendPeriod
         )
+        let trend = series.entries
         let values = trend.map(trendValue)
+        let dailyValues = series.dailyEntries.map(trendValue)
         trendChart.values = values
-        trendChart.labels = trendLabels(for: trend, period: selectedTrendPeriod)
+        trendChart.linearTrend = WellnessLinearRegression.fit(values: dailyValues)
+        trendChart.referenceLine = selectedTrendReferenceLine
+        trendChart.labels = trendLabels(for: series, period: selectedTrendPeriod)
+        trendChart.selectionLabels = trendSelectionLabels(for: series)
         trendChart.lineColor = trendMetricColor(selectedTrendMetric)
-        trendChart.emptyText = selectedTrendMetric == .quality
+        let emptyText = selectedTrendMetric == .quality
             ? L10n.text("sleep.trend.quality.empty")
             : L10n.text("sleep.trend.empty")
-        trendChart.smoothingWindow = smoothingWindow(for: selectedTrendPeriod, pointCount: trend.count)
+        trendChart.emptyText = emptyText
+        trendChart.smoothingWindow = 1
         trendChart.averageTitle = L10n.text("sleep.trend.average")
         trendChart.valueFormatter = trendValueFormatter(selectedTrendMetric)
         trendChart.accessibilityIdentifier = "sleep.trend.chart"
+        trendChart.accessibilityHint = L10n.text("sleep.trend.interaction.hint")
         trendChart.accessibilityLabel = L10n.text(
             "sleep.trend.accessibility.format",
             trendMetricTitle(selectedTrendMetric),
@@ -139,7 +206,7 @@ final class SleepViewController: WellnessScrollViewController {
                 trendChart.valueFormatter(maximum)
             )
         } else {
-            trendChart.accessibilityValue = L10n.text("sleep.trend.empty")
+            trendChart.accessibilityValue = emptyText
         }
     }
 
@@ -169,7 +236,7 @@ final class SleepViewController: WellnessScrollViewController {
 
     private func trendMetricColor(_ metric: TrendMetric) -> UIColor {
         switch metric {
-        case .quality: WellnarioPalette.cyan
+        case .quality: WellnarioPalette.pink
         case .duration: WellnarioPalette.violet
         case .rem: WellnarioPalette.magenta
         case .deep: WellnarioPalette.information
@@ -177,27 +244,11 @@ final class SleepViewController: WellnessScrollViewController {
         }
     }
 
-    private func smoothingWindow(
-        for period: AppleHealthSleepTrendPeriod,
-        pointCount: Int
-    ) -> Int {
-        switch period {
-        case .sevenDays, .thirtyDays:
-            1
-        case .sixMonths:
-            7
-        case .allTime:
-            if pointCount >= 365 { 30 }
-            else if pointCount >= 180 { 14 }
-            else { 7 }
-        }
-    }
-
     private func makeTrendPeriodControl() -> UISegmentedControl {
         let control = UISegmentedControl(items: AppleHealthSleepTrendPeriod.allCases.map(trendPeriodTitle))
         control.selectedSegmentIndex = selectedTrendPeriod.rawValue
         control.apportionsSegmentWidthsByContent = true
-        control.selectedSegmentTintColor = WellnarioPalette.violet
+        control.selectedSegmentTintColor = WellnarioPalette.fuchsia
         control.setTitleTextAttributes([
             .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
             .foregroundColor: WellnarioPalette.textSecondary
@@ -216,7 +267,7 @@ final class SleepViewController: WellnessScrollViewController {
         let control = UISegmentedControl(items: TrendMetric.allCases.map(trendMetricTitle))
         control.selectedSegmentIndex = selectedTrendMetric.rawValue
         control.apportionsSegmentWidthsByContent = true
-        control.selectedSegmentTintColor = WellnarioPalette.violet
+        control.selectedSegmentTintColor = WellnarioPalette.fuchsia
         control.setTitleTextAttributes([
             .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
             .foregroundColor: WellnarioPalette.textSecondary
@@ -229,6 +280,46 @@ final class SleepViewController: WellnessScrollViewController {
         control.accessibilityLabel = L10n.text("sleep.trend.metric.selector.accessibility")
         control.addTarget(self, action: #selector(trendMetricDidChange), for: .valueChanged)
         return control
+    }
+
+    private func makeTrendReferenceLineControl() -> UISegmentedControl {
+        let control = UISegmentedControl(items: WellnessTrendReferenceLine.allCases.map {
+            trendReferenceLineTitle($0)
+        })
+        control.selectedSegmentIndex = selectedTrendReferenceLine.rawValue
+        control.selectedSegmentTintColor = WellnarioPalette.fuchsia
+        control.setTitleTextAttributes([
+            .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: WellnarioPalette.textSecondary
+        ], for: .normal)
+        control.setTitleTextAttributes([
+            .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: UIColor.white
+        ], for: .selected)
+        control.accessibilityIdentifier = "sleep.trend.reference.selector"
+        control.accessibilityLabel = L10n.text("sleep.trend.reference.selector.accessibility")
+        control.addTarget(self, action: #selector(trendReferenceLineDidChange), for: .valueChanged)
+        return control
+    }
+
+    private func makeTrendReferenceLineControlContainer() -> UIView {
+        let container = UIView()
+        container.addForAutoLayout(trendReferenceLineControl)
+        NSLayoutConstraint.activate([
+            trendReferenceLineControl.topAnchor.constraint(equalTo: container.topAnchor),
+            trendReferenceLineControl.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            trendReferenceLineControl.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            trendReferenceLineControl.widthAnchor.constraint(equalToConstant: 180),
+            trendReferenceLineControl.heightAnchor.constraint(equalToConstant: 28)
+        ])
+        return container
+    }
+
+    private func trendReferenceLineTitle(_ referenceLine: WellnessTrendReferenceLine) -> String {
+        switch referenceLine {
+        case .average: L10n.text("sleep.trend.reference.average")
+        case .linearTrend: L10n.text("sleep.trend.reference.linear")
+        }
     }
 
     private func trendMetricTitle(_ metric: TrendMetric) -> String {
@@ -251,15 +342,16 @@ final class SleepViewController: WellnessScrollViewController {
     }
 
     private func trendLabels(
-        for trend: [AppleHealthSleepDay],
+        for series: AppleHealthSleepTrendSeries,
         period: AppleHealthSleepTrendPeriod
     ) -> [String] {
+        let trend = series.entries
         guard !trend.isEmpty else { return [] }
         if period == .sevenDays {
             return trend.map { AppleHealthUIFormatting.weekdayInitial(for: $0.date) }
         }
 
-        let labelCount = min(5, trend.count)
+        let labelCount = min(period == .thirtyDays ? 4 : 3, trend.count)
         let indexes = Set((0..<labelCount).map { labelIndex in
             guard labelCount > 1 else { return 0 }
             return Int((Double(labelIndex) * Double(trend.count - 1) / Double(labelCount - 1)).rounded())
@@ -268,14 +360,59 @@ final class SleepViewController: WellnessScrollViewController {
         formatter.locale = LocalizationManager.shared.locale
         let spansMoreThanAYear = (trend.last?.date.timeIntervalSince(trend.first?.date ?? Date()) ?? 0)
             >= 365 * 24 * 60 * 60
-        formatter.setLocalizedDateFormatFromTemplate(spansMoreThanAYear ? "MMMyy" : "dMMM")
+        let template: String
+        switch series.granularity {
+        case .year: template = "y"
+        case .month: template = "MMMyy"
+        case .day, .week: template = spansMoreThanAYear ? "MMMyy" : "dMMM"
+        }
+        formatter.setLocalizedDateFormatFromTemplate(template)
         return trend.enumerated().map { index, entry in
             indexes.contains(index) ? formatter.string(from: entry.date) : ""
         }
     }
 
-    private func makeSourceBanner(snapshot: AppleHealthSnapshot) -> FeedbackBannerView {
-        let banner = FeedbackBannerView()
+    private func trendSelectionLabels(for series: AppleHealthSleepTrendSeries) -> [String] {
+        let locale = LocalizationManager.shared.locale
+        switch series.granularity {
+        case .day:
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.setLocalizedDateFormatFromTemplate("dMMMy")
+            return series.entries.map { formatter.string(from: $0.date) }
+        case .week:
+            let startFormatter = DateFormatter()
+            startFormatter.locale = locale
+            startFormatter.setLocalizedDateFormatFromTemplate("dMMM")
+            let endFormatter = DateFormatter()
+            endFormatter.locale = locale
+            endFormatter.setLocalizedDateFormatFromTemplate("dMMMy")
+            let calendar = Calendar.autoupdatingCurrent
+            return series.entries.map { entry in
+                guard let interval = calendar.dateInterval(of: .weekOfYear, for: entry.date),
+                      let end = calendar.date(byAdding: .day, value: -1, to: interval.end) else {
+                    return startFormatter.string(from: entry.date)
+                }
+                return "\(startFormatter.string(from: interval.start))–\(endFormatter.string(from: end))"
+            }
+        case .month:
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.setLocalizedDateFormatFromTemplate("MMMMy")
+            return series.entries.map { formatter.string(from: $0.date) }
+        case .year:
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.setLocalizedDateFormatFromTemplate("y")
+            return series.entries.map { formatter.string(from: $0.date) }
+        }
+    }
+
+    private func configureSourceBanner(
+        _ banner: FeedbackBannerView,
+        snapshot: AppleHealthSnapshot
+    ) {
+        banner.onAction = nil
         switch appleHealthService.state {
         case .unavailable:
             banner.configure(message: L10n.text("apple_health.unavailable"), tone: .warning)
@@ -305,7 +442,6 @@ final class SleepViewController: WellnessScrollViewController {
             )
             banner.onAction = { [weak self] in self?.syncNow() }
         }
-        return banner
     }
 
     private func makeLatestSessionCard(_ session: AppleHealthSleepSession?) -> PremiumCardView {
@@ -344,66 +480,43 @@ final class SleepViewController: WellnessScrollViewController {
         ])
 
         let text = UIStackView(arrangedSubviews: [titleLabel, bodyLabel], axis: .vertical, spacing: 6)
-        let content = UIStackView(
+        let summary = UIStackView(
             arrangedSubviews: [iconContainer, text],
             axis: .horizontal,
             spacing: WellnarioSpacing.small,
             alignment: .center
         )
-        let card = makeCard(containing: content, identifier: "sleep.latest.card")
-        card.showsAccent = true
-        card.isAccessibilityElement = true
-        card.accessibilityLabel = [titleLabel.text, bodyLabel.text].compactMap { $0 }.joined(separator: ". ")
-        return card
-    }
 
-    private func makeMiniMetric(
-        title: String,
-        value: String,
-        detail: String,
-        symbol: String,
-        tone: UIColor
-    ) -> PremiumCardView {
-        let icon = UIImageView(image: UIImage(systemName: symbol))
-        icon.tintColor = tone
-        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+        let separator = UIView()
+        separator.backgroundColor = WellnarioPalette.hairline
+        separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
 
-        let titleLabel = UILabel()
-        titleLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
-        titleLabel.text = title
-        titleLabel.numberOfLines = 2
-        let valueLabel = UILabel()
-        valueLabel.applyWellnarioStyle(.metric, color: WellnarioPalette.textPrimary)
-        valueLabel.text = value
-        valueLabel.adjustsFontSizeToFitWidth = true
-        valueLabel.minimumScaleFactor = 0.72
-        let detailLabel = UILabel()
-        detailLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)
-        detailLabel.text = detail
-        detailLabel.numberOfLines = 2
+        let timelineTitle = UILabel()
+        timelineTitle.applyWellnarioStyle(.secondary, color: WellnarioPalette.textPrimary)
+        timelineTitle.text = L10n.text("sleep.stage.timeline.title")
 
-        let heading = UIStackView(
-            arrangedSubviews: [titleLabel, UIView(), icon],
-            axis: .horizontal,
-            spacing: 6,
-            alignment: .top
+        let timeline = SleepStageTimelineView()
+        timeline.configure(session: session)
+        let timelineSection = UIStackView(
+            arrangedSubviews: [timelineTitle, timeline],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxSmall
         )
-        let stack = UIStackView(arrangedSubviews: [heading, valueLabel, detailLabel], axis: .vertical, spacing: 6)
-        let card = makeCard(containing: stack)
+
+        let content = UIStackView(
+            arrangedSubviews: [summary, separator, timelineSection],
+            axis: .vertical,
+            spacing: WellnarioSpacing.small
+        )
+        let card = makeCard(containing: content, identifier: "sleep.latest.card")
         card.isAccessibilityElement = true
-        card.accessibilityLabel = title
-        card.accessibilityValue = [value, detail].joined(separator: ", ")
+        card.accessibilityLabel = [
+            titleLabel.text,
+            bodyLabel.text,
+            L10n.text("sleep.stage.timeline.title"),
+            timeline.accessibilityValue
+        ].compactMap { $0 }.joined(separator: ". ")
         return card
-    }
-
-    private func stageValue(_ seconds: TimeInterval?) -> String {
-        guard let seconds, seconds > 0 else { return "—" }
-        return AppleHealthUIFormatting.duration(seconds)
-    }
-
-    private func stageDetail(_ seconds: TimeInterval?) -> String {
-        guard let seconds, seconds > 0 else { return L10n.text("sleep.no_data") }
-        return L10n.text("sleep.from_apple_health")
     }
 
     private func makeFactorCard() -> PremiumCardView {
@@ -454,5 +567,15 @@ final class SleepViewController: WellnessScrollViewController {
         }
         selectedTrendMetric = metric
         configureTrendChart(with: appleHealthService.snapshot)
+    }
+    @objc private func trendReferenceLineDidChange() {
+        guard let referenceLine = WellnessTrendReferenceLine(
+            rawValue: trendReferenceLineControl.selectedSegmentIndex
+        ) else {
+            return
+        }
+        selectedTrendReferenceLine = referenceLine
+        defaults.set(referenceLine.rawValue, forKey: Self.trendReferenceLinePreferenceKey)
+        trendChart.referenceLine = referenceLine
     }
 }

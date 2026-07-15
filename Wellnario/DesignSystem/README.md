@@ -19,7 +19,6 @@ not duplicate literal colors, font sizes or spacing values.
 
 ```swift
 let card = PremiumCardView()
-card.showsAccent = true
 card.isPressable = true
 card.contentView.addForAutoLayout(content)
 content.pinEdges(to: card.contentView, insets: .all(WellnarioSpacing.cardPadding))
