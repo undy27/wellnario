@@ -254,6 +254,8 @@ final class FeedbackBannerView: UIView {
 
         actionButton.titleLabel?.font = WellnarioTypography.font(for: .caption)
         actionButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        actionButton.titleLabel?.numberOfLines = 2
+        actionButton.titleLabel?.textAlignment = .center
         actionButton.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
         actionButton.setContentHuggingPriority(.required, for: .horizontal)
         actionButton.setContentCompressionResistancePriority(.required, for: .horizontal)

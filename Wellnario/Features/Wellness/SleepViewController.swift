@@ -17,6 +17,7 @@ final class SleepViewController: WellnessScrollViewController {
 
     private let appleHealthService: AppleHealthSyncing
     private let defaults: UserDefaults
+    private let cardLayoutPreferences: SleepCardLayoutPreferences
     private let sourceBanner = FeedbackBannerView()
     private let trendChart = WellnessTrendChartView()
     private var isSourceBannerVisible = false
@@ -31,6 +32,7 @@ final class SleepViewController: WellnessScrollViewController {
     init(appleHealthService: AppleHealthSyncing, defaults: UserDefaults = .standard) {
         self.appleHealthService = appleHealthService
         self.defaults = defaults
+        cardLayoutPreferences = SleepCardLayoutPreferences(defaults: defaults)
         let storedReferenceLine = defaults.object(forKey: Self.trendReferenceLinePreferenceKey) as? Int
         selectedTrendReferenceLine = storedReferenceLine
             .flatMap(WellnessTrendReferenceLine.init(rawValue:))
@@ -46,13 +48,24 @@ final class SleepViewController: WellnessScrollViewController {
         title = L10n.text("sleep.title")
         navigationItem.largeTitleDisplayMode = .never
         view.accessibilityIdentifier = "sleep.root"
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
+        let settingsButton = UIBarButtonItem(
             image: UIImage(systemName: "gearshape"),
             style: .plain,
             target: self,
             action: #selector(openSettings)
         )
-        navigationItem.rightBarButtonItem?.accessibilityLabel = L10n.Settings.title
+        settingsButton.accessibilityLabel = L10n.Settings.title
+        settingsButton.accessibilityIdentifier = "sleep.settings"
+        let editCardsButton = UIBarButtonItem(
+            image: UIImage(systemName: "square.grid.2x2"),
+            style: .plain,
+            target: self,
+            action: #selector(openCardEditor)
+        )
+        editCardsButton.tintColor = WellnarioPalette.fuchsia
+        editCardsButton.accessibilityLabel = L10n.text("sleep.cards.edit")
+        editCardsButton.accessibilityIdentifier = "sleep.cards.edit"
+        navigationItem.rightBarButtonItems = [settingsButton, editCardsButton]
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(appleHealthDidChange),
@@ -68,6 +81,7 @@ final class SleepViewController: WellnessScrollViewController {
         navigationController?.setNavigationBarHidden(false, animated: animated)
         navigationController?.navigationBar.prefersLargeTitles = false
         navigationItem.largeTitleDisplayMode = .never
+        buildContent()
     }
 
     override func viewDidLayoutSubviews() {
@@ -80,15 +94,47 @@ final class SleepViewController: WellnessScrollViewController {
         let snapshot = appleHealthService.snapshot
 
         updateSourceBanner(snapshot: snapshot)
-        contentStack.addArrangedSubview(makeSectionTitle(
-            L10n.text("sleep.latest.title"),
-            detail: L10n.text("sleep.latest.detail")
-        ))
-        let latestSessionCard = makeLatestSessionCard(snapshot.latestSleepSession)
-        contentStack.addArrangedSubview(latestSessionCard)
-        contentStack.setCustomSpacing(WellnarioSpacing.large, after: latestSessionCard)
-        contentStack.addArrangedSubview(makeSectionTitle(L10n.text("sleep.trend.title")))
+        let visibleCards = cardLayoutPreferences.orderedCards.filter(cardLayoutPreferences.isVisible)
+        guard !visibleCards.isEmpty else {
+            contentStack.addArrangedSubview(makeNoVisibleCardsView())
+            return
+        }
 
+        for card in visibleCards {
+            let section = makeCardSection(card, snapshot: snapshot)
+            contentStack.addArrangedSubview(section)
+            contentStack.setCustomSpacing(WellnarioSpacing.large, after: section)
+        }
+    }
+
+    private func makeCardSection(_ card: SleepCardKind, snapshot: AppleHealthSnapshot) -> UIView {
+        let sectionTitle: UIView
+        let cardView: UIView
+        switch card {
+        case .latestSession:
+            sectionTitle = makeSectionTitle(
+                L10n.text("sleep.latest.title"),
+                detail: L10n.text("sleep.latest.detail")
+            )
+            cardView = makeLatestSessionCard(snapshot.latestSleepSession)
+        case .trend:
+            sectionTitle = makeSectionTitle(L10n.text("sleep.trend.title"))
+            cardView = makeTrendCard(snapshot: snapshot)
+        case .factors:
+            sectionTitle = makeSectionTitle(L10n.text("sleep.factors.title"))
+            cardView = makeFactorCard()
+        }
+
+        let section = UIStackView(
+            arrangedSubviews: [sectionTitle, cardView],
+            axis: .vertical,
+            spacing: WellnarioSpacing.cardGap
+        )
+        section.accessibilityIdentifier = "sleep.card.section.\(card.rawValue)"
+        return section
+    }
+
+    private func makeTrendCard(snapshot: AppleHealthSnapshot) -> PremiumCardView {
         configureTrendChart(with: snapshot)
         let trendContent = UIStackView(
             arrangedSubviews: [
@@ -100,18 +146,28 @@ final class SleepViewController: WellnessScrollViewController {
             axis: .vertical,
             spacing: WellnarioSpacing.xSmall
         )
-        let chartCard = PremiumCardView()
-        chartCard.accessibilityIdentifier = "sleep.trend.card"
-        chartCard.contentView.addForAutoLayout(trendContent)
+        let card = PremiumCardView()
+        card.accessibilityIdentifier = "sleep.trend.card"
+        card.contentView.addForAutoLayout(trendContent)
         trendContent.pinEdges(
-            to: chartCard.contentView,
+            to: card.contentView,
             insets: NSDirectionalEdgeInsets(top: 16, leading: 8, bottom: 16, trailing: 8)
         )
-        contentStack.addArrangedSubview(chartCard)
+        return card
+    }
 
-        contentStack.setCustomSpacing(WellnarioSpacing.large, after: chartCard)
-        contentStack.addArrangedSubview(makeSectionTitle(L10n.text("sleep.factors.title")))
-        contentStack.addArrangedSubview(makeFactorCard())
+    private func makeNoVisibleCardsView() -> EmptyStateView {
+        let emptyState = EmptyStateView()
+        emptyState.accessibilityIdentifier = "sleep.cards.empty"
+        emptyState.configure(
+            kind: .other,
+            title: L10n.text("sleep.cards.empty.title"),
+            message: L10n.text("sleep.cards.empty.body"),
+            actionTitle: L10n.text("sleep.cards.edit")
+        )
+        emptyState.onAction = { [weak self] in self?.openCardEditor() }
+        emptyState.heightAnchor.constraint(greaterThanOrEqualToConstant: 360).isActive = true
+        return emptyState
     }
 
     private func setUpSourceBanner() {
@@ -429,7 +485,7 @@ final class SleepViewController: WellnessScrollViewController {
             banner.configure(
                 message: L10n.text("apple_health.sync_failed"),
                 tone: .warning,
-                actionTitle: L10n.text("apple_health.sync_now")
+                actionTitle: AppleHealthUIFormatting.twoLineSyncNowActionTitle
             )
             banner.onAction = { [weak self] in self?.syncNow() }
         case .ready:
@@ -438,7 +494,7 @@ final class SleepViewController: WellnessScrollViewController {
             banner.configure(
                 message: message,
                 tone: .success,
-                actionTitle: L10n.text("apple_health.sync_now")
+                actionTitle: AppleHealthUIFormatting.twoLineSyncNowActionTitle
             )
             banner.onAction = { [weak self] in self?.syncNow() }
         }
@@ -553,6 +609,11 @@ final class SleepViewController: WellnessScrollViewController {
     }
 
     @objc private func openSettings() { onOpenSettings?() }
+    @objc private func openCardEditor() {
+        let editor = SleepCardEditorViewController(preferences: cardLayoutPreferences)
+        editor.onLayoutChange = { [weak self] in self?.buildContent() }
+        navigationController?.pushViewController(editor, animated: true)
+    }
     @objc private func appleHealthDidChange() { buildContent() }
     @objc private func trendPeriodDidChange() {
         guard let period = AppleHealthSleepTrendPeriod(rawValue: trendPeriodControl.selectedSegmentIndex) else {

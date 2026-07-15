@@ -1,18 +1,53 @@
 import UIKit
 import UniformTypeIdentifiers
 
+enum HealthCardKind: String, CaseIterable, WellnessCardKind, Sendable {
+    case biologicalAge
+    case biomarkers
+    case medicalReviews
+
+    static let storageNamespace = "health"
+
+    @MainActor
+    var title: String {
+        switch self {
+        case .biologicalAge: L10n.text("health.biological_age.title")
+        case .biomarkers: L10n.text("health.biomarkers.title")
+        case .medicalReviews: L10n.text("health.medical_reviews.title")
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .biologicalAge: "figure.stand"
+        case .biomarkers: "waveform.path.ecg"
+        case .medicalReviews: "calendar.badge.clock"
+        }
+    }
+}
+
+typealias HealthCardLayoutPreferences = WellnessCardLayoutPreferences<HealthCardKind>
+
 @MainActor
 final class HealthViewController: WellnessScrollViewController, UIDocumentPickerDelegate {
     private static let sourceBannerHeight: CGFloat = 76
 
     var onOpenSettings: (() -> Void)?
     private let appleHealthService: AppleHealthSyncing
+    private let medicalReviewStore: MedicalReviewStore
+    private let cardLayoutPreferences: HealthCardLayoutPreferences
     private let sourceBanner = FeedbackBannerView()
     private var isSourceBannerVisible = false
     private var appliedSourceBannerInset: CGFloat = 0
 
-    init(appleHealthService: AppleHealthSyncing) {
+    init(
+        appleHealthService: AppleHealthSyncing,
+        medicalReviewStore: MedicalReviewStore = MedicalReviewStore(),
+        defaults: UserDefaults = .standard
+    ) {
         self.appleHealthService = appleHealthService
+        self.medicalReviewStore = medicalReviewStore
+        cardLayoutPreferences = HealthCardLayoutPreferences(defaults: defaults)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -24,13 +59,24 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
         title = L10n.text("health.title")
         navigationItem.largeTitleDisplayMode = .never
         view.accessibilityIdentifier = "health.root"
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
+        let settingsButton = UIBarButtonItem(
             image: UIImage(systemName: "gearshape"),
             style: .plain,
             target: self,
             action: #selector(openSettings)
         )
-        navigationItem.rightBarButtonItem?.accessibilityLabel = L10n.Settings.title
+        settingsButton.accessibilityLabel = L10n.Settings.title
+        settingsButton.accessibilityIdentifier = "health.settings"
+        let editCardsButton = UIBarButtonItem(
+            image: UIImage(systemName: "square.grid.2x2"),
+            style: .plain,
+            target: self,
+            action: #selector(openCardEditor)
+        )
+        editCardsButton.tintColor = WellnarioPalette.fuchsia
+        editCardsButton.accessibilityLabel = L10n.text("health.cards.edit")
+        editCardsButton.accessibilityIdentifier = "health.cards.edit"
+        navigationItem.rightBarButtonItems = [settingsButton, editCardsButton]
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(appleHealthDidChange),
@@ -46,6 +92,7 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
         navigationController?.setNavigationBarHidden(false, animated: animated)
         navigationController?.navigationBar.prefersLargeTitles = false
         navigationItem.largeTitleDisplayMode = .never
+        buildContent()
     }
 
     override func viewDidLayoutSubviews() {
@@ -56,13 +103,18 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
     private func buildContent() {
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         updateSourceBanner()
-        contentStack.addArrangedSubview(makeBiologicalAgeCard())
-        contentStack.setCustomSpacing(WellnarioSpacing.large, after: contentStack.arrangedSubviews.last!)
-        contentStack.addArrangedSubview(makeSectionTitle(
-            L10n.text("health.biomarkers.title"),
-            detail: L10n.text("health.biomarkers.current")
-        ))
-        contentStack.addArrangedSubview(makeBiomarkersCard())
+        let visibleCards = cardLayoutPreferences.orderedCards.filter(cardLayoutPreferences.isVisible)
+        if visibleCards.isEmpty {
+            contentStack.addArrangedSubview(makeNoVisibleCardsView())
+        } else {
+            for (index, card) in visibleCards.enumerated() {
+                let section = makeCardSection(card)
+                contentStack.addArrangedSubview(section)
+                if index < visibleCards.count - 1 {
+                    contentStack.setCustomSpacing(WellnarioSpacing.large, after: section)
+                }
+            }
+        }
 
         let importButton = PrimaryButton(style: .secondary)
         importButton.configuration = actionConfiguration(
@@ -74,6 +126,116 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
         importButton.accessibilityIdentifier = "health.import_lab"
         importButton.addTarget(self, action: #selector(importLab), for: .touchUpInside)
         contentStack.addArrangedSubview(importButton)
+    }
+
+    private func makeCardSection(_ card: HealthCardKind) -> UIView {
+        let views: [UIView]
+        switch card {
+        case .biologicalAge:
+            views = [
+                makeSectionTitle(L10n.text("health.biological_age.estimate")),
+                makeBiologicalAgeCard()
+            ]
+        case .biomarkers:
+            views = [
+                makeSectionTitle(
+                    L10n.text("health.biomarkers.title"),
+                    detail: L10n.text("health.biomarkers.current")
+                ),
+                makeBiomarkersCard()
+            ]
+        case .medicalReviews:
+            views = [makeMedicalReviewsCard()]
+        }
+        let section = UIStackView(
+            arrangedSubviews: views,
+            axis: .vertical,
+            spacing: WellnarioSpacing.cardGap
+        )
+        section.accessibilityIdentifier = "health.card.section.\(card.rawValue)"
+        return section
+    }
+
+    private func makeNoVisibleCardsView() -> EmptyStateView {
+        let emptyState = EmptyStateView()
+        emptyState.accessibilityIdentifier = "health.cards.empty"
+        emptyState.configure(
+            kind: .other,
+            title: L10n.text("health.cards.empty.title"),
+            message: L10n.text("health.cards.empty.body"),
+            actionTitle: L10n.text("health.cards.edit")
+        )
+        emptyState.onAction = { [weak self] in self?.openCardEditor() }
+        emptyState.heightAnchor.constraint(greaterThanOrEqualToConstant: 300).isActive = true
+        return emptyState
+    }
+
+    private func makeMedicalReviewsCard() -> PremiumCardView {
+        let reviews = medicalReviewStore.reviews
+        let icon = UIImageView(image: UIImage(systemName: "calendar.badge.clock"))
+        icon.tintColor = WellnarioPalette.fuchsia
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 23, weight: .semibold)
+
+        let iconContainer = UIView()
+        iconContainer.backgroundColor = WellnarioPalette.fuchsia.withAlphaComponent(0.14)
+        iconContainer.applyContinuousCorners(18)
+        iconContainer.addForAutoLayout(icon)
+        NSLayoutConstraint.activate([
+            iconContainer.widthAnchor.constraint(equalToConstant: 48),
+            iconContainer.heightAnchor.constraint(equalTo: iconContainer.widthAnchor),
+            icon.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor)
+        ])
+
+        let titleLabel = UILabel()
+        titleLabel.applyWellnarioStyle(.cardTitle, color: WellnarioPalette.textPrimary)
+        titleLabel.text = L10n.text("health.medical_reviews.title")
+        titleLabel.numberOfLines = 0
+        let chevron = UIImageView(image: UIImage(systemName: "chevron.right"))
+        chevron.tintColor = WellnarioPalette.textTertiary
+        let header = UIStackView(
+            arrangedSubviews: [iconContainer, titleLabel, UIView(), chevron],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.xSmall,
+            alignment: .center
+        )
+
+        let countLabel = UILabel()
+        countLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
+        countLabel.text = reviews.count == 1
+            ? L10n.text("health.medical_reviews.count.one")
+            : L10n.text("health.medical_reviews.count.many", reviews.count)
+        countLabel.numberOfLines = 0
+
+        let detailLabel = UILabel()
+        detailLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
+        if let nextReview = reviews.first {
+            detailLabel.text = L10n.text(
+                "health.medical_reviews.next_summary",
+                nextReview.title,
+                MedicalReviewFormatting.dueStatus(nextReview)
+            )
+        } else {
+            detailLabel.text = L10n.text("health.medical_reviews.card.empty")
+        }
+        detailLabel.numberOfLines = 0
+
+        let content = UIStackView(
+            arrangedSubviews: [header, countLabel, detailLabel],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xSmall
+        )
+        content.isUserInteractionEnabled = false
+        let button = UIButton(type: .system)
+        button.addForAutoLayout(content)
+        content.pinEdges(to: button)
+        button.accessibilityIdentifier = "health.medical_reviews.open"
+        button.accessibilityLabel = L10n.text("health.medical_reviews.title")
+        button.accessibilityValue = [countLabel.text, detailLabel.text].compactMap { $0 }.joined(separator: ". ")
+        button.accessibilityHint = L10n.text("health.medical_reviews.open.hint")
+        button.addTarget(self, action: #selector(openMedicalReviews), for: .touchUpInside)
+        let card = makeCard(containing: button, identifier: "health.medical_reviews.card")
+        return card
     }
 
     private func setUpSourceBanner() {
@@ -131,10 +293,6 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
     }
 
     private func makeBiologicalAgeCard() -> PremiumCardView {
-        let eyebrow = UILabel()
-        eyebrow.applyWellnarioStyle(.caption, color: WellnarioPalette.warning)
-        eyebrow.text = L10n.text("health.biological_age.estimate")
-
         let ageLabel = UILabel()
         ageLabel.applyWellnarioStyle(.metric, color: WellnarioPalette.textPrimary)
         ageLabel.text = "—"
@@ -160,7 +318,7 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
             rings.heightAnchor.constraint(equalTo: rings.widthAnchor)
         ])
 
-        let labels = UIStackView(arrangedSubviews: [eyebrow, ageRow, detail], axis: .vertical, spacing: 8)
+        let labels = UIStackView(arrangedSubviews: [ageRow, detail], axis: .vertical, spacing: 8)
         let content = UIStackView(
             arrangedSubviews: [labels, rings],
             axis: .horizontal,
@@ -277,7 +435,7 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
             banner.configure(
                 message: L10n.text("apple_health.sync_failed"),
                 tone: .warning,
-                actionTitle: L10n.text("apple_health.sync_now")
+                actionTitle: AppleHealthUIFormatting.twoLineSyncNowActionTitle
             )
             banner.onAction = { [weak self] in self?.syncNow() }
         case .ready:
@@ -286,7 +444,7 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
             banner.configure(
                 message: message,
                 tone: .success,
-                actionTitle: L10n.text("apple_health.sync_now")
+                actionTitle: AppleHealthUIFormatting.twoLineSyncNowActionTitle
             )
             banner.onAction = { [weak self] in self?.syncNow() }
         }
@@ -326,6 +484,28 @@ final class HealthViewController: WellnessScrollViewController, UIDocumentPicker
     }
 
     @objc private func openSettings() { onOpenSettings?() }
+    @objc private func openCardEditor() {
+        let editor = WellnessCardEditorViewController(
+            preferences: cardLayoutPreferences,
+            configuration: WellnessCardEditorConfiguration(
+                title: L10n.text("health.cards.editor.title"),
+                sectionTitle: L10n.text("health.cards.editor.section"),
+                footer: L10n.text("health.cards.editor.footer"),
+                visibleText: L10n.text("health.cards.visible"),
+                hiddenText: L10n.text("health.cards.hidden"),
+                visibilityAccessibilityFormatKey: "health.cards.visibility.accessibility",
+                accessibilityPrefix: "health.cards"
+            )
+        )
+        editor.onLayoutChange = { [weak self] in self?.buildContent() }
+        navigationController?.pushViewController(editor, animated: true)
+    }
+    @objc private func openMedicalReviews() {
+        navigationController?.pushViewController(
+            MedicalReviewsViewController(store: medicalReviewStore),
+            animated: true
+        )
+    }
     @objc private func appleHealthDidChange() { buildContent() }
 
     private func syncNow() {

@@ -87,6 +87,13 @@
 "today.intake.plural" = "intakes today";
 "today.supplements.title" = "Today's supplements";
 "today.supplements.empty" = "You have not logged an intake today yet.";
+"today.reviews.title" = "Checkups";
+"today.reviews.empty" = "No checkups";
+"today.reviews.due.today" = "due today";
+"today.reviews.due.remaining.one" = "due in 1 day";
+"today.reviews.due.remaining.many" = "due in %d days";
+"today.reviews.due.overdue.one" = "1 day overdue";
+"today.reviews.due.overdue.many" = "%d days overdue";
 
 /* Wellness dashboard */
 "wellness.no_data" = "No data";
@@ -107,6 +114,15 @@
 /* Sleep */
 "sleep.title" = "Sleep";
 "sleep.source.empty" = "Connect Apple Health or Oura to import your sleep sessions.";
+"sleep.cards.edit" = "Edit cards";
+"sleep.cards.editor.title" = "Edit cards";
+"sleep.cards.editor.section" = "Sleep cards";
+"sleep.cards.editor.footer" = "Turn on the cards you want to see. Touch and hold the control on the right, then drag to change their order.";
+"sleep.cards.visible" = "Visible";
+"sleep.cards.hidden" = "Hidden";
+"sleep.cards.visibility.accessibility" = "Show %@ card";
+"sleep.cards.empty.title" = "No visible cards";
+"sleep.cards.empty.body" = "You can restore any card from edit mode.";
 "sleep.latest.title" = "Latest session";
 "sleep.latest.detail" = "Most recent";
 "sleep.latest.empty.title" = "No session yet";
@@ -164,8 +180,17 @@
 
 /* Health */
 "health.title" = "Health";
+"health.cards.edit" = "Edit cards";
+"health.cards.editor.title" = "Edit cards";
+"health.cards.editor.section" = "Health cards";
+"health.cards.editor.footer" = "Turn on the cards you want to see. Touch and hold the control on the right, then drag to change their order.";
+"health.cards.visible" = "Visible";
+"health.cards.hidden" = "Hidden";
+"health.cards.visibility.accessibility" = "Show %@ card";
+"health.cards.empty.title" = "No visible cards";
+"health.cards.empty.body" = "You can restore any Health card from edit mode.";
 "health.biological_age.title" = "Biological age";
-"health.biological_age.estimate" = "ESTIMATED BIOLOGICAL AGE";
+"health.biological_age.estimate" = "Estimated biological age";
 "health.biological_age.years" = "years";
 "health.biological_age.empty" = "Add enough biomarkers to calculate a reliable estimate.";
 "health.biomarkers.title" = "Biomarkers";
@@ -179,11 +204,70 @@
 "health.biomarker.glucose" = "Glucose";
 "health.biomarker.glucose.unit" = "mg/dL";
 "health.source.empty" = "Connect a source or upload lab results to complete your biomarkers.";
+"health.medical_reviews.title" = "Medical checkups";
+"health.medical_reviews.card.empty" = "Set a schedule for specialist appointments and medical tests.";
+"health.medical_reviews.count.one" = "1 checkup configured";
+"health.medical_reviews.count.many" = "%d checkups configured";
+"health.medical_reviews.next_summary" = "Next: %@ · %@";
+"health.medical_reviews.open.hint" = "Opens medical checkup management";
+"health.medical_reviews.add" = "Add checkup";
+"health.medical_reviews.all.open" = "View all checkups";
+"health.medical_reviews.all.title" = "All checkups";
+"health.medical_reviews.all.empty.title" = "No completed checkups";
+"health.medical_reviews.all.empty.body" = "Completed checkups will appear here from newest to oldest.";
+"health.medical_reviews.edit" = "Edit checkup";
+"health.medical_reviews.empty.title" = "No checkups yet";
+"health.medical_reviews.empty.body" = "Add appointments or tests and set how often they should recur. Reminders can be enabled later.";
+"health.medical_reviews.reminders_later" = "Schedules are saved. Reminders can be enabled later.";
+"health.medical_reviews.kind" = "Checkup type";
+"health.medical_reviews.kind.consultation" = "Specialist appointment";
+"health.medical_reviews.kind.test" = "Medical test";
+"health.medical_reviews.kind.vaccination" = "Vaccines";
+"health.medical_reviews.kind.self_test" = "Self-tests";
+"health.medical_reviews.cadence" = "Frequency";
+"health.medical_reviews.cadence.one_month" = "Every month";
+"health.medical_reviews.cadence.months" = "Every %d months";
+"health.medical_reviews.cadence.annual" = "Every year";
+"health.medical_reviews.cadence.years" = "Every %d years";
+"health.medical_reviews.due.upcoming" = "Next on %@";
+"health.medical_reviews.due.today" = "Due today";
+"health.medical_reviews.due.overdue" = "Due since %@";
+"health.medical_reviews.name" = "Specialist or test";
+"health.medical_reviews.name.placeholder" = "E.g. Dermatology or routine bloodwork";
+"health.medical_reviews.name.helper" = "Use a name that makes the checkup easy to identify.";
+"health.medical_reviews.name.required" = "Enter the specialist or medical test.";
+"health.medical_reviews.last_date" = "Last checkup";
+"health.medical_reviews.notes" = "Notes";
+"health.medical_reviews.notes.placeholder" = "Add results, recommendations, or other notes for this checkup";
+"health.medical_reviews.completion.edit" = "Edit completion";
+"health.medical_reviews.completion.date" = "Date";
+"health.medical_reviews.completion.delete.title" = "Delete completion";
+"health.medical_reviews.completion.delete.body" = "The date and notes for this completion will be deleted.";
+"health.medical_reviews.completion.delete.last.body" = "This is the only saved completion. Deleting it will also delete its schedule.";
+"health.medical_reviews.details" = "Checkup";
+"health.medical_reviews.schedule" = "Schedule";
+"health.medical_reviews.next_preview" = "The next checkup will be due on %@";
+"health.medical_reviews.delete.title" = "Delete checkup";
+"health.medical_reviews.delete.body" = "The schedule and the full history for %@ will be deleted.";
+"health.medical_reviews.history.title" = "History";
+"health.medical_reviews.history.latest" = "Latest";
+"health.medical_reviews.history.count.one" = "1 saved completion";
+"health.medical_reviews.history.count.many" = "%d saved completions";
 "lab.imported.title" = "Lab results ready";
 "lab.imported.message" = "%@ has been selected for processing.";
 
 /* Fitness */
 "fitness.title" = "Fitness";
+"fitness.cards.edit" = "Edit cards";
+"fitness.cards.editor.title" = "Edit cards";
+"fitness.cards.editor.section" = "Fitness cards";
+"fitness.cards.editor.footer" = "Turn on the cards you want to see. Touch and hold the control on the right, then drag to change their order.";
+"fitness.cards.visible" = "Visible";
+"fitness.cards.hidden" = "Hidden";
+"fitness.cards.visibility.accessibility" = "Show %@ card";
+"fitness.cards.empty.title" = "No visible cards";
+"fitness.cards.empty.body" = "You can restore any Fitness card from edit mode.";
+"fitness.cards.weekly_summary" = "Weekly summary";
 "fitness.this_week" = "THIS WEEK";
 "fitness.workouts" = "workouts";
 "fitness.workouts_this_week" = "workouts this week";
@@ -338,6 +422,12 @@
 "actives.name.placeholder" = "E.g. Vitamin C";
 "actives.description.placeholder" = "Optional information about this component";
 "actives.target.helper" = "Define a personal range; it is not a medical recommendation.";
+"actives.categories" = "Categories";
+"actives.categories.all" = "All";
+"actives.categories.none" = "No categories";
+"actives.categories.filter.accessibility" = "Filter actives by category";
+"actives.categories.empty.title" = "No actives in this category";
+"actives.categories.empty.message" = "Try another category or show all actives.";
 
 /* Intake log */
 "intake.title.new" = "Log intake";

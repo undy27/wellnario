@@ -71,9 +71,47 @@ final class WellnarioNavigationUITests: XCTestCase {
     }
 
     @MainActor
-    func testChangingAppearanceKeepsSettingsOpenAndPersistsSelection() {
+    func testTodayFitnessAndMedicalReviewsShareTheLastSummaryRow() {
         let app = launch(language: "es", initialTab: "today")
-        let settings = app.buttons["today.settings"]
+        let fitness = app.descendants(matching: .any)["today.summary.fitness"]
+        let reviews = app.descendants(matching: .any)["today.summary.reviews"]
+
+        XCTAssertTrue(fitness.waitForExistence(timeout: 5))
+        XCTAssertTrue(reviews.waitForExistence(timeout: 5))
+        XCTAssertEqual(fitness.frame.width, reviews.frame.width, accuracy: 1)
+        XCTAssertEqual(fitness.frame.minY, reviews.frame.minY, accuracy: 1)
+        XCTAssertLessThan(fitness.frame.width, app.frame.width / 2)
+    }
+
+    @MainActor
+    func testSettingsOpenFromSupplementsWithoutChangingSelectedTab() {
+        let app = launch(language: "es", initialTab: "supplements")
+        let supplementsTab = app.buttons["tab.tab.supplements"]
+        XCTAssertTrue(supplementsTab.waitForExistence(timeout: 5))
+        XCTAssertTrue(supplementsTab.isSelected)
+
+        let settings = app.buttons["supplements.settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        settings.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["settings.root"].waitForExistence(timeout: 3))
+        XCTAssertTrue(supplementsTab.isSelected)
+
+        let back = app.buttons["settings.back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 3))
+        back.tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["navigation.supplements"]
+                .waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(supplementsTab.isSelected)
+    }
+
+    @MainActor
+    func testChangingAppearanceKeepsSettingsOpenAndPersistsSelection() {
+        let app = launch(language: "es", initialTab: "fitness")
+        let settings = app.buttons["fitness.settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 3))
         settings.tap()
 
@@ -87,7 +125,7 @@ final class WellnarioNavigationUITests: XCTestCase {
         let rebuiltLight = app.descendants(matching: .any)["settings.appearance.light"]
         XCTAssertTrue(rebuiltLight.waitForExistence(timeout: 3))
         XCTAssertTrue(rebuiltLight.isSelected)
-        XCTAssertTrue(app.buttons["tab.tab.today"].isSelected)
+        XCTAssertTrue(app.buttons["tab.tab.fitness"].isSelected)
 
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Configuración — modo claro"
@@ -156,6 +194,35 @@ final class WellnarioNavigationUITests: XCTestCase {
     }
 
     @MainActor
+    func testSleepCardsCanBeShownOrHiddenFromEditor() {
+        let app = launch(language: "es", initialTab: "sleep")
+        let editCards = app.buttons["sleep.cards.edit"]
+        XCTAssertTrue(editCards.waitForExistence(timeout: 5))
+        editCards.tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["sleep.cards.editor.root"]
+                .waitForExistence(timeout: 3)
+        )
+        let factorsSwitch = app.switches["sleep.cards.editor.visibility.factors"]
+        XCTAssertTrue(factorsSwitch.waitForExistence(timeout: 3))
+        if factorsSwitch.value as? String != "1" {
+            factorsSwitch.tap()
+            XCTAssertEqual(factorsSwitch.value as? String, "1")
+        }
+        factorsSwitch.tap()
+
+        let done = app.buttons["sleep.cards.editor.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 3))
+        done.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["sleep.root"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.descendants(matching: .any)["sleep.factor.summary"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["sleep.latest.card"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["sleep.trend.card"].exists)
+    }
+
+    @MainActor
     func testSleepTitleRemainsVisibleWhileContentScrolls() {
         let app = launch(language: "es", initialTab: "sleep")
         let navigationBar = app.navigationBars["Sueño"]
@@ -188,6 +255,85 @@ final class WellnarioNavigationUITests: XCTestCase {
             XCTAssertEqual(title.frame.height, initialFrame.height, accuracy: 1)
             app.terminate()
         }
+    }
+
+    @MainActor
+    func testHealthAndFitnessCardEditorsAreReachable() {
+        let cases = [
+            (tab: "health", prefix: "health.cards", card: "biologicalAge"),
+            (tab: "fitness", prefix: "fitness.cards", card: "weeklySummary")
+        ]
+
+        for item in cases {
+            let app = launch(language: "es", initialTab: item.tab)
+            let editCards = app.buttons["\(item.prefix).edit"]
+            XCTAssertTrue(editCards.waitForExistence(timeout: 5))
+            editCards.tap()
+
+            XCTAssertTrue(
+                app.descendants(matching: .any)["\(item.prefix).editor.root"]
+                    .waitForExistence(timeout: 4)
+            )
+            XCTAssertTrue(
+                app.switches["\(item.prefix).editor.visibility.\(item.card)"]
+                    .waitForExistence(timeout: 3)
+            )
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testMedicalReviewCanBeCreatedFromHealthCard() {
+        let app = launch(language: "es", initialTab: "health")
+        let medicalReviews = app.buttons["health.medical_reviews.open"]
+        XCTAssertTrue(medicalReviews.waitForExistence(timeout: 5))
+        for _ in 0..<5 where !medicalReviews.isHittable { app.swipeUp() }
+        XCTAssertTrue(medicalReviews.isHittable)
+        medicalReviews.tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["health.medical_reviews.root"]
+                .waitForExistence(timeout: 3)
+        )
+        let add = app.buttons["health.medical_reviews.add"]
+        XCTAssertTrue(add.waitForExistence(timeout: 3))
+        add.tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["health.medical_reviews.editor.root"]
+                .waitForExistence(timeout: 3)
+        )
+        let name = app.textFields["health.medical_reviews.editor.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 3))
+        name.tap()
+        name.typeText("Dermatología")
+        let cadence = app.buttons["health.medical_reviews.editor.cadence"]
+        XCTAssertEqual(cadence.value as? String, "Cada año")
+        cadence.tap()
+        let sixMonths = app.buttons["Cada 6 meses"]
+        XCTAssertTrue(sixMonths.waitForExistence(timeout: 3))
+        sixMonths.tap()
+        XCTAssertEqual(cadence.value as? String, "Cada 6 meses")
+
+        let save = app.buttons["health.medical_reviews.editor.save"]
+        for _ in 0..<4 where !save.isHittable { app.swipeUp() }
+        XCTAssertTrue(save.isHittable)
+        save.tap()
+
+        XCTAssertTrue(app.staticTexts["Dermatología"].waitForExistence(timeout: 4))
+        let selectedCadence = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "Cada 6 meses")
+        ).firstMatch
+        XCTAssertTrue(selectedCadence.exists)
+
+        let createdReview = app.staticTexts["Dermatología"]
+        XCTAssertTrue(createdReview.isHittable)
+        createdReview.tap()
+        XCTAssertTrue(app.staticTexts["Historial"].waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["health.medical_reviews.history.row.0"]
+                .exists
+        )
     }
 
     @MainActor

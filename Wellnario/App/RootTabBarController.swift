@@ -3,6 +3,7 @@ import UIKit
 @MainActor
 final class RootTabBarController: UITabBarController {
     private let floatingTabBar = FloatingTabBarView()
+    private var activeTabTransition: UIViewPropertyAnimator?
 
     private var floatingBarTravelDistance: CGFloat {
         floatingTabBar.intrinsicContentSize.height + WellnarioSpacing.small
@@ -30,25 +31,51 @@ final class RootTabBarController: UITabBarController {
     func select(index: Int, animated: Bool = true) {
         guard let viewControllers, viewControllers.indices.contains(index) else { return }
         guard let rootView = view else { return }
+        finishActiveTabTransition()
         guard selectedIndex != index else {
-            (selectedViewController as? UINavigationController)?.popToRootViewController(animated: animated)
+            if let navigationController = selectedViewController as? UINavigationController {
+                navigationController.popToRootViewController(animated: animated)
+                WellnarioScrollPosition.reset(in: navigationController.viewControllers.first)
+            } else {
+                WellnarioScrollPosition.reset(in: selectedViewController)
+            }
             return
         }
 
+        let destinationController = viewControllers[index]
         floatingTabBar.setSelectedIndex(index, animated: animated)
-        let contentContainer = selectedViewController?.view.superview ?? rootView
-        let changes = { self.selectedIndex = index }
+        guard let outgoingView = selectedViewController?.view else {
+            selectedIndex = index
+            WellnarioScrollPosition.reset(in: destinationController)
+            return
+        }
+        let changes = {
+            self.selectedIndex = index
+            self.view.layoutIfNeeded()
+            WellnarioScrollPosition.reset(in: destinationController)
+        }
 
-        if animated && WellnarioMotion.animationsEnabled {
-            UIView.transition(
-                with: contentContainer,
-                duration: WellnarioMotion.standard,
-                options: [.transitionCrossDissolve, .allowAnimatedContent, .allowUserInteraction],
-                animations: changes
+        if animated {
+            activeTabTransition = WellnarioScreenTransition.changeTab(
+                in: rootView,
+                outgoingView: outgoingView,
+                changes: changes,
+                incomingView: { self.selectedViewController?.view },
+                completion: { [weak self] in self?.activeTabTransition = nil }
             )
+            rootView.bringSubviewToFront(floatingTabBar)
         } else {
             changes()
         }
+    }
+
+    private func finishActiveTabTransition() {
+        guard let animator = activeTabTransition else { return }
+        if animator.state == .active {
+            animator.stopAnimation(false)
+            animator.finishAnimation(at: .end)
+        }
+        activeTabTransition = nil
     }
 
     private func setUpFloatingTabBar() {

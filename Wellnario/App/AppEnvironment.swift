@@ -5,6 +5,7 @@ final class AppEnvironment {
     let repository: WellnarioRepositoryProtocol
     let launchConfiguration: AppLaunchConfiguration
     let appleHealthService: AppleHealthSyncing
+    let medicalReviewStore: MedicalReviewStore
 
     init(
         launchConfiguration: AppLaunchConfiguration = .current(),
@@ -23,6 +24,7 @@ final class AppEnvironment {
             isEnabled: !launchConfiguration.isUITesting
         )
 
+        let repository: WellnarioRepository
         if launchConfiguration.isUITesting {
             let databaseURL = try Self.uiTestDatabaseURL(fileManager: fileManager)
             if launchConfiguration.resetsData {
@@ -32,6 +34,12 @@ final class AppEnvironment {
         } else {
             repository = try WellnarioRepository.live(fileManager: fileManager)
         }
+        self.repository = repository
+        medicalReviewStore = try MedicalReviewStore(
+            databaseURL: repository.databaseURL,
+            userID: repository.userID,
+            legacyDefaults: .standard
+        )
     }
 
     private static func uiTestDatabaseURL(fileManager: FileManager) throws -> URL {

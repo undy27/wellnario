@@ -130,12 +130,28 @@ extension WellnarioRepository {
             proposedDailyMale: try optionalDecimal(row, "proposed_daily_male"),
             proposedDailyFemale: try optionalDecimal(row, "proposed_daily_female"),
             imageKey: try row.optionalString("image_key"),
+            categories: try activeCategories(activeID: id),
             isSeeded: try row.integer("is_seeded") != 0,
             currentTarget: try currentTarget(activeID: id, on: targetDay ?? today),
             createdAt: try date(row, "created_at"),
             updatedAt: try date(row, "updated_at"),
             archivedAt: try optionalDate(row, "archived_at")
         )
+    }
+
+    func activeCategories(activeID: UUID) throws -> [ActiveCategory] {
+        let rows = try database.query(
+            "SELECT category FROM active_category_assignments WHERE active_id = ?;",
+            bindings: [.text(activeID.uuidString)]
+        )
+        let stored = try Set(rows.map { row -> ActiveCategory in
+            let rawValue = try row.string("category")
+            guard let category = ActiveCategory(rawValue: rawValue) else {
+                throw RepositoryError.storage("Invalid active category: \(rawValue)")
+            }
+            return category
+        })
+        return ActiveCategory.allCases.filter(stored.contains)
     }
 
     func loadActive(id: UUID, targetDay: LocalDay? = nil) throws -> Active? {

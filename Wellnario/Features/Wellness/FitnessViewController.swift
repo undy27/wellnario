@@ -1,12 +1,42 @@
 import UIKit
 
+enum FitnessCardKind: String, CaseIterable, WellnessCardKind, Sendable {
+    case weeklySummary
+    case weeklyActivity
+    case recentWorkouts
+
+    static let storageNamespace = "fitness"
+
+    @MainActor
+    var title: String {
+        switch self {
+        case .weeklySummary: L10n.text("fitness.cards.weekly_summary")
+        case .weeklyActivity: L10n.text("fitness.week.title")
+        case .recentWorkouts: L10n.text("fitness.recent.title")
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .weeklySummary: "chart.bar.fill"
+        case .weeklyActivity: "calendar"
+        case .recentWorkouts: "figure.run"
+        }
+    }
+}
+
+typealias FitnessCardLayoutPreferences = WellnessCardLayoutPreferences<FitnessCardKind>
+
 @MainActor
 final class FitnessViewController: WellnessScrollViewController {
     var onStartWorkout: (() -> Void)?
+    var onOpenSettings: (() -> Void)?
     private let appleHealthService: AppleHealthSyncing
+    private let cardLayoutPreferences: FitnessCardLayoutPreferences
 
-    init(appleHealthService: AppleHealthSyncing) {
+    init(appleHealthService: AppleHealthSyncing, defaults: UserDefaults = .standard) {
         self.appleHealthService = appleHealthService
+        cardLayoutPreferences = FitnessCardLayoutPreferences(defaults: defaults)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -18,6 +48,24 @@ final class FitnessViewController: WellnessScrollViewController {
         title = L10n.text("fitness.title")
         navigationItem.largeTitleDisplayMode = .never
         view.accessibilityIdentifier = "fitness.root"
+        let settingsButton = UIBarButtonItem(
+            image: UIImage(systemName: "gearshape"),
+            style: .plain,
+            target: self,
+            action: #selector(openSettings)
+        )
+        settingsButton.accessibilityLabel = L10n.Settings.title
+        settingsButton.accessibilityIdentifier = "fitness.settings"
+        let editCardsButton = UIBarButtonItem(
+            image: UIImage(systemName: "square.grid.2x2"),
+            style: .plain,
+            target: self,
+            action: #selector(openCardEditor)
+        )
+        editCardsButton.tintColor = WellnarioPalette.fuchsia
+        editCardsButton.accessibilityLabel = L10n.text("fitness.cards.edit")
+        editCardsButton.accessibilityIdentifier = "fitness.cards.edit"
+        navigationItem.rightBarButtonItems = [settingsButton, editCardsButton]
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(appleHealthDidChange),
@@ -32,12 +80,34 @@ final class FitnessViewController: WellnessScrollViewController {
         navigationController?.setNavigationBarHidden(false, animated: animated)
         navigationController?.navigationBar.prefersLargeTitles = false
         navigationItem.largeTitleDisplayMode = .never
+        buildContent()
     }
 
     private func buildContent() {
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        contentStack.addArrangedSubview(makeWeeklyHero())
+        let visibleCards = cardLayoutPreferences.orderedCards.filter(cardLayoutPreferences.isVisible)
+        if visibleCards.isEmpty {
+            contentStack.addArrangedSubview(makeNoVisibleCardsView())
+            contentStack.addArrangedSubview(makeStartButton())
+            return
+        }
 
+        for (index, card) in visibleCards.enumerated() {
+            let section = makeCardSection(card)
+            contentStack.addArrangedSubview(section)
+            if index == 0 {
+                let startButton = makeStartButton()
+                contentStack.addArrangedSubview(startButton)
+                if visibleCards.count > 1 {
+                    contentStack.setCustomSpacing(WellnarioSpacing.large, after: startButton)
+                }
+            } else if index < visibleCards.count - 1 {
+                contentStack.setCustomSpacing(WellnarioSpacing.large, after: section)
+            }
+        }
+    }
+
+    private func makeStartButton() -> PrimaryButton {
         let startButton = PrimaryButton()
         var startConfiguration = UIButton.Configuration.plain()
         startConfiguration.title = L10n.text("fitness.start_workout")
@@ -53,18 +123,46 @@ final class FitnessViewController: WellnessScrollViewController {
         startButton.style = .primary
         startButton.accessibilityIdentifier = "fitness.start"
         startButton.addTarget(self, action: #selector(startWorkout), for: .touchUpInside)
-        contentStack.addArrangedSubview(startButton)
+        return startButton
+    }
 
-        contentStack.setCustomSpacing(WellnarioSpacing.large, after: startButton)
-        contentStack.addArrangedSubview(makeSectionTitle(
-            L10n.text("fitness.week.title"),
-            detail: L10n.text("fitness.week.detail")
-        ))
-        contentStack.addArrangedSubview(makeWeekCard())
+    private func makeCardSection(_ card: FitnessCardKind) -> UIView {
+        let views: [UIView]
+        switch card {
+        case .weeklySummary:
+            views = [makeWeeklyHero()]
+        case .weeklyActivity:
+            views = [
+                makeSectionTitle(
+                    L10n.text("fitness.week.title"),
+                    detail: L10n.text("fitness.week.detail")
+                ),
+                makeWeekCard()
+            ]
+        case .recentWorkouts:
+            views = [makeSectionTitle(L10n.text("fitness.recent.title")), makeRecentCard()]
+        }
+        let section = UIStackView(
+            arrangedSubviews: views,
+            axis: .vertical,
+            spacing: WellnarioSpacing.cardGap
+        )
+        section.accessibilityIdentifier = "fitness.card.section.\(card.rawValue)"
+        return section
+    }
 
-        contentStack.setCustomSpacing(WellnarioSpacing.large, after: contentStack.arrangedSubviews.last!)
-        contentStack.addArrangedSubview(makeSectionTitle(L10n.text("fitness.recent.title")))
-        contentStack.addArrangedSubview(makeRecentCard())
+    private func makeNoVisibleCardsView() -> EmptyStateView {
+        let emptyState = EmptyStateView()
+        emptyState.accessibilityIdentifier = "fitness.cards.empty"
+        emptyState.configure(
+            kind: .other,
+            title: L10n.text("fitness.cards.empty.title"),
+            message: L10n.text("fitness.cards.empty.body"),
+            actionTitle: L10n.text("fitness.cards.edit")
+        )
+        emptyState.onAction = { [weak self] in self?.openCardEditor() }
+        emptyState.heightAnchor.constraint(greaterThanOrEqualToConstant: 320).isActive = true
+        return emptyState
     }
 
     private func makeWeeklyHero() -> PremiumCardView {
@@ -270,6 +368,23 @@ final class FitnessViewController: WellnessScrollViewController {
     }
 
     @objc private func startWorkout() { onStartWorkout?() }
+    @objc private func openSettings() { onOpenSettings?() }
+    @objc private func openCardEditor() {
+        let editor = WellnessCardEditorViewController(
+            preferences: cardLayoutPreferences,
+            configuration: WellnessCardEditorConfiguration(
+                title: L10n.text("fitness.cards.editor.title"),
+                sectionTitle: L10n.text("fitness.cards.editor.section"),
+                footer: L10n.text("fitness.cards.editor.footer"),
+                visibleText: L10n.text("fitness.cards.visible"),
+                hiddenText: L10n.text("fitness.cards.hidden"),
+                visibilityAccessibilityFormatKey: "fitness.cards.visibility.accessibility",
+                accessibilityPrefix: "fitness.cards"
+            )
+        )
+        editor.onLayoutChange = { [weak self] in self?.buildContent() }
+        navigationController?.pushViewController(editor, animated: true)
+    }
     @objc private func appleHealthDidChange() { buildContent() }
 }
 

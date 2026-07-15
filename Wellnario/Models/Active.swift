@@ -9,6 +9,26 @@ public enum CatalogLanguage: String, Codable, CaseIterable, Sendable {
     }
 }
 
+public enum ActiveCategory: String, Codable, CaseIterable, Hashable, Sendable {
+    case sleep
+    case physicalPerformance = "physical_performance"
+    case energy
+    case stress
+    case cardiovascular
+    case cognition
+    case immunity
+    case bonesAndJoints = "bones_joints"
+    case aesthetics
+    case antioxidant
+    case metabolicHealth = "metabolic_health"
+    case healthyAging = "healthy_aging"
+    case vision
+
+    public func localizedName(language: CatalogLanguage) -> String {
+        CatalogLocalization.text(for: "active.category.\(rawValue)", language: language)
+    }
+}
+
 /// Seed records persist keys, never translated labels. This small fallback
 /// catalog keeps seeded data bilingual even before UI localization resources
 /// are loaded; the UI can use the same keys in its strings catalogs.
@@ -29,6 +49,33 @@ public enum CatalogLocalization {
         "active.calcium.name": [.spanish: "Calcio", .english: "Calcium"],
         "active.creatine.name": [.spanish: "Creatina", .english: "Creatine"],
         "active.melatonin.name": [.spanish: "Melatonina", .english: "Melatonin"],
+        "active.ashwagandha.name": [.spanish: "Ashwagandha", .english: "Ashwagandha"],
+        "active.astaxanthin.name": [.spanish: "Astaxantina", .english: "Astaxanthin"],
+        "active.berberine.name": [.spanish: "Berberina", .english: "Berberine"],
+        "active.coenzyme_q10.name": [.spanish: "Coenzima Q10", .english: "Coenzyme Q10"],
+        "active.hydrolyzed_collagen.name": [.spanish: "Colágeno hidrolizado", .english: "Hydrolyzed collagen"],
+        "active.spermidine.name": [.spanish: "Espermidina", .english: "Spermidine"],
+        "active.l_arginine.name": [.spanish: "L-arginina", .english: "L-arginine"],
+        "active.glycine.name": [.spanish: "Glicina", .english: "Glycine"],
+        "active.taurine.name": [.spanish: "Taurina", .english: "Taurine"],
+        "active.resveratrol.name": [.spanish: "Resveratrol", .english: "Resveratrol"],
+        "active.nicotinamide_riboside.name": [.spanish: "Nicotinamida ribósido", .english: "Nicotinamide riboside"],
+        "active.quercetin.name": [.spanish: "Quercetina", .english: "Quercetin"],
+        "active.lutein.name": [.spanish: "Luteína", .english: "Lutein"],
+        "active.sulforaphane.name": [.spanish: "Sulforafano", .english: "Sulforaphane"],
+        "active.category.sleep": [.spanish: "Sueño", .english: "Sleep"],
+        "active.category.physical_performance": [.spanish: "Rendimiento físico", .english: "Physical performance"],
+        "active.category.energy": [.spanish: "Energía", .english: "Energy"],
+        "active.category.stress": [.spanish: "Estrés", .english: "Stress"],
+        "active.category.cardiovascular": [.spanish: "Cardiovascular", .english: "Cardiovascular"],
+        "active.category.cognition": [.spanish: "Cognición", .english: "Cognition"],
+        "active.category.immunity": [.spanish: "Inmunidad", .english: "Immunity"],
+        "active.category.bones_joints": [.spanish: "Huesos y articulaciones", .english: "Bones and joints"],
+        "active.category.aesthetics": [.spanish: "Estética", .english: "Aesthetics"],
+        "active.category.antioxidant": [.spanish: "Antioxidante", .english: "Antioxidant"],
+        "active.category.metabolic_health": [.spanish: "Salud metabólica", .english: "Metabolic health"],
+        "active.category.healthy_aging": [.spanish: "Envejecimiento saludable", .english: "Healthy aging"],
+        "active.category.vision": [.spanish: "Visión", .english: "Vision"],
         "active.vitamin_c.description": [
             .spanish: "Vitamina hidrosoluble con función antioxidante.",
             .english: "Water-soluble vitamin with antioxidant activity."
@@ -72,6 +119,62 @@ public enum CatalogLocalization {
         "active.melatonin.description": [
             .spanish: "Hormona implicada en la regulación del ciclo sueño-vigilia.",
             .english: "Hormone involved in regulating the sleep-wake cycle."
+        ],
+        "active.ashwagandha.description": [
+            .spanish: "Extracto botánico de Withania somnifera utilizado en suplementos.",
+            .english: "Botanical extract from Withania somnifera used in supplements."
+        ],
+        "active.astaxanthin.description": [
+            .spanish: "Carotenoide rojizo presente en microalgas y organismos marinos.",
+            .english: "Red carotenoid found in microalgae and marine organisms."
+        ],
+        "active.berberine.description": [
+            .spanish: "Alcaloide vegetal presente en plantas del género Berberis.",
+            .english: "Plant alkaloid found in species of the Berberis genus."
+        ],
+        "active.coenzyme_q10.description": [
+            .spanish: "Coenzima implicada en el transporte electrónico y la energía celular.",
+            .english: "Coenzyme involved in electron transport and cellular energy."
+        ],
+        "active.hydrolyzed_collagen.description": [
+            .spanish: "Péptidos proteicos obtenidos mediante la hidrólisis del colágeno.",
+            .english: "Protein peptides produced by hydrolyzing collagen."
+        ],
+        "active.spermidine.description": [
+            .spanish: "Poliamina presente de forma natural en alimentos y células.",
+            .english: "Polyamine naturally present in foods and cells."
+        ],
+        "active.l_arginine.description": [
+            .spanish: "Aminoácido que actúa como precursor del óxido nítrico.",
+            .english: "Amino acid that acts as a precursor to nitric oxide."
+        ],
+        "active.glycine.description": [
+            .spanish: "Aminoácido sencillo que forma parte de proteínas como el colágeno.",
+            .english: "Simple amino acid found in proteins such as collagen."
+        ],
+        "active.taurine.description": [
+            .spanish: "Compuesto azufrado presente de forma natural en numerosos tejidos.",
+            .english: "Sulfur-containing compound naturally present in many tissues."
+        ],
+        "active.resveratrol.description": [
+            .spanish: "Polifenol presente en la piel de la uva y otras plantas.",
+            .english: "Polyphenol found in grape skins and other plants."
+        ],
+        "active.nicotinamide_riboside.description": [
+            .spanish: "Forma de vitamina B3 que actúa como precursora de NAD+.",
+            .english: "Form of vitamin B3 that acts as a precursor to NAD+."
+        ],
+        "active.quercetin.description": [
+            .spanish: "Flavonoide presente en numerosos alimentos de origen vegetal.",
+            .english: "Flavonoid found in many plant-based foods."
+        ],
+        "active.lutein.description": [
+            .spanish: "Carotenoide presente en vegetales y en la mácula del ojo.",
+            .english: "Carotenoid found in vegetables and in the eye's macula."
+        ],
+        "active.sulforaphane.description": [
+            .spanish: "Isotiocianato procedente de verduras crucíferas y brotes de brócoli.",
+            .english: "Isothiocyanate derived from cruciferous vegetables and broccoli sprouts."
         ],
         "presentation.capsule.name": [.spanish: "Cápsulas", .english: "Capsules"],
         "presentation.tablet.name": [.spanish: "Comprimidos", .english: "Tablets"],
@@ -128,6 +231,7 @@ public struct Active: Identifiable, Hashable, Sendable {
     public let proposedDailyMale: Decimal?
     public let proposedDailyFemale: Decimal?
     public let imageKey: String?
+    public let categories: [ActiveCategory]
     public let isSeeded: Bool
     public let currentTarget: ActiveTarget?
     public let createdAt: Date
@@ -144,6 +248,7 @@ public struct Active: Identifiable, Hashable, Sendable {
         proposedDailyMale: Decimal?,
         proposedDailyFemale: Decimal?,
         imageKey: String?,
+        categories: [ActiveCategory],
         isSeeded: Bool,
         currentTarget: ActiveTarget?,
         createdAt: Date,
@@ -159,6 +264,7 @@ public struct Active: Identifiable, Hashable, Sendable {
         self.proposedDailyMale = proposedDailyMale
         self.proposedDailyFemale = proposedDailyFemale
         self.imageKey = imageKey
+        self.categories = categories
         self.isSeeded = isSeeded
         self.currentTarget = currentTarget
         self.createdAt = createdAt
@@ -186,6 +292,7 @@ public struct ActiveDraft: Hashable, Sendable {
     public var proposedDailyMale: Decimal?
     public var proposedDailyFemale: Decimal?
     public var imageKey: String?
+    public var categories: [ActiveCategory]
 
     public init(
         name: String,
@@ -193,7 +300,8 @@ public struct ActiveDraft: Hashable, Sendable {
         baseUnit: DoseUnit,
         proposedDailyMale: Decimal? = nil,
         proposedDailyFemale: Decimal? = nil,
-        imageKey: String? = nil
+        imageKey: String? = nil,
+        categories: [ActiveCategory] = []
     ) {
         self.name = name
         self.description = description
@@ -201,5 +309,6 @@ public struct ActiveDraft: Hashable, Sendable {
         self.proposedDailyMale = proposedDailyMale
         self.proposedDailyFemale = proposedDailyFemale
         self.imageKey = imageKey
+        self.categories = categories
     }
 }

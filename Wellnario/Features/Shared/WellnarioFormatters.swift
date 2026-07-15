@@ -67,6 +67,27 @@ enum WellnarioFormatters {
         return formatter.string(from: date)
     }
 
+    static func numericDateAndTime(
+        _ date: Date,
+        locale: Locale = .autoupdatingCurrent,
+        timeZoneID: String? = nil
+    ) -> String {
+        let timeZone = timeZoneID.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = locale
+        dateFormatter.timeZone = timeZone
+        dateFormatter.setLocalizedDateFormatFromTemplate("ddMMyyyy")
+
+        let timeFormatter = DateFormatter()
+        timeFormatter.locale = locale
+        timeFormatter.timeZone = timeZone
+        timeFormatter.dateStyle = .none
+        timeFormatter.timeStyle = .short
+
+        return "\(dateFormatter.string(from: date)) · \(timeFormatter.string(from: date))"
+    }
+
     static func expiryDescription(_ expiryDate: Date, relativeTo referenceDate: Date = Date()) -> String {
         let calendar = Calendar.autoupdatingCurrent
         let start = calendar.startOfDay(for: referenceDate)

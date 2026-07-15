@@ -171,14 +171,11 @@ final class SelectionFieldView: UIView {
 
     private func setUp() {
         titleLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
-        button.backgroundColor = WellnarioPalette.fieldBackground
-        button.setTitleColor(WellnarioPalette.textPrimary, for: .normal)
         button.titleLabel?.font = WellnarioTypography.font(for: .body)
         button.titleLabel?.adjustsFontForContentSizeCategory = true
         button.contentHorizontalAlignment = .leading
         button.applyContinuousCorners(WellnarioRadius.control)
-        button.layer.borderWidth = 1
-        button.layer.borderColor = WellnarioPalette.hairline.cgColor
+        button.clipsToBounds = true
         button.showsMenuAsPrimaryAction = true
         button.heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.fieldMinimumHeight).isActive = true
 
@@ -195,6 +192,11 @@ final class SelectionFieldView: UIView {
         configuration.imagePadding = 8
         configuration.baseForegroundColor = WellnarioPalette.textPrimary
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16)
+        configuration.cornerStyle = .fixed
+        configuration.background.backgroundColor = WellnarioPalette.fieldBackground
+        configuration.background.cornerRadius = WellnarioRadius.control
+        configuration.background.strokeColor = WellnarioPalette.hairline
+        configuration.background.strokeWidth = 1
         button.configuration = configuration
         button.accessibilityLabel = title
         button.accessibilityValue = value
@@ -205,13 +207,17 @@ final class SelectionFieldView: UIView {
 final class TextAreaFieldView: UIView, UITextViewDelegate {
     let textView = UITextView()
     private let titleLabel = UILabel()
-    private let placeholderLabel = UILabel()
+    let placeholderLabel = UILabel()
+    private var minimumHeightConstraint: NSLayoutConstraint?
 
     var title: String = "" { didSet { titleLabel.text = title; textView.accessibilityLabel = title } }
     var placeholder: String = "" { didSet { placeholderLabel.text = placeholder } }
     var text: String {
         get { textView.text }
         set { textView.text = newValue; updatePlaceholder() }
+    }
+    var minimumHeight: CGFloat = 110 {
+        didSet { minimumHeightConstraint?.constant = minimumHeight }
     }
 
     override init(frame: CGRect) {
@@ -237,9 +243,14 @@ final class TextAreaFieldView: UIView, UITextViewDelegate {
         textView.applyContinuousCorners(WellnarioRadius.control)
         textView.layer.borderWidth = 1
         textView.layer.borderColor = WellnarioPalette.hairline.cgColor
-        textView.heightAnchor.constraint(greaterThanOrEqualToConstant: 110).isActive = true
+        minimumHeightConstraint = textView.heightAnchor.constraint(
+            greaterThanOrEqualToConstant: minimumHeight
+        )
+        minimumHeightConstraint?.isActive = true
 
         placeholderLabel.applyWellnarioStyle(.body, color: WellnarioPalette.textTertiary)
+        placeholderLabel.numberOfLines = 0
+        placeholderLabel.lineBreakMode = .byWordWrapping
         textView.addForAutoLayout(placeholderLabel)
         NSLayoutConstraint.activate([
             placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 16),

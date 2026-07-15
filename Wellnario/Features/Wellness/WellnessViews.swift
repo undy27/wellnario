@@ -384,12 +384,11 @@ final class SleepStageTimelineView: UIView {
 
 @MainActor
 final class WellnessSummaryCard: PremiumCardView {
-    private let symbolContainer = UIView()
+    let symbolContainer = UIView()
     private let symbolView = UIImageView()
-    private let titleLabel = UILabel()
+    let titleLabel = UILabel()
     private let valueLabel = UILabel()
     private let detailLabel = UILabel()
-    private let chevronView = UIImageView(image: UIImage(systemName: "chevron.right"))
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -406,8 +405,7 @@ final class WellnessSummaryCard: PremiumCardView {
         symbolName: String,
         value: String,
         detail: String,
-        tone: UIColor,
-        showsDisclosure: Bool = true
+        tone: UIColor
     ) {
         titleLabel.text = title
         symbolView.image = UIImage(systemName: symbolName)
@@ -415,11 +413,10 @@ final class WellnessSummaryCard: PremiumCardView {
         symbolContainer.backgroundColor = tone.withAlphaComponent(0.14)
         valueLabel.text = value
         detailLabel.text = detail
-        chevronView.isHidden = !showsDisclosure
         accessibilityLabel = title
         accessibilityValue = [value, detail].filter { !$0.isEmpty }.joined(separator: ", ")
-        accessibilityTraits = showsDisclosure ? [.button] : [.summaryElement]
-        isPressable = showsDisclosure
+        accessibilityTraits = [.button]
+        isPressable = true
     }
 
     private func setUp() {
@@ -437,14 +434,9 @@ final class WellnessSummaryCard: PremiumCardView {
             symbolView.centerYAnchor.constraint(equalTo: symbolContainer.centerYAnchor)
         ])
 
-        chevronView.tintColor = WellnarioPalette.textTertiary
-        chevronView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
-        chevronView.setContentHuggingPriority(.required, for: .horizontal)
-
         titleLabel.applyWellnarioStyle(.summaryTitle, color: WellnarioPalette.textPrimary)
-        titleLabel.numberOfLines = 1
-        titleLabel.adjustsFontSizeToFitWidth = true
-        titleLabel.minimumScaleFactor = 0.78
+        titleLabel.numberOfLines = 2
+        titleLabel.lineBreakMode = .byWordWrapping
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         valueLabel.applyWellnarioStyle(.summaryMetric, color: WellnarioPalette.textPrimary)
@@ -456,18 +448,46 @@ final class WellnessSummaryCard: PremiumCardView {
         detailLabel.numberOfLines = 2
 
         let heading = UIStackView(
-            arrangedSubviews: [symbolContainer, titleLabel, UIView(), chevronView],
+            arrangedSubviews: [symbolContainer, titleLabel, UIView()],
             axis: .horizontal,
             spacing: 7,
             alignment: .center
         )
-        let stack = UIStackView(
-            arrangedSubviews: [heading, valueLabel, detailLabel],
-            axis: .vertical,
-            spacing: WellnarioSpacing.xxxSmall
-        )
-        contentView.addForAutoLayout(stack)
-        stack.pinEdges(to: contentView, insets: .all(WellnarioSpacing.xSmall))
+        heading.setContentHuggingPriority(.required, for: .vertical)
+        heading.setContentCompressionResistancePriority(.required, for: .vertical)
+        contentView.addForAutoLayout(heading)
+        contentView.addForAutoLayout(valueLabel)
+        contentView.addForAutoLayout(detailLabel)
+        NSLayoutConstraint.activate([
+            heading.topAnchor.constraint(
+                equalTo: contentView.topAnchor,
+                constant: WellnarioSpacing.xSmall
+            ),
+            heading.leadingAnchor.constraint(
+                equalTo: contentView.leadingAnchor,
+                constant: WellnarioSpacing.xSmall
+            ),
+            heading.trailingAnchor.constraint(
+                equalTo: contentView.trailingAnchor,
+                constant: -WellnarioSpacing.xSmall
+            ),
+            valueLabel.topAnchor.constraint(
+                equalTo: heading.bottomAnchor,
+                constant: WellnarioSpacing.xxxSmall
+            ),
+            valueLabel.leadingAnchor.constraint(equalTo: heading.leadingAnchor),
+            valueLabel.trailingAnchor.constraint(equalTo: heading.trailingAnchor),
+            detailLabel.topAnchor.constraint(
+                equalTo: valueLabel.bottomAnchor,
+                constant: WellnarioSpacing.xxxSmall
+            ),
+            detailLabel.leadingAnchor.constraint(equalTo: heading.leadingAnchor),
+            detailLabel.trailingAnchor.constraint(equalTo: heading.trailingAnchor),
+            detailLabel.bottomAnchor.constraint(
+                lessThanOrEqualTo: contentView.bottomAnchor,
+                constant: -WellnarioSpacing.xSmall
+            )
+        ])
         heightAnchor.constraint(greaterThanOrEqualToConstant: 112).isActive = true
         isAccessibilityElement = true
     }

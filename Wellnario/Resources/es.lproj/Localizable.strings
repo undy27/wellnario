@@ -87,6 +87,13 @@
 "today.intake.plural" = "tomas hoy";
 "today.supplements.title" = "Suplementos de hoy";
 "today.supplements.empty" = "Todavía no has registrado ninguna toma hoy.";
+"today.reviews.title" = "Revisiones";
+"today.reviews.empty" = "Sin revisiones";
+"today.reviews.due.today" = "vence hoy";
+"today.reviews.due.remaining.one" = "falta 1 día";
+"today.reviews.due.remaining.many" = "faltan %d días";
+"today.reviews.due.overdue.one" = "1 día vencida";
+"today.reviews.due.overdue.many" = "%d días vencida";
 
 /* Wellness dashboard */
 "wellness.no_data" = "Sin datos";
@@ -107,6 +114,15 @@
 /* Sleep */
 "sleep.title" = "Sueño";
 "sleep.source.empty" = "Conecta Apple Health u Oura para importar tus sesiones de sueño.";
+"sleep.cards.edit" = "Editar tarjetas";
+"sleep.cards.editor.title" = "Editar tarjetas";
+"sleep.cards.editor.section" = "Tarjetas de Sueño";
+"sleep.cards.editor.footer" = "Activa las tarjetas que quieras ver. Mantén pulsado el control de la derecha y arrastra para cambiar su orden.";
+"sleep.cards.visible" = "Visible";
+"sleep.cards.hidden" = "Oculta";
+"sleep.cards.visibility.accessibility" = "Mostrar tarjeta %@";
+"sleep.cards.empty.title" = "No hay tarjetas visibles";
+"sleep.cards.empty.body" = "Puedes recuperar cualquier tarjeta desde el modo de edición.";
 "sleep.latest.title" = "Última sesión";
 "sleep.latest.detail" = "Más reciente";
 "sleep.latest.empty.title" = "Aún no hay una sesión";
@@ -164,8 +180,17 @@
 
 /* Health */
 "health.title" = "Salud";
+"health.cards.edit" = "Editar tarjetas";
+"health.cards.editor.title" = "Editar tarjetas";
+"health.cards.editor.section" = "Tarjetas de Salud";
+"health.cards.editor.footer" = "Activa las tarjetas que quieras ver. Mantén pulsado el control de la derecha y arrastra para cambiar su orden.";
+"health.cards.visible" = "Visible";
+"health.cards.hidden" = "Oculta";
+"health.cards.visibility.accessibility" = "Mostrar tarjeta %@";
+"health.cards.empty.title" = "No hay tarjetas visibles";
+"health.cards.empty.body" = "Puedes recuperar cualquier tarjeta de Salud desde el modo de edición.";
 "health.biological_age.title" = "Edad biológica";
-"health.biological_age.estimate" = "EDAD BIOLÓGICA ESTIMADA";
+"health.biological_age.estimate" = "Edad biológica estimada";
 "health.biological_age.years" = "años";
 "health.biological_age.empty" = "Añade biomarcadores suficientes para calcular una estimación fiable.";
 "health.biomarkers.title" = "Biomarcadores";
@@ -179,11 +204,70 @@
 "health.biomarker.glucose" = "Glucosa";
 "health.biomarker.glucose.unit" = "mg/dL";
 "health.source.empty" = "Conecta una fuente o carga una analítica para completar tus biomarcadores.";
+"health.medical_reviews.title" = "Revisiones médicas";
+"health.medical_reviews.card.empty" = "Configura la periodicidad de consultas con especialistas y pruebas médicas.";
+"health.medical_reviews.count.one" = "1 revisión configurada";
+"health.medical_reviews.count.many" = "%d revisiones configuradas";
+"health.medical_reviews.next_summary" = "Próxima: %@ · %@";
+"health.medical_reviews.open.hint" = "Abre la gestión de revisiones médicas";
+"health.medical_reviews.add" = "Añadir revisión";
+"health.medical_reviews.all.open" = "Ver todas las revisiones";
+"health.medical_reviews.all.title" = "Todas las revisiones";
+"health.medical_reviews.all.empty.title" = "No hay revisiones realizadas";
+"health.medical_reviews.all.empty.body" = "Las revisiones realizadas aparecerán aquí ordenadas de más recientes a más antiguas.";
+"health.medical_reviews.edit" = "Editar revisión";
+"health.medical_reviews.empty.title" = "Aún no hay revisiones";
+"health.medical_reviews.empty.body" = "Añade consultas o pruebas y establece cada cuánto deben repetirse. Los avisos se podrán activar más adelante.";
+"health.medical_reviews.reminders_later" = "Las periodicidades quedan guardadas. Los avisos se podrán activar más adelante.";
+"health.medical_reviews.kind" = "Tipo de revisión";
+"health.medical_reviews.kind.consultation" = "Consulta con especialista";
+"health.medical_reviews.kind.test" = "Prueba médica";
+"health.medical_reviews.kind.vaccination" = "Vacunas";
+"health.medical_reviews.kind.self_test" = "Autotests";
+"health.medical_reviews.cadence" = "Periodicidad";
+"health.medical_reviews.cadence.one_month" = "Cada mes";
+"health.medical_reviews.cadence.months" = "Cada %d meses";
+"health.medical_reviews.cadence.annual" = "Cada año";
+"health.medical_reviews.cadence.years" = "Cada %d años";
+"health.medical_reviews.due.upcoming" = "Próxima el %@";
+"health.medical_reviews.due.today" = "Toca hoy";
+"health.medical_reviews.due.overdue" = "Pendiente desde %@";
+"health.medical_reviews.name" = "Especialista o prueba";
+"health.medical_reviews.name.placeholder" = "Ej. Dermatología o analítica general";
+"health.medical_reviews.name.helper" = "Usa un nombre que permita identificar la revisión rápidamente.";
+"health.medical_reviews.name.required" = "Introduce el especialista o la prueba médica.";
+"health.medical_reviews.last_date" = "Última revisión";
+"health.medical_reviews.notes" = "Observaciones";
+"health.medical_reviews.notes.placeholder" = "Añade resultados, indicaciones u otras observaciones de esta revisión";
+"health.medical_reviews.completion.edit" = "Editar realización";
+"health.medical_reviews.completion.date" = "Fecha";
+"health.medical_reviews.completion.delete.title" = "Eliminar realización";
+"health.medical_reviews.completion.delete.body" = "Se eliminarán la fecha y las observaciones de esta realización.";
+"health.medical_reviews.completion.delete.last.body" = "Es la única realización guardada. Al eliminarla también se eliminará su planificación.";
+"health.medical_reviews.details" = "Revisión";
+"health.medical_reviews.schedule" = "Planificación";
+"health.medical_reviews.next_preview" = "La próxima revisión corresponderá el %@";
+"health.medical_reviews.delete.title" = "Eliminar revisión";
+"health.medical_reviews.delete.body" = "Se eliminarán la planificación y todo el historial de %@.";
+"health.medical_reviews.history.title" = "Historial";
+"health.medical_reviews.history.latest" = "Última";
+"health.medical_reviews.history.count.one" = "1 realización guardada";
+"health.medical_reviews.history.count.many" = "%d realizaciones guardadas";
 "lab.imported.title" = "Analítica preparada";
 "lab.imported.message" = "Se ha seleccionado %@ para su procesamiento.";
 
 /* Fitness */
 "fitness.title" = "Fitness";
+"fitness.cards.edit" = "Editar tarjetas";
+"fitness.cards.editor.title" = "Editar tarjetas";
+"fitness.cards.editor.section" = "Tarjetas de Fitness";
+"fitness.cards.editor.footer" = "Activa las tarjetas que quieras ver. Mantén pulsado el control de la derecha y arrastra para cambiar su orden.";
+"fitness.cards.visible" = "Visible";
+"fitness.cards.hidden" = "Oculta";
+"fitness.cards.visibility.accessibility" = "Mostrar tarjeta %@";
+"fitness.cards.empty.title" = "No hay tarjetas visibles";
+"fitness.cards.empty.body" = "Puedes recuperar cualquier tarjeta de Fitness desde el modo de edición.";
+"fitness.cards.weekly_summary" = "Resumen semanal";
 "fitness.this_week" = "ESTA SEMANA";
 "fitness.workouts" = "entrenamientos";
 "fitness.workouts_this_week" = "entrenamientos esta semana";
@@ -338,6 +422,12 @@
 "actives.name.placeholder" = "Ej. Vitamina C";
 "actives.description.placeholder" = "Información opcional sobre este componente";
 "actives.target.helper" = "Define un rango personal; no representa una recomendación médica.";
+"actives.categories" = "Categorías";
+"actives.categories.all" = "Todas";
+"actives.categories.none" = "Sin categorías";
+"actives.categories.filter.accessibility" = "Filtrar activos por categoría";
+"actives.categories.empty.title" = "No hay activos en esta categoría";
+"actives.categories.empty.message" = "Prueba con otra categoría o muestra todos los activos.";
 
 /* Intake log */
 "intake.title.new" = "Registrar toma";

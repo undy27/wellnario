@@ -27,30 +27,33 @@ extension WellnarioRepository {
         let created = try withLock { () -> Active in
             let values = try validateActiveDraft(draft, excluding: nil)
             let now = Date().timeIntervalSince1970
-            try database.execute(
-                """
-                INSERT INTO actives (
-                    id, name_key, custom_name, description_key, custom_description,
-                    base_unit, proposed_daily_male, proposed_daily_female, image_key,
-                    is_seeded, created_at, updated_at, archived_at
-                ) VALUES (?, NULL, ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?, NULL);
-                """,
-                bindings: [
-                    .text(id.uuidString),
-                    .text(values.name),
-                    binding(values.description),
-                    .text(draft.baseUnit.rawValue),
-                    try decimalBinding(draft.proposedDailyMale),
-                    try decimalBinding(draft.proposedDailyFemale),
-                    binding(values.imageKey),
-                    .real(now),
-                    .real(now)
-                ]
-            )
-            guard let result = try loadActive(id: id) else {
-                throw RepositoryError.notFound(entity: "Active", id: id)
+            return try database.transaction {
+                try database.execute(
+                    """
+                    INSERT INTO actives (
+                        id, name_key, custom_name, description_key, custom_description,
+                        base_unit, proposed_daily_male, proposed_daily_female, image_key,
+                        is_seeded, created_at, updated_at, archived_at
+                    ) VALUES (?, NULL, ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?, NULL);
+                    """,
+                    bindings: [
+                        .text(id.uuidString),
+                        .text(values.name),
+                        binding(values.description),
+                        .text(draft.baseUnit.rawValue),
+                        try decimalBinding(draft.proposedDailyMale),
+                        try decimalBinding(draft.proposedDailyFemale),
+                        binding(values.imageKey),
+                        .real(now),
+                        .real(now)
+                    ]
+                )
+                try replaceActiveCategories(activeID: id, with: draft.categories)
+                guard let result = try loadActive(id: id) else {
+                    throw RepositoryError.notFound(entity: "Active", id: id)
+                }
+                return result
             }
-            return result
         }
         notify(entity: .active, mutation: .created, id: id)
         return created
@@ -71,26 +74,29 @@ extension WellnarioRepository {
                 }
             }
 
-            try database.execute(
-                """
-                UPDATE actives
-                SET custom_name = ?, custom_description = ?, base_unit = ?,
-                    proposed_daily_male = ?, proposed_daily_female = ?, image_key = ?,
-                    updated_at = ?
-                WHERE id = ?;
-                """,
-                bindings: [
-                    .text(values.name), binding(values.description), .text(draft.baseUnit.rawValue),
-                    try decimalBinding(draft.proposedDailyMale),
-                    try decimalBinding(draft.proposedDailyFemale),
-                    binding(values.imageKey), .real(Date().timeIntervalSince1970),
-                    .text(id.uuidString)
-                ]
-            )
-            guard let result = try loadActive(id: id) else {
-                throw RepositoryError.notFound(entity: "Active", id: id)
+            return try database.transaction {
+                try database.execute(
+                    """
+                    UPDATE actives
+                    SET custom_name = ?, custom_description = ?, base_unit = ?,
+                        proposed_daily_male = ?, proposed_daily_female = ?, image_key = ?,
+                        updated_at = ?
+                    WHERE id = ?;
+                    """,
+                    bindings: [
+                        .text(values.name), binding(values.description), .text(draft.baseUnit.rawValue),
+                        try decimalBinding(draft.proposedDailyMale),
+                        try decimalBinding(draft.proposedDailyFemale),
+                        binding(values.imageKey), .real(Date().timeIntervalSince1970),
+                        .text(id.uuidString)
+                    ]
+                )
+                try replaceActiveCategories(activeID: id, with: draft.categories)
+                guard let result = try loadActive(id: id) else {
+                    throw RepositoryError.notFound(entity: "Active", id: id)
+                }
+                return result
             }
-            return result
         }
         notify(entity: .active, mutation: .updated, id: id)
         return updated
@@ -133,7 +139,8 @@ extension WellnarioRepository {
                     baseUnit: existing.baseUnit,
                     proposedDailyMale: existing.proposedDailyMale,
                     proposedDailyFemale: existing.proposedDailyFemale,
-                    imageKey: existing.imageKey
+                    imageKey: existing.imageKey,
+                    categories: existing.categories
                 ),
                 excluding: id
             )
@@ -341,5 +348,19 @@ extension WellnarioRepository {
             """,
             bindings: [.text(id.uuidString), .text(id.uuidString), .text(id.uuidString)]
         )
+    }
+
+    private func replaceActiveCategories(activeID: UUID, with categories: [ActiveCategory]) throws {
+        try database.execute(
+            "DELETE FROM active_category_assignments WHERE active_id = ?;",
+            bindings: [.text(activeID.uuidString)]
+        )
+        let selected = Set(categories)
+        for category in ActiveCategory.allCases where selected.contains(category) {
+            try database.execute(
+                "INSERT INTO active_category_assignments (active_id, category) VALUES (?, ?);",
+                bindings: [.text(activeID.uuidString), .text(category.rawValue)]
+            )
+        }
     }
 }

@@ -19,6 +19,7 @@ final class TodayViewController: FeatureViewController {
     private let stressCard = WellnessSummaryCard()
     private let supplementsCard = WellnessSummaryCard()
     private let fitnessCard = WellnessSummaryCard()
+    private let reviewsCard = TodayMedicalReviewsSummaryCard()
 
     private let intakeAction = QuickActionControl()
     private let workoutAction = QuickActionControl()
@@ -31,12 +32,15 @@ final class TodayViewController: FeatureViewController {
     private var summary: DashboardSummary?
     private var selectedDate = Date()
     private let appleHealthService: AppleHealthSyncing
+    private let medicalReviewStore: MedicalReviewStore
 
     init(
         repository: WellnarioRepositoryProtocol,
-        appleHealthService: AppleHealthSyncing
+        appleHealthService: AppleHealthSyncing,
+        medicalReviewStore: MedicalReviewStore = MedicalReviewStore()
     ) {
         self.appleHealthService = appleHealthService
+        self.medicalReviewStore = medicalReviewStore
         super.init(repository: repository)
     }
 
@@ -189,12 +193,14 @@ final class TodayViewController: FeatureViewController {
         stressCard.accessibilityIdentifier = "today.summary.stress"
         supplementsCard.accessibilityIdentifier = "today.summary.supplements"
         fitnessCard.accessibilityIdentifier = "today.summary.fitness"
+        reviewsCard.accessibilityIdentifier = "today.summary.reviews"
 
         sleepCard.addTarget(self, action: #selector(openSleep), for: .touchUpInside)
         recoveryCard.addTarget(self, action: #selector(openHealth), for: .touchUpInside)
         stressCard.addTarget(self, action: #selector(openHealth), for: .touchUpInside)
         supplementsCard.addTarget(self, action: #selector(openSupplements), for: .touchUpInside)
         fitnessCard.addTarget(self, action: #selector(openFitness), for: .touchUpInside)
+        reviewsCard.addTarget(self, action: #selector(openHealth), for: .touchUpInside)
     }
 
     private func configureStaticCards() {
@@ -252,13 +258,18 @@ final class TodayViewController: FeatureViewController {
             } ?? L10n.text("fitness.workouts_this_week"),
             tone: WellnarioPalette.magenta
         )
+        reviewsCard.configure(
+            reviews: medicalReviewStore.reviews,
+            referenceDate: Date()
+        )
     }
 
     private func makeSummaryGrid() -> UIView {
         let firstRow = equalRow(sleepCard, recoveryCard)
         let secondRow = equalRow(stressCard, supplementsCard)
+        let thirdRow = equalRow(fitnessCard, reviewsCard)
         return UIStackView(
-            arrangedSubviews: [firstRow, secondRow, fitnessCard],
+            arrangedSubviews: [firstRow, secondRow, thirdRow],
             axis: .vertical,
             spacing: 10
         )
@@ -484,6 +495,189 @@ final class TodayViewController: FeatureViewController {
     @objc private func openHealth() { onShowHealth?() }
     @objc private func openFitness() { onShowFitness?() }
     @objc private func appleHealthDidChange() { reloadContent() }
+}
+
+@MainActor
+final class TodayMedicalReviewsSummaryCard: PremiumCardView {
+    let symbolContainer = UIView()
+    private let symbolView = UIImageView(image: UIImage(systemName: "calendar.badge.clock"))
+    let titleLabel = UILabel()
+    private let reviewsStack = UIStackView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setUp()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setUp()
+    }
+
+    func configure(
+        reviews: [MedicalReview],
+        referenceDate: Date = Date(),
+        calendar: Calendar = .autoupdatingCurrent
+    ) {
+        titleLabel.text = L10n.text("today.reviews.title")
+        reviewsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        let entries = MedicalReviewTimeline.entries(
+            from: reviews,
+            referenceDate: referenceDate,
+            calendar: calendar
+        )
+
+        if entries.isEmpty {
+            let emptyLabel = UILabel()
+            emptyLabel.applyWellnarioStyle(.summaryDetail, color: WellnarioPalette.textTertiary)
+            emptyLabel.text = L10n.text("today.reviews.empty")
+            emptyLabel.numberOfLines = 2
+            reviewsStack.addArrangedSubview(emptyLabel)
+            accessibilityValue = emptyLabel.text
+        } else {
+            for (index, entry) in entries.enumerated() {
+                reviewsStack.addArrangedSubview(
+                    TodayMedicalReviewRow(
+                        entry: entry,
+                        index: index,
+                        referenceDate: referenceDate,
+                        calendar: calendar
+                    )
+                )
+            }
+            accessibilityValue = entries.map {
+                [
+                    $0.review.title,
+                    MedicalReviewFormatting.dueStatus(
+                        $0.review,
+                        referenceDate: referenceDate,
+                        calendar: calendar
+                    )
+                ].joined(separator: ", ")
+            }.joined(separator: ". ")
+        }
+
+        accessibilityLabel = L10n.text("today.reviews.title")
+    }
+
+    private func setUp() {
+        symbolContainer.applyContinuousCorners(11)
+        symbolContainer.backgroundColor = WellnarioPalette.fuchsia.withAlphaComponent(0.14)
+        NSLayoutConstraint.activate([
+            symbolContainer.widthAnchor.constraint(equalToConstant: 34),
+            symbolContainer.heightAnchor.constraint(equalTo: symbolContainer.widthAnchor)
+        ])
+
+        symbolView.tintColor = WellnarioPalette.fuchsia
+        symbolView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 15,
+            weight: .semibold
+        )
+        symbolContainer.addForAutoLayout(symbolView)
+        NSLayoutConstraint.activate([
+            symbolView.centerXAnchor.constraint(equalTo: symbolContainer.centerXAnchor),
+            symbolView.centerYAnchor.constraint(equalTo: symbolContainer.centerYAnchor)
+        ])
+
+        titleLabel.applyWellnarioStyle(.summaryTitle, color: WellnarioPalette.textPrimary)
+        titleLabel.numberOfLines = 2
+        titleLabel.lineBreakMode = .byWordWrapping
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let header = UIStackView(
+            arrangedSubviews: [symbolContainer, titleLabel, UIView()],
+            axis: .horizontal,
+            spacing: 7,
+            alignment: .center
+        )
+        header.setContentHuggingPriority(.required, for: .vertical)
+        header.setContentCompressionResistancePriority(.required, for: .vertical)
+        reviewsStack.axis = .vertical
+        reviewsStack.spacing = 1
+        contentView.addForAutoLayout(header)
+        contentView.addForAutoLayout(reviewsStack)
+        NSLayoutConstraint.activate([
+            header.topAnchor.constraint(
+                equalTo: contentView.topAnchor,
+                constant: WellnarioSpacing.xSmall
+            ),
+            header.leadingAnchor.constraint(
+                equalTo: contentView.leadingAnchor,
+                constant: WellnarioSpacing.xSmall
+            ),
+            header.trailingAnchor.constraint(
+                equalTo: contentView.trailingAnchor,
+                constant: -WellnarioSpacing.xSmall
+            ),
+            reviewsStack.topAnchor.constraint(
+                equalTo: header.bottomAnchor,
+                constant: WellnarioSpacing.xxxSmall
+            ),
+            reviewsStack.leadingAnchor.constraint(equalTo: header.leadingAnchor),
+            reviewsStack.trailingAnchor.constraint(equalTo: header.trailingAnchor),
+            reviewsStack.bottomAnchor.constraint(
+                lessThanOrEqualTo: contentView.bottomAnchor,
+                constant: -WellnarioSpacing.xSmall
+            )
+        ])
+        heightAnchor.constraint(greaterThanOrEqualToConstant: 112).isActive = true
+        isPressable = true
+    }
+}
+
+@MainActor
+final class TodayMedicalReviewRow: UIStackView {
+    private(set) var urgency: MedicalReviewDueUrgency
+    let reviewTitleLabel = UILabel()
+
+    init(
+        entry: MedicalReviewTimelineEntry,
+        index: Int,
+        referenceDate: Date = Date(),
+        calendar: Calendar = .autoupdatingCurrent
+    ) {
+        urgency = entry.urgency
+        super.init(frame: .zero)
+        accessibilityIdentifier = "today.summary.reviews.row.\(index)"
+        axis = .horizontal
+        spacing = 5
+        alignment = .center
+
+        let color = Self.color(for: entry.urgency)
+        let marker = UIView()
+        marker.backgroundColor = color
+        marker.applyContinuousCorners(4)
+        NSLayoutConstraint.activate([
+            marker.widthAnchor.constraint(equalToConstant: 7),
+            marker.heightAnchor.constraint(equalTo: marker.widthAnchor)
+        ])
+
+        reviewTitleLabel.applyWellnarioStyle(.summaryDetail, color: color)
+        reviewTitleLabel.text = [
+            entry.review.title,
+            MedicalReviewFormatting.relativeDayStatus(
+                dueDate: entry.dueDate,
+                referenceDate: referenceDate,
+                calendar: calendar
+            )
+        ].joined(separator: " · ")
+        reviewTitleLabel.numberOfLines = 2
+        reviewTitleLabel.lineBreakMode = .byWordWrapping
+        addArrangedSubview(marker)
+        addArrangedSubview(reviewTitleLabel)
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private static func color(for urgency: MedicalReviewDueUrgency) -> UIColor {
+        switch urgency {
+        case .upcoming: WellnarioPalette.success
+        case .overdueUnderQuarter: WellnarioPalette.yellow
+        case .overdueFromQuarterThroughThreeQuarters: WellnarioPalette.orange
+        case .overdueOverThreeQuarters: WellnarioPalette.danger
+        }
+    }
 }
 
 extension TodayViewController: UIDocumentPickerDelegate {

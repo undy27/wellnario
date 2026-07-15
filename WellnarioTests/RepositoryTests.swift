@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import XCTest
 @testable import Wellnario
 
@@ -8,13 +9,46 @@ final class RepositoryTests: XCTestCase {
 
         let firstActives = try repository.fetchActives()
         let firstPresentations = try repository.fetchPresentationTypes()
-        XCTAssertGreaterThanOrEqual(firstActives.count, 10)
+        XCTAssertEqual(firstActives.count, SeedData.activeSeeds.count)
         XCTAssertGreaterThanOrEqual(firstPresentations.count, 8)
         XCTAssertTrue(firstPresentations.allSatisfy { $0.illustrations.count >= 3 })
+
+        let seededImageKeys = firstActives.filter(\.isSeeded).compactMap(\.imageKey)
+        XCTAssertEqual(Set(seededImageKeys).count, SeedData.activeSeeds.count)
+        XCTAssertTrue(firstActives.filter(\.isSeeded).allSatisfy { !$0.categories.isEmpty })
+        for imageKey in seededImageKeys {
+            XCTAssertNotNil(UIImage(named: imageKey), "Missing active artwork: \(imageKey)")
+        }
 
         let vitaminC = try XCTUnwrap(firstActives.first { $0.nameKey == "active.vitamin_c.name" })
         XCTAssertEqual(vitaminC.localizedName(language: .spanish), "Vitamina C")
         XCTAssertEqual(vitaminC.localizedName(language: .english), "Vitamin C")
+        XCTAssertEqual(Set(vitaminC.categories), [.immunity, .aesthetics, .antioxidant])
+
+        let expandedCatalog: [(slug: String, spanish: String, english: String, unit: DoseUnit)] = [
+            ("ashwagandha", "Ashwagandha", "Ashwagandha", .milligram),
+            ("astaxanthin", "Astaxantina", "Astaxanthin", .milligram),
+            ("berberine", "Berberina", "Berberine", .milligram),
+            ("coenzyme_q10", "Coenzima Q10", "Coenzyme Q10", .milligram),
+            ("hydrolyzed_collagen", "Colágeno hidrolizado", "Hydrolyzed collagen", .gram),
+            ("spermidine", "Espermidina", "Spermidine", .milligram),
+            ("l_arginine", "L-arginina", "L-arginine", .gram),
+            ("glycine", "Glicina", "Glycine", .gram),
+            ("taurine", "Taurina", "Taurine", .gram),
+            ("resveratrol", "Resveratrol", "Resveratrol", .milligram),
+            ("nicotinamide_riboside", "Nicotinamida ribósido", "Nicotinamide riboside", .milligram),
+            ("quercetin", "Quercetina", "Quercetin", .milligram),
+            ("lutein", "Luteína", "Lutein", .milligram),
+            ("sulforaphane", "Sulforafano", "Sulforaphane", .milligram)
+        ]
+        for item in expandedCatalog {
+            let active = try XCTUnwrap(firstActives.first { $0.nameKey == "active.\(item.slug).name" })
+            XCTAssertEqual(active.localizedName(language: .spanish), item.spanish)
+            XCTAssertEqual(active.localizedName(language: .english), item.english)
+            XCTAssertEqual(active.baseUnit, item.unit)
+            XCTAssertFalse(try XCTUnwrap(active.localizedDescription(language: .spanish)).isEmpty)
+            XCTAssertFalse(try XCTUnwrap(active.localizedDescription(language: .english)).isEmpty)
+        }
 
         let reopened = try WellnarioRepository(databaseURL: url)
         XCTAssertEqual(try reopened.fetchActives(includeArchived: true).count, firstActives.count)
@@ -22,6 +56,38 @@ final class RepositoryTests: XCTestCase {
         XCTAssertEqual(
             try reopened.fetchPresentationTypes().flatMap(\.illustrations).count,
             firstPresentations.flatMap(\.illustrations).count
+        )
+    }
+
+    func testActiveCategoriesSupportMultipleAssignmentsAndPersistUpdates() throws {
+        let (repository, url) = try makeRepository()
+        let active = try repository.createActive(
+            ActiveDraft(
+                name: "Categorized active",
+                baseUnit: .milligram,
+                categories: [.sleep, .antioxidant]
+            )
+        )
+        XCTAssertEqual(Set(active.categories), [.sleep, .antioxidant])
+
+        let updated = try repository.updateActive(
+            id: active.id,
+            with: ActiveDraft(
+                name: active.customName ?? "Categorized active",
+                baseUnit: active.baseUnit,
+                categories: [.physicalPerformance, .aesthetics, .antioxidant]
+            )
+        )
+        XCTAssertEqual(
+            Set(updated.categories),
+            [.physicalPerformance, .aesthetics, .antioxidant]
+        )
+
+        let reopened = try WellnarioRepository(databaseURL: url)
+        let persisted = try XCTUnwrap(try reopened.active(id: active.id))
+        XCTAssertEqual(
+            Set(persisted.categories),
+            [.physicalPerformance, .aesthetics, .antioxidant]
         )
     }
 

@@ -537,6 +537,172 @@ final class AppleHealthSyncTests: XCTestCase {
     }
 
     @MainActor
+    func testSleepCardLayoutPersistsVisibilityAndOrder() throws {
+        let suiteName = "SleepCardLayoutTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = SleepCardLayoutPreferences(defaults: defaults)
+
+        XCTAssertEqual(preferences.orderedCards, [.latestSession, .trend, .factors])
+        XCTAssertTrue(SleepCardKind.allCases.allSatisfy(preferences.isVisible))
+
+        preferences.setVisible(false, card: .trend)
+        preferences.moveCard(from: 2, to: 0)
+
+        let restored = SleepCardLayoutPreferences(defaults: defaults)
+        XCTAssertEqual(restored.orderedCards, [.factors, .latestSession, .trend])
+        XCTAssertFalse(restored.isVisible(.trend))
+        XCTAssertTrue(restored.isVisible(.latestSession))
+        XCTAssertTrue(restored.isVisible(.factors))
+    }
+
+    @MainActor
+    func testSleepCardEditorMoveUpdatesStoredOrder() throws {
+        let suiteName = "SleepCardEditorMoveTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = SleepCardLayoutPreferences(defaults: defaults)
+        let controller = SleepCardEditorViewController(preferences: preferences)
+        controller.loadViewIfNeeded()
+
+        controller.tableView(
+            controller.tableView,
+            moveRowAt: IndexPath(row: 0, section: 0),
+            to: IndexPath(row: 2, section: 0)
+        )
+
+        XCTAssertEqual(preferences.orderedCards, [.trend, .factors, .latestSession])
+        XCTAssertTrue(controller.tableView.isEditing)
+    }
+
+    @MainActor
+    func testSleepViewUsesStoredCardVisibilityAndOrder() throws {
+        let suiteName = "SleepCardViewTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = SleepCardLayoutPreferences(defaults: defaults)
+        preferences.moveCard(from: 2, to: 0)
+        preferences.setVisible(false, card: .trend)
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        let controller = SleepViewController(appleHealthService: service, defaults: defaults)
+
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(
+            controller.contentStack.arrangedSubviews.compactMap(\.accessibilityIdentifier),
+            ["sleep.card.section.factors", "sleep.card.section.latestSession"]
+        )
+        XCTAssertNil(descendant(
+            of: PremiumCardView.self,
+            identifier: "sleep.trend.card",
+            in: controller.view
+        ))
+    }
+
+    @MainActor
+    func testHealthCardLayoutPersistsVisibilityAndOrder() throws {
+        let suiteName = "HealthCardLayoutTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = HealthCardLayoutPreferences(defaults: defaults)
+
+        preferences.moveCard(from: 2, to: 0)
+        preferences.setVisible(false, card: .biologicalAge)
+
+        let restored = HealthCardLayoutPreferences(defaults: defaults)
+        XCTAssertEqual(restored.orderedCards, [.medicalReviews, .biologicalAge, .biomarkers])
+        XCTAssertFalse(restored.isVisible(.biologicalAge))
+        XCTAssertTrue(restored.isVisible(.medicalReviews))
+    }
+
+    @MainActor
+    func testHealthViewUsesStoredCardVisibilityAndOrder() throws {
+        let suiteName = "HealthCardViewTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = HealthCardLayoutPreferences(defaults: defaults)
+        preferences.moveCard(from: 2, to: 0)
+        preferences.setVisible(false, card: .biologicalAge)
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        let controller = HealthViewController(appleHealthService: service, defaults: defaults)
+
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(
+            controller.contentStack.arrangedSubviews.compactMap(\.accessibilityIdentifier),
+            [
+                "health.card.section.medicalReviews",
+                "health.card.section.biomarkers",
+                "health.import_lab"
+            ]
+        )
+    }
+
+    @MainActor
+    func testBiologicalAgeTitleIsOutsideItsCard() throws {
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        let controller = HealthViewController(appleHealthService: service)
+
+        controller.loadViewIfNeeded()
+
+        let section = try XCTUnwrap(descendant(
+            of: UIStackView.self,
+            identifier: "health.card.section.biologicalAge",
+            in: controller.view
+        ))
+        XCTAssertEqual(section.arrangedSubviews.count, 2)
+        let titleRow = try XCTUnwrap(section.arrangedSubviews.first as? UIStackView)
+        let titleLabel = try XCTUnwrap(titleRow.arrangedSubviews.first as? UILabel)
+        let card = try XCTUnwrap(descendant(
+            of: PremiumCardView.self,
+            identifier: "health.biological_age",
+            in: section
+        ))
+
+        XCTAssertEqual(titleLabel.text, L10n.text("health.biological_age.estimate"))
+        XCTAssertFalse(titleLabel.isDescendant(of: card))
+    }
+
+    @MainActor
+    func testFitnessCardLayoutPersistsVisibilityAndOrder() throws {
+        let suiteName = "FitnessCardLayoutTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = FitnessCardLayoutPreferences(defaults: defaults)
+
+        preferences.moveCard(from: 2, to: 0)
+        preferences.setVisible(false, card: .weeklyActivity)
+
+        let restored = FitnessCardLayoutPreferences(defaults: defaults)
+        XCTAssertEqual(restored.orderedCards, [.recentWorkouts, .weeklySummary, .weeklyActivity])
+        XCTAssertFalse(restored.isVisible(.weeklyActivity))
+        XCTAssertTrue(restored.isVisible(.recentWorkouts))
+    }
+
+    @MainActor
+    func testFitnessViewUsesStoredCardVisibilityAndOrder() throws {
+        let suiteName = "FitnessCardViewTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = FitnessCardLayoutPreferences(defaults: defaults)
+        preferences.moveCard(from: 2, to: 0)
+        preferences.setVisible(false, card: .weeklyActivity)
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        let controller = FitnessViewController(appleHealthService: service, defaults: defaults)
+
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(
+            controller.contentStack.arrangedSubviews.compactMap(\.accessibilityIdentifier),
+            [
+                "fitness.card.section.recentWorkouts",
+                "fitness.start",
+                "fitness.card.section.weeklySummary"
+            ]
+        )
+    }
+
+    @MainActor
     func testSleepSourceBannerIsHiddenWhenAppleHealthIsNotConfigured() throws {
         let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
         service.isConfigured = false
@@ -579,6 +745,11 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertFalse(banner.isDescendant(of: controller.scrollView))
         XCTAssertGreaterThan(controller.scrollView.contentInset.top, banner.bounds.height)
         XCTAssertEqual(controller.navigationItem.largeTitleDisplayMode, .never)
+        XCTAssertEqual(banner.actionButton.titleLabel?.numberOfLines, 2)
+        XCTAssertEqual(
+            banner.actionButton.title(for: .normal)?.split(separator: "\n").count,
+            2
+        )
 
         let fixedFrame = banner.frame
         let readyHeight = banner.bounds.height
@@ -633,6 +804,11 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertEqual(banner.bounds.height, 76, accuracy: 0.01)
         XCTAssertGreaterThan(controller.scrollView.contentInset.top, banner.bounds.height)
         XCTAssertEqual(controller.navigationItem.largeTitleDisplayMode, .never)
+        XCTAssertEqual(banner.actionButton.titleLabel?.numberOfLines, 2)
+        XCTAssertEqual(
+            banner.actionButton.title(for: .normal)?.split(separator: "\n").count,
+            2
+        )
 
         let fixedFrame = banner.frame
         controller.scrollView.contentOffset.y = 240
@@ -668,6 +844,788 @@ final class AppleHealthSyncTests: XCTestCase {
         ))
         XCTAssertTrue(banner.isHidden)
         XCTAssertEqual(controller.scrollView.contentInset.top, 0, accuracy: 0.01)
+    }
+
+    @MainActor
+    func testSelectionFieldKeepsRoundedBorderWhileMenuButtonChangesState() throws {
+        let field = SelectionFieldView(title: "Periodicidad")
+        field.value = "Cada año"
+        let configuration = try XCTUnwrap(field.button.configuration)
+
+        XCTAssertEqual(configuration.cornerStyle, .fixed)
+        XCTAssertEqual(
+            configuration.background.cornerRadius,
+            WellnarioRadius.control,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(configuration.background.strokeWidth, 1, accuracy: 0.01)
+        XCTAssertTrue(field.button.clipsToBounds)
+
+        field.button.isHighlighted = true
+        let highlightedConfiguration = configuration.updated(for: field.button)
+        XCTAssertEqual(highlightedConfiguration.cornerStyle, .fixed)
+        XCTAssertEqual(
+            highlightedConfiguration.background.cornerRadius,
+            WellnarioRadius.control,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(highlightedConfiguration.background.strokeWidth, 1, accuracy: 0.01)
+    }
+
+    @MainActor
+    func testMedicalReviewEditorDismissesKeyboardAndKeepsScheduleReachable() throws {
+        let controller = MedicalReviewEditorViewController(review: nil)
+        let navigationController = UINavigationController(rootViewController: controller)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = navigationController
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+
+        controller.loadViewIfNeeded()
+        navigationController.view.frame = window.bounds
+        navigationController.view.layoutIfNeeded()
+
+        let nameField = try XCTUnwrap(descendant(
+            of: UITextField.self,
+            identifier: "health.medical_reviews.editor.name",
+            in: controller.view
+        ))
+        let cadenceButton = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "health.medical_reviews.editor.cadence",
+            in: controller.view
+        ))
+        let scrollView = try XCTUnwrap(descendant(
+            of: UIScrollView.self,
+            identifier: "health.medical_reviews.editor.scroll",
+            in: controller.view
+        ))
+
+        XCTAssertTrue(nameField.becomeFirstResponder())
+        nameField.sendActions(for: .editingDidEndOnExit)
+        XCTAssertFalse(nameField.isFirstResponder)
+
+        XCTAssertTrue(nameField.becomeFirstResponder())
+        cadenceButton.sendActions(for: .touchDown)
+        XCTAssertFalse(nameField.isFirstResponder)
+
+        NotificationCenter.default.post(
+            name: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil,
+            userInfo: [
+                UIResponder.keyboardFrameEndUserInfoKey: CGRect(
+                    x: 0,
+                    y: 500,
+                    width: 390,
+                    height: 344
+                )
+            ]
+        )
+        XCTAssertGreaterThan(scrollView.contentInset.bottom, 0)
+
+        NotificationCenter.default.post(
+            name: UIResponder.keyboardWillHideNotification,
+            object: nil
+        )
+        XCTAssertEqual(scrollView.contentInset.bottom, 0, accuracy: 0.01)
+    }
+
+    @MainActor
+    func testMedicalReviewEditorOffersVaccinesAndSelfTests() throws {
+        XCTAssertEqual(
+            MedicalReviewKind.allCases,
+            [.specialistConsultation, .medicalTest, .vaccination, .selfTest]
+        )
+        XCTAssertTrue(MedicalReviewKind.allCases.allSatisfy {
+            UIImage(systemName: $0.symbolName) != nil
+        })
+
+        let controller = MedicalReviewEditorViewController(review: nil)
+        controller.loadViewIfNeeded()
+        let kindButton = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "health.medical_reviews.editor.kind",
+            in: controller.view
+        ))
+        let menuTitles = kindButton.menu?.children.compactMap { ($0 as? UIAction)?.title }
+
+        XCTAssertEqual(
+            menuTitles,
+            MedicalReviewKind.allCases.map(\.title)
+        )
+        XCTAssertTrue(menuTitles?.contains(L10n.text("health.medical_reviews.kind.vaccination")) == true)
+        XCTAssertTrue(menuTitles?.contains(L10n.text("health.medical_reviews.kind.self_test")) == true)
+    }
+
+    @MainActor
+    func testMedicalReviewStorePersistsUpdatesSortsAndDeletesReviews() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MedicalReviewStoreTests.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("Wellnario.sqlite")
+        let repository = try WellnarioRepository(databaseURL: databaseURL)
+        let store = try MedicalReviewStore(
+            databaseURL: databaseURL,
+            userID: repository.userID
+        )
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let baseline = try utcDate(2026, 1, 15, hour: 0)
+        let annual = MedicalReview(
+            title: "Dermatología",
+            kind: .specialistConsultation,
+            intervalMonths: 12,
+            lastCompletedAt: baseline
+        )
+        let quarterly = MedicalReview(
+            title: "Analítica general",
+            kind: .medicalTest,
+            intervalMonths: 3,
+            lastCompletedAt: baseline
+        )
+
+        store.upsert(annual)
+        store.upsert(quarterly)
+
+        XCTAssertEqual(store.reviews.map(\.id), [quarterly.id, annual.id])
+        XCTAssertEqual(
+            annual.nextDueDate(calendar: calendar),
+            try utcDate(2027, 1, 15, hour: 0)
+        )
+
+        var edited = quarterly
+        edited.title = "Analítica completa"
+        edited.intervalMonths = 6
+        edited = edited.addingCompletion(
+            on: try utcDate(2026, 7, 15, hour: 0),
+            notes: "Repetir analítica en seis meses",
+            calendar: calendar
+        )
+        store.upsert(edited)
+        XCTAssertEqual(store.reviews.count, 2)
+        XCTAssertEqual(store.reviews.first(where: { $0.id == edited.id }), edited)
+
+        let reopened = try MedicalReviewStore(
+            databaseURL: databaseURL,
+            userID: repository.userID
+        )
+        let persisted = try XCTUnwrap(reopened.reviews.first(where: { $0.id == edited.id }))
+        XCTAssertEqual(persisted.completions.count, 2)
+        XCTAssertEqual(
+            persisted.completions.map(\.completedAt),
+            [
+                try utcDate(2026, 7, 15, hour: 0),
+                try utcDate(2026, 1, 15, hour: 0)
+            ]
+        )
+        XCTAssertEqual(
+            persisted.completions.first?.notes,
+            "Repetir analítica en seis meses"
+        )
+
+        let notesUpdated = persisted.addingCompletion(
+            on: try utcDate(2026, 7, 15, hour: 0),
+            notes: "Resultados dentro de rango",
+            calendar: calendar
+        )
+        reopened.upsert(notesUpdated)
+        let afterNotesUpdate = try XCTUnwrap(
+            reopened.reviews.first(where: { $0.id == edited.id })
+        )
+        XCTAssertEqual(afterNotesUpdate.completions.count, 2)
+        XCTAssertEqual(afterNotesUpdate.completions.first?.notes, "Resultados dentro de rango")
+
+        reopened.upsert(MedicalReview(
+            title: "analítica completa",
+            kind: .medicalTest,
+            intervalMonths: 6,
+            lastCompletedAt: try utcDate(2026, 8, 15, hour: 0)
+        ))
+        let merged = reopened.reviews.filter {
+            $0.title.compare("Analítica completa", options: .caseInsensitive) == .orderedSame
+        }
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(try XCTUnwrap(merged.first).completions.count, 3)
+
+        reopened.delete(id: annual.id)
+        XCTAssertEqual(reopened.reviews.count, 1)
+    }
+
+    @MainActor
+    func testAllMedicalReviewHistoryCombinesTypesNewestFirstAndOpensFromToolbar() throws {
+        let store = MedicalReviewStore()
+        let olderDate = try utcDate(2024, 2, 10, hour: 0)
+        let middleDate = try utcDate(2025, 5, 20, hour: 0)
+        let newestDate = try utcDate(2026, 7, 15, hour: 0)
+        let dermatologyID = UUID()
+        let bloodworkID = UUID()
+        store.upsert(MedicalReview(
+            id: dermatologyID,
+            title: "Dermatología",
+            kind: .specialistConsultation,
+            intervalMonths: 12,
+            completions: [
+                MedicalReviewCompletion(completedAt: olderDate),
+                MedicalReviewCompletion(
+                    completedAt: newestDate,
+                    notes: "Sin lesiones sospechosas"
+                )
+            ]
+        ))
+        store.upsert(MedicalReview(
+            id: bloodworkID,
+            title: "Analítica general",
+            kind: .medicalTest,
+            intervalMonths: 6,
+            completions: [MedicalReviewCompletion(completedAt: middleDate)]
+        ))
+
+        XCTAssertEqual(
+            store.historyEntries.map(\.completion.completedAt),
+            [newestDate, middleDate, olderDate]
+        )
+        XCTAssertEqual(
+            store.historyEntries.map(\.reviewTitle),
+            ["Dermatología", "Analítica general", "Dermatología"]
+        )
+
+        let controller = MedicalReviewsViewController(store: store)
+        let navigationController = UINavigationController(rootViewController: controller)
+        controller.loadViewIfNeeded()
+        let buttons = try XCTUnwrap(controller.navigationItem.rightBarButtonItems)
+        XCTAssertEqual(
+            buttons.map(\.accessibilityIdentifier),
+            ["health.medical_reviews.add", "health.medical_reviews.all.open"]
+        )
+        let historyButton = buttons[1]
+        XCTAssertTrue(UIApplication.shared.sendAction(
+            try XCTUnwrap(historyButton.action),
+            to: historyButton.target,
+            from: historyButton,
+            for: nil
+        ))
+
+        let historyController = try XCTUnwrap(
+            navigationController.topViewController as? AllMedicalReviewHistoryViewController
+        )
+        historyController.loadViewIfNeeded()
+        XCTAssertEqual(historyController.view.accessibilityIdentifier, "health.medical_reviews.all.root")
+        XCTAssertEqual(historyController.tableView.numberOfRows(inSection: 0), 3)
+        let firstCell = try XCTUnwrap(historyController.tableView(
+            historyController.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        ))
+        XCTAssertEqual(
+            (firstCell.contentConfiguration as? UIListContentConfiguration)?.text,
+            "Dermatología"
+        )
+        XCTAssertTrue(
+            (firstCell.contentConfiguration as? UIListContentConfiguration)?
+                .secondaryText?.contains("Sin lesiones sospechosas") == true
+        )
+
+        historyController.tableView(
+            historyController.tableView,
+            didSelectRowAt: IndexPath(row: 0, section: 0)
+        )
+        let completionEditor = try XCTUnwrap(
+            navigationController.topViewController as? MedicalReviewCompletionEditorViewController
+        )
+        completionEditor.loadViewIfNeeded()
+        let completionDate = try XCTUnwrap(descendant(
+            of: UIDatePicker.self,
+            identifier: "health.medical_reviews.completion.editor.date",
+            in: completionEditor.view
+        ))
+        let editedDate = try XCTUnwrap(Calendar.autoupdatingCurrent.date(
+            byAdding: .day,
+            value: -1,
+            to: completionDate.date
+        ))
+        completionDate.date = editedDate
+        let completionNotes = try XCTUnwrap(descendant(
+            of: UITextView.self,
+            identifier: "health.medical_reviews.completion.editor.notes",
+            in: completionEditor.view
+        ))
+        completionNotes.text = "Observación actualizada"
+        let completionSave = try XCTUnwrap(completionEditor.navigationItem.rightBarButtonItem)
+        XCTAssertTrue(UIApplication.shared.sendAction(
+            try XCTUnwrap(completionSave.action),
+            to: completionSave.target,
+            from: completionSave,
+            for: nil
+        ))
+        let editedCompletion = try XCTUnwrap(
+            store.reviews.first(where: { $0.id == dermatologyID })?.completions.first(where: {
+                $0.notes == "Observación actualizada"
+            })
+        )
+        XCTAssertTrue(Calendar.autoupdatingCurrent.isDate(
+            editedCompletion.completedAt,
+            inSameDayAs: editedDate
+        ))
+    }
+
+    @MainActor
+    func testMedicalReviewCompletionDateEditRemovesOldDateAndMergesCollision() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let store = MedicalReviewStore()
+        let older = MedicalReviewCompletion(
+            completedAt: try utcDate(2025, 1, 10, hour: 0),
+            notes: "Primera"
+        )
+        let newer = MedicalReviewCompletion(
+            completedAt: try utcDate(2026, 1, 10, hour: 0),
+            notes: "Segunda"
+        )
+        let review = MedicalReview(
+            id: UUID(),
+            title: "Oftalmología",
+            kind: .specialistConsultation,
+            intervalMonths: 12,
+            completions: [older, newer]
+        )
+        store.upsert(review)
+
+        store.updateCompletion(
+            reviewID: review.id,
+            completionID: older.id,
+            completedAt: try utcDate(2027, 1, 10, hour: 0),
+            notes: "Fecha corregida"
+        )
+        var persisted = try XCTUnwrap(store.reviews.first)
+        XCTAssertEqual(persisted.completions.count, 2)
+        XCTAssertFalse(persisted.completions.contains(where: {
+            calendar.isDate($0.completedAt, inSameDayAs: older.completedAt)
+        }))
+        XCTAssertEqual(persisted.completions.first?.id, older.id)
+        XCTAssertEqual(persisted.completions.first?.notes, "Fecha corregida")
+
+        store.updateCompletion(
+            reviewID: review.id,
+            completionID: older.id,
+            completedAt: newer.completedAt,
+            notes: "Unificada"
+        )
+        persisted = try XCTUnwrap(store.reviews.first)
+        XCTAssertEqual(persisted.completions.count, 1)
+        XCTAssertEqual(persisted.completions.first?.id, older.id)
+        XCTAssertEqual(persisted.completions.first?.notes, "Unificada")
+
+        store.deleteCompletion(reviewID: review.id, completionID: older.id)
+        XCTAssertTrue(store.reviews.isEmpty)
+    }
+
+    @MainActor
+    func testMedicalReviewNotesFieldIsCompactAndWrapsPlaceholder() {
+        let field = TextAreaFieldView()
+        field.minimumHeight = 80
+        field.placeholder = L10n.text("health.medical_reviews.notes.placeholder")
+
+        XCTAssertEqual(field.minimumHeight, 80)
+        XCTAssertEqual(field.placeholderLabel.numberOfLines, 0)
+        XCTAssertEqual(field.placeholderLabel.lineBreakMode, .byWordWrapping)
+    }
+
+    @MainActor
+    func testMedicalReviewStoreMigratesLegacyDefaultsIntoSQLiteHistory() throws {
+        let suiteName = "MedicalReviewLegacyMigrationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let legacy = LegacyMedicalReviewFixture(
+            id: UUID(),
+            title: "Dermatología",
+            kind: .specialistConsultation,
+            intervalMonths: 12,
+            lastCompletedAt: try utcDate(2025, 10, 2, hour: 0)
+        )
+        defaults.set(
+            try JSONEncoder().encode([legacy]),
+            forKey: "wellnario.health.medicalReviews"
+        )
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MedicalReviewLegacyDB.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("Wellnario.sqlite")
+        let repository = try WellnarioRepository(databaseURL: databaseURL)
+        let store = try MedicalReviewStore(
+            databaseURL: databaseURL,
+            userID: repository.userID,
+            legacyDefaults: defaults
+        )
+
+        let migrated = try XCTUnwrap(store.reviews.first)
+        XCTAssertEqual(migrated.id, legacy.id)
+        XCTAssertEqual(migrated.completions.count, 1)
+        XCTAssertEqual(migrated.lastCompletedAt, legacy.lastCompletedAt)
+        XCTAssertNil(defaults.data(forKey: "wellnario.health.medicalReviews"))
+    }
+
+    @MainActor
+    func testMedicalReviewEditorShowsFullHistoryOnlyWhenEditing() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        var review = MedicalReview(
+            title: "Dermatología",
+            kind: .specialistConsultation,
+            intervalMonths: 12,
+            lastCompletedAt: try utcDate(2024, 3, 1, hour: 0),
+            notes: "Control anual"
+        )
+        review = review.addingCompletion(
+            on: try utcDate(2025, 3, 1, hour: 0),
+            calendar: calendar
+        )
+        review = review.addingCompletion(
+            on: try utcDate(2026, 3, 1, hour: 0),
+            calendar: calendar
+        )
+
+        let editor = MedicalReviewEditorViewController(review: review)
+        let navigationController = UINavigationController(rootViewController: editor)
+        editor.loadViewIfNeeded()
+        let historyCard = try XCTUnwrap(descendant(
+            of: MedicalReviewHistoryCard.self,
+            identifier: "health.medical_reviews.history",
+            in: editor.view
+        ))
+        for index in 0..<3 {
+            XCTAssertNotNil(descendant(
+                of: UIStackView.self,
+                identifier: "health.medical_reviews.history.row.\(index)",
+                in: historyCard
+            ))
+        }
+        XCTAssertTrue(historyCard.accessibilityValue?.contains("3") == true)
+        var requestedDeletion: MedicalReviewCompletion?
+        historyCard.onDeleteCompletion = { requestedDeletion = $0 }
+        historyCard.requestDeletion(at: 1)
+        XCTAssertEqual(requestedDeletion?.id, review.completions[1].id)
+
+        historyCard.selectCompletion(at: 0)
+        let completionEditor = try XCTUnwrap(
+            navigationController.topViewController as? MedicalReviewCompletionEditorViewController
+        )
+        completionEditor.loadViewIfNeeded()
+        let completionNotes = try XCTUnwrap(descendant(
+            of: UITextView.self,
+            identifier: "health.medical_reviews.completion.editor.notes",
+            in: completionEditor.view
+        ))
+        completionNotes.text = "Seguimiento editado"
+        let completionSave = try XCTUnwrap(completionEditor.navigationItem.rightBarButtonItem)
+        XCTAssertTrue(UIApplication.shared.sendAction(
+            try XCTUnwrap(completionSave.action),
+            to: completionSave.target,
+            from: completionSave,
+            for: nil
+        ))
+        XCTAssertTrue(navigationController.topViewController === editor)
+
+        let datePicker = try XCTUnwrap(descendant(
+            of: UIDatePicker.self,
+            identifier: "health.medical_reviews.editor.last_date",
+            in: editor.view
+        ))
+        datePicker.date = try utcDate(2026, 6, 1, hour: 0)
+        datePicker.sendActions(for: .valueChanged)
+        let notesField = try XCTUnwrap(descendant(
+            of: UITextView.self,
+            identifier: "health.medical_reviews.editor.notes",
+            in: editor.view
+        ))
+        XCTAssertTrue(notesField.text.isEmpty)
+        notesField.text = "Revisión sin incidencias"
+        var savedReview: MedicalReview?
+        editor.onSave = { savedReview = $0 }
+        let saveItem = try XCTUnwrap(editor.navigationItem.rightBarButtonItem)
+        let saveAction = try XCTUnwrap(saveItem.action)
+        XCTAssertTrue(UIApplication.shared.sendAction(
+            saveAction,
+            to: saveItem.target,
+            from: saveItem,
+            for: nil
+        ))
+        XCTAssertEqual(savedReview?.completions.count, 4)
+        XCTAssertEqual(savedReview?.completions.first?.notes, "Revisión sin incidencias")
+        XCTAssertTrue(savedReview?.completions.contains(where: {
+            $0.notes == "Seguimiento editado"
+        }) == true)
+        XCTAssertTrue(Calendar.autoupdatingCurrent.isDate(
+            try XCTUnwrap(savedReview?.lastCompletedAt),
+            inSameDayAs: datePicker.date
+        ))
+
+        let newEditor = MedicalReviewEditorViewController(review: nil)
+        newEditor.loadViewIfNeeded()
+        XCTAssertNil(descendant(
+            of: MedicalReviewHistoryCard.self,
+            identifier: "health.medical_reviews.history",
+            in: newEditor.view
+        ))
+    }
+
+    @MainActor
+    func testTodayMedicalReviewsPrioritizeLimitAndColorByOverdueRatio() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let referenceDate = try utcDate(2026, 7, 15, hour: 0)
+        let reviews = [
+            MedicalReview(
+                title: "Muy vencida",
+                kind: .medicalTest,
+                intervalMonths: 4,
+                lastCompletedAt: try utcDate(2025, 9, 1, hour: 0)
+            ),
+            MedicalReview(
+                title: "Vencida intermedia",
+                kind: .specialistConsultation,
+                intervalMonths: 4,
+                lastCompletedAt: try utcDate(2026, 1, 1, hour: 0)
+            ),
+            MedicalReview(
+                title: "Vencida reciente",
+                kind: .medicalTest,
+                intervalMonths: 4,
+                lastCompletedAt: try utcDate(2026, 2, 20, hour: 0)
+            ),
+            MedicalReview(
+                title: "Próxima",
+                kind: .specialistConsultation,
+                intervalMonths: 4,
+                lastCompletedAt: try utcDate(2026, 4, 1, hour: 0)
+            ),
+            MedicalReview(
+                title: "Más lejana",
+                kind: .medicalTest,
+                intervalMonths: 4,
+                lastCompletedAt: try utcDate(2026, 5, 1, hour: 0)
+            )
+        ]
+
+        let entries = MedicalReviewTimeline.entries(
+            from: Array(reviews.reversed()),
+            referenceDate: referenceDate,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(
+            entries.map(\.review.title),
+            ["Muy vencida", "Vencida intermedia", "Vencida reciente", "Próxima"]
+        )
+        XCTAssertEqual(
+            entries.map(\.urgency),
+            [
+                .overdueOverThreeQuarters,
+                .overdueFromQuarterThroughThreeQuarters,
+                .overdueUnderQuarter,
+                .upcoming
+            ]
+        )
+
+        let card = TodayMedicalReviewsSummaryCard()
+        card.configure(reviews: reviews, referenceDate: referenceDate, calendar: calendar)
+        for (index, urgency) in entries.map(\.urgency).enumerated() {
+            let row = try XCTUnwrap(descendant(
+                of: TodayMedicalReviewRow.self,
+                identifier: "today.summary.reviews.row.\(index)",
+                in: card
+            ))
+            XCTAssertEqual(row.urgency, urgency)
+            XCTAssertEqual(
+                row.reviewTitleLabel.text,
+                [
+                    entries[index].review.title,
+                    MedicalReviewFormatting.relativeDayStatus(
+                        dueDate: entries[index].dueDate,
+                        referenceDate: referenceDate,
+                        calendar: calendar
+                    )
+                ].joined(separator: " · ")
+            )
+            XCTAssertEqual(row.reviewTitleLabel.numberOfLines, 2)
+            XCTAssertEqual(row.reviewTitleLabel.lineBreakMode, .byWordWrapping)
+            XCTAssertFalse(row.reviewTitleLabel.adjustsFontSizeToFitWidth)
+            XCTAssertEqual(
+                row.reviewTitleLabel.font.pointSize,
+                WellnarioTypography.font(for: .summaryDetail).pointSize,
+                accuracy: 0.01
+            )
+        }
+        XCTAssertNil(descendant(
+            of: TodayMedicalReviewRow.self,
+            identifier: "today.summary.reviews.row.4",
+            in: card
+        ))
+    }
+
+    @MainActor
+    func testTodaySummaryCardHeadersShareLayoutTypographyAndRemainPressable() {
+        let summaryCard = WellnessSummaryCard()
+        summaryCard.configure(
+            title: "Resumen",
+            symbolName: "heart.fill",
+            value: "1",
+            detail: "Detalle",
+            tone: WellnarioPalette.fuchsia
+        )
+        let reviewsCard = TodayMedicalReviewsSummaryCard()
+        reviewsCard.configure(reviews: [])
+
+        summaryCard.frame = CGRect(x: 0, y: 0, width: 170, height: 130)
+        reviewsCard.frame = summaryCard.frame
+        summaryCard.layoutIfNeeded()
+        reviewsCard.layoutIfNeeded()
+
+        XCTAssertEqual(summaryCard.titleLabel.numberOfLines, 2)
+        XCTAssertEqual(reviewsCard.titleLabel.numberOfLines, 2)
+        XCTAssertFalse(summaryCard.titleLabel.adjustsFontSizeToFitWidth)
+        XCTAssertFalse(reviewsCard.titleLabel.adjustsFontSizeToFitWidth)
+        XCTAssertEqual(
+            summaryCard.titleLabel.font.pointSize,
+            reviewsCard.titleLabel.font.pointSize,
+            accuracy: 0.01
+        )
+        let summarySymbolFrame = summaryCard.symbolContainer.convert(
+            summaryCard.symbolContainer.bounds,
+            to: summaryCard
+        )
+        let reviewsSymbolFrame = reviewsCard.symbolContainer.convert(
+            reviewsCard.symbolContainer.bounds,
+            to: reviewsCard
+        )
+        XCTAssertEqual(summarySymbolFrame.minX, reviewsSymbolFrame.minX, accuracy: 0.01)
+        XCTAssertEqual(summarySymbolFrame.minY, reviewsSymbolFrame.minY, accuracy: 0.01)
+        XCTAssertTrue(summaryCard.isPressable)
+        XCTAssertTrue(reviewsCard.isPressable)
+    }
+
+    @MainActor
+    func testMedicalReviewRelativeDayStatusUsesCalendarDays() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let referenceDate = try utcDate(2026, 7, 15, hour: 22)
+
+        XCTAssertEqual(
+            MedicalReviewFormatting.relativeDayStatus(
+                dueDate: try utcDate(2026, 7, 18, hour: 1),
+                referenceDate: referenceDate,
+                calendar: calendar
+            ),
+            L10n.text("today.reviews.due.remaining.many", 3)
+        )
+        XCTAssertEqual(
+            MedicalReviewFormatting.relativeDayStatus(
+                dueDate: try utcDate(2026, 7, 16, hour: 1),
+                referenceDate: referenceDate,
+                calendar: calendar
+            ),
+            L10n.text("today.reviews.due.remaining.one")
+        )
+        XCTAssertEqual(
+            MedicalReviewFormatting.relativeDayStatus(
+                dueDate: try utcDate(2026, 7, 15, hour: 1),
+                referenceDate: referenceDate,
+                calendar: calendar
+            ),
+            L10n.text("today.reviews.due.today")
+        )
+        XCTAssertEqual(
+            MedicalReviewFormatting.relativeDayStatus(
+                dueDate: try utcDate(2026, 7, 14, hour: 23),
+                referenceDate: referenceDate,
+                calendar: calendar
+            ),
+            L10n.text("today.reviews.due.overdue.one")
+        )
+        XCTAssertEqual(
+            MedicalReviewFormatting.relativeDayStatus(
+                dueDate: try utcDate(2026, 7, 10, hour: 23),
+                referenceDate: referenceDate,
+                calendar: calendar
+            ),
+            L10n.text("today.reviews.due.overdue.many", 5)
+        )
+    }
+
+    func testMedicalReviewOverdueThresholdsIncludeQuarterAndThreeQuartersInOrange() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let review = MedicalReview(
+            title: "Analítica",
+            kind: .medicalTest,
+            intervalMonths: 4,
+            lastCompletedAt: try utcDate(2026, 1, 1, hour: 0)
+        )
+
+        XCTAssertEqual(
+            MedicalReviewTimeline.urgency(
+                for: review,
+                referenceDate: try utcDate(2026, 4, 30, hour: 0),
+                calendar: calendar
+            ),
+            .upcoming
+        )
+        XCTAssertEqual(
+            MedicalReviewTimeline.urgency(
+                for: review,
+                referenceDate: try utcDate(2026, 5, 30, hour: 0),
+                calendar: calendar
+            ),
+            .overdueUnderQuarter
+        )
+        XCTAssertEqual(
+            MedicalReviewTimeline.urgency(
+                for: review,
+                referenceDate: try utcDate(2026, 5, 31, hour: 0),
+                calendar: calendar
+            ),
+            .overdueFromQuarterThroughThreeQuarters
+        )
+        XCTAssertEqual(
+            MedicalReviewTimeline.urgency(
+                for: review,
+                referenceDate: try utcDate(2026, 7, 30, hour: 0),
+                calendar: calendar
+            ),
+            .overdueFromQuarterThroughThreeQuarters
+        )
+        XCTAssertEqual(
+            MedicalReviewTimeline.urgency(
+                for: review,
+                referenceDate: try utcDate(2026, 7, 31, hour: 0),
+                calendar: calendar
+            ),
+            .overdueOverThreeQuarters
+        )
+    }
+
+    @MainActor
+    func testHealthIncludesMedicalReviewsCard() throws {
+        let suiteName = "MedicalReviewHealthCardTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        let controller = HealthViewController(
+            appleHealthService: service,
+            medicalReviewStore: MedicalReviewStore(defaults: defaults),
+            defaults: defaults
+        )
+
+        controller.loadViewIfNeeded()
+
+        let button = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "health.medical_reviews.open",
+            in: controller.view
+        ))
+        XCTAssertEqual(button.accessibilityLabel, "Revisiones médicas")
+        XCTAssertTrue(button.accessibilityValue?.contains("0") == true)
     }
 
     @MainActor
@@ -786,6 +1744,25 @@ final class AppleHealthSyncTests: XCTestCase {
     }
 
     @MainActor
+    func testNumericDateAndTimeUsesDeviceRegionalOrderAndFourDigitYear() throws {
+        let date = try utcDate(2026, 7, 15, hour: 17)
+
+        let dayFirst = WellnarioFormatters.numericDateAndTime(
+            date,
+            locale: Locale(identifier: "es_ES"),
+            timeZoneID: "UTC"
+        )
+        let monthFirst = WellnarioFormatters.numericDateAndTime(
+            date,
+            locale: Locale(identifier: "en_US"),
+            timeZoneID: "UTC"
+        )
+
+        XCTAssertTrue(dayFirst.hasPrefix("15/07/2026"))
+        XCTAssertTrue(monthFirst.hasPrefix("07/15/2026"))
+    }
+
+    @MainActor
     func testTypographyScalingSupportsBothDirections() {
         let largeTraits = UITraitCollection(preferredContentSizeCategory: .extraExtraExtraLarge)
         let smallTraits = UITraitCollection(preferredContentSizeCategory: .small)
@@ -853,6 +1830,131 @@ final class AppleHealthSyncTests: XCTestCase {
 
         XCTAssertEqual(manager.mode, .light)
         XCTAssertTrue(lightControl.isSelected)
+    }
+
+    @MainActor
+    func testTabSelectionResetsDestinationScrollPosition() {
+        let first = ScrollPositionTestViewController()
+        let second = ScrollPositionTestViewController()
+        let controller = RootTabBarController()
+        controller.install(
+            viewControllers: [
+                WellnarioNavigationController(rootViewController: first),
+                WellnarioNavigationController(rootViewController: second)
+            ],
+            selectedIndex: 0
+        )
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.layoutIfNeeded()
+
+        second.loadViewIfNeeded()
+        second.scrollView.contentOffset.y = 320
+        controller.select(index: 1, animated: false)
+
+        XCTAssertEqual(
+            second.scrollView.contentOffset.y,
+            -second.scrollView.adjustedContentInset.top,
+            accuracy: 0.01
+        )
+
+        first.scrollView.contentOffset.y = 240
+        controller.select(index: 0, animated: false)
+        XCTAssertEqual(
+            first.scrollView.contentOffset.y,
+            -first.scrollView.adjustedContentInset.top,
+            accuracy: 0.01
+        )
+
+        first.scrollView.contentOffset.y = 180
+        controller.select(index: 0, animated: false)
+        XCTAssertEqual(
+            first.scrollView.contentOffset.y,
+            -first.scrollView.adjustedContentInset.top,
+            accuracy: 0.01
+        )
+    }
+
+    @MainActor
+    func testTabBarAcceptsAnotherSelectionWhileCrossfadeIsRunning() throws {
+        XCTAssertEqual(WellnarioScreenTransition.duration, 0.60, accuracy: 0.001)
+
+        let first = ScrollPositionTestViewController()
+        let second = ScrollPositionTestViewController()
+        let controller = RootTabBarController()
+        controller.install(
+            viewControllers: [
+                WellnarioNavigationController(rootViewController: first),
+                WellnarioNavigationController(rootViewController: second)
+            ],
+            selectedIndex: 0
+        )
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        controller.view.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let floatingTabBar = try XCTUnwrap(descendant(
+            of: UIView.self,
+            identifier: "wellnario.floatingTabBar",
+            in: controller.view
+        ))
+
+        controller.select(index: 1, animated: true)
+        XCTAssertTrue(floatingTabBar.isUserInteractionEnabled)
+        XCTAssertEqual(controller.selectedIndex, 1)
+        let firstTransitionSnapshot = try XCTUnwrap(descendant(
+            of: UIView.self,
+            identifier: "wellnario.tabTransition.snapshot",
+            in: controller.view
+        ))
+        XCTAssertTrue(firstTransitionSnapshot.superview === controller.view)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+
+        controller.select(index: 0, animated: true)
+        XCTAssertTrue(floatingTabBar.isUserInteractionEnabled)
+        XCTAssertEqual(controller.selectedIndex, 0)
+        let secondTransitionSnapshot = try XCTUnwrap(descendant(
+            of: UIView.self,
+            identifier: "wellnario.tabTransition.snapshot",
+            in: controller.view
+        ))
+        XCTAssertTrue(secondTransitionSnapshot.superview === controller.view)
+        XCTAssertFalse(secondTransitionSnapshot === firstTransitionSnapshot)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+
+        controller.select(index: 0, animated: false)
+        XCTAssertNil(descendant(
+            of: UIView.self,
+            identifier: "wellnario.tabTransition.snapshot",
+            in: controller.view
+        ))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+    }
+
+    @MainActor
+    func testNavigationDestinationResetsScrollPositionBeforeShowing() {
+        let destination = ScrollPositionTestViewController()
+        let navigationController = WellnarioNavigationController(
+            rootViewController: UIViewController()
+        )
+        destination.loadViewIfNeeded()
+        destination.scrollView.contentOffset.y = 280
+
+        navigationController.navigationController(
+            navigationController,
+            willShow: destination,
+            animated: true
+        )
+
+        XCTAssertEqual(
+            destination.scrollView.contentOffset.y,
+            -destination.scrollView.adjustedContentInset.top,
+            accuracy: 0.01
+        )
     }
 
     @MainActor
@@ -930,6 +2032,24 @@ final class AppleHealthSyncTests: XCTestCase {
         }
         return nil
     }
+}
+
+@MainActor
+private final class ScrollPositionTestViewController: UIViewController {
+    let scrollView = UIScrollView()
+
+    override func loadView() {
+        scrollView.contentSize = CGSize(width: 390, height: 2_000)
+        view = scrollView
+    }
+}
+
+private struct LegacyMedicalReviewFixture: Codable {
+    let id: UUID
+    let title: String
+    let kind: MedicalReviewKind
+    let intervalMonths: Int
+    let lastCompletedAt: Date
 }
 
 @MainActor

@@ -6,13 +6,16 @@ final class ActiveEditorViewController: EditorViewController {
     private let nameField = FormFieldView()
     private let descriptionField = TextAreaFieldView()
     private let unitField = SelectionFieldView(title: L10n.Form.unit)
+    private let categoriesField = SelectionFieldView()
     private let lowerField = FormFieldView()
     private let upperField = FormFieldView()
     private var selectedUnit: DoseUnit
+    private var selectedCategories: Set<ActiveCategory>
 
     init(repository: WellnarioRepositoryProtocol, active: Active? = nil) {
         self.active = active
         self.selectedUnit = active?.baseUnit ?? .milligram
+        self.selectedCategories = Set(active?.categories ?? [])
         super.init(repository: repository)
     }
 
@@ -81,7 +84,8 @@ final class ActiveEditorViewController: EditorViewController {
                             baseUnit: selectedUnit,
                             proposedDailyMale: active.proposedDailyMale,
                             proposedDailyFemale: active.proposedDailyFemale,
-                            imageKey: active.imageKey
+                            imageKey: active.imageKey,
+                            categories: Array(selectedCategories)
                         )
                     )
                 }
@@ -91,7 +95,8 @@ final class ActiveEditorViewController: EditorViewController {
                         name: name,
                         description: normalized(descriptionField.text),
                         baseUnit: selectedUnit,
-                        imageKey: "active.custom"
+                        imageKey: "active.custom",
+                        categories: Array(selectedCategories)
                     )
                 )
             }
@@ -147,6 +152,10 @@ final class ActiveEditorViewController: EditorViewController {
 
         unitField.button.isEnabled = !isSeeded
         rebuildUnitMenu()
+
+        categoriesField.title = L10n.text("actives.categories")
+        categoriesField.button.isEnabled = !isSeeded
+        rebuildCategoryMenu()
     }
 
     private func buildForm() {
@@ -165,7 +174,7 @@ final class ActiveEditorViewController: EditorViewController {
             artwork.bottomAnchor.constraint(equalTo: artworkContainer.bottomAnchor)
         ])
 
-        addSection(title: L10n.Form.basics, views: [artworkContainer, nameField, descriptionField, unitField])
+        addSection(title: L10n.Form.basics, views: [artworkContainer, nameField, descriptionField, unitField, categoriesField])
         addSection(title: L10n.Actives.target, views: [lowerField, upperField])
         addSaveButton()
     }
@@ -213,6 +222,30 @@ final class ActiveEditorViewController: EditorViewController {
         lowerField.unitTitle = unit.symbol(languageCode: catalogLanguage.rawValue)
         upperField.unitTitle = unit.symbol(languageCode: catalogLanguage.rawValue)
         rebuildUnitMenu()
+    }
+
+    private func rebuildCategoryMenu() {
+        let orderedSelection = ActiveCategory.allCases.filter(selectedCategories.contains)
+        categoriesField.value = orderedSelection.isEmpty
+            ? L10n.text("actives.categories.none")
+            : orderedSelection.map { $0.localizedName(language: catalogLanguage) }.joined(separator: ", ")
+        categoriesField.menu = UIMenu(
+            options: .displayInline,
+            children: ActiveCategory.allCases.map { category in
+                UIAction(
+                    title: category.localizedName(language: catalogLanguage),
+                    state: selectedCategories.contains(category) ? .on : .off
+                ) { [weak self] _ in
+                    guard let self else { return }
+                    if self.selectedCategories.contains(category) {
+                        self.selectedCategories.remove(category)
+                    } else {
+                        self.selectedCategories.insert(category)
+                    }
+                    self.rebuildCategoryMenu()
+                }
+            }
+        )
     }
 
     private func normalized(_ value: String) -> String? {

@@ -30,7 +30,7 @@ Los selectores sí utilizan una transformación espacial breve. La cápsula:
 | Interacción rápida | 0,12 s | `easeInOut` |
 | Animación estándar | 0,28 s | `easeInOut` |
 | Animación enfatizada | 0,42 s | fotogramas clave cúbicos |
-| Cambio de pantalla | 0,75 s | lineal |
+| Cambio de pantalla | 0,60 s | lineal |
 | Cambio de pantalla con Reducir movimiento | 0,20 s | lineal |
 | Muelle estándar | 0,28 s | amortiguación 0,82; velocidad inicial 0,35 |
 
@@ -47,7 +47,7 @@ enum AppMotion {
     static let quick: TimeInterval = 0.12
     static let standard: TimeInterval = 0.28
     static let emphasized: TimeInterval = 0.42
-    static let screen: TimeInterval = 0.75
+    static let screen: TimeInterval = 0.60
 
     @MainActor
     static var animationsEnabled: Bool {
@@ -758,7 +758,7 @@ Solución: medir el título, añadir margen horizontal y restringir el resultado
 
 - Comprobar que la captura de transición es hija directa del contenedor raíz estable.
 - Verificar que la captura se elimina al terminar.
-- Cambiar dos veces de pestaña antes de 0,75 segundos.
+- Cambiar dos veces de pestaña antes de 0,60 segundos.
 - Confirmar que la segunda selección se aplica inmediatamente.
 - Confirmar que la barra sigue siendo interactiva.
 - Probar con Reducir movimiento activado.

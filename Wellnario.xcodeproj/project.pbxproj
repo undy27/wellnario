@@ -11,6 +11,7 @@
 		03139FA281C37036380E3B79 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2C14E9292D7FB3ECDF40050 /* SettingsViewController.swift */; };
 		03E4F64429612000F1AF912F /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = E1212BDF28F0932A5AAB1775 /* README.md */; };
 		0447C56F7ED13661C2BDF6CA /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 3AA5764D8FBDD37ACF3C9126 /* PrivacyInfo.xcprivacy */; };
+		053B277664390B972890EA9F /* SleepCardEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74580C31440AEBF88DDC378A /* SleepCardEditorViewController.swift */; };
 		09CDCB88B5284A54C5208BA9 /* FloatingTabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5893B61719D0D872B6BE8E36 /* FloatingTabBarView.swift */; };
 		1293D72AB5D173796A705A82 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B4FA1FA593AA18507C24737 /* AppDelegate.swift */; };
 		12CC524BC6A0ADF366BF983F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CDF92964DE0149CDFEA4246F /* Assets.xcassets */; };
@@ -38,6 +39,7 @@
 		829F9C7D8DF95B8A736A19A9 /* ArchivedItemsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9324B5E5B9957A44156A3AD /* ArchivedItemsViewController.swift */; };
 		83C8D08AAC1DDD696CD8441A /* IntegrationSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44B51114C44A91B1137B7A26 /* IntegrationSettingsViewController.swift */; };
 		84BB6A766189967C80FC1BDF /* WellnarioSupplementFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E456B28E1165EDE798DE80B5 /* WellnarioSupplementFlowUITests.swift */; };
+		850A83A82AFCBEEF8536E0BC /* MedicalReviewsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57B39B3DEE92C3893ACD9EBA /* MedicalReviewsViewController.swift */; };
 		8E9849A11F89E49A9F4C6434 /* AppleHealthUIFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAB51551B10530185BFD564 /* AppleHealthUIFormatting.swift */; };
 		9077BED6BDEC4EEE8ACDA00E /* Active.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC46152DBDD22C5FB71B29E6 /* Active.swift */; };
 		977A9F7AE69935AD6B06C42E /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 97794118639E8EB885517A67 /* HealthKit.framework */; };
@@ -108,6 +110,7 @@
 		3EAD06E62C8F8078938C06B8 /* AppleHealthSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleHealthSyncTests.swift; sourceTree = "<group>"; };
 		4072DD4D15D9CB0B2DC88EE8 /* DiaryViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryViewController.swift; sourceTree = "<group>"; };
 		44B51114C44A91B1137B7A26 /* IntegrationSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationSettingsViewController.swift; sourceTree = "<group>"; };
+		57B39B3DEE92C3893ACD9EBA /* MedicalReviewsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicalReviewsViewController.swift; sourceTree = "<group>"; };
 		5893B61719D0D872B6BE8E36 /* FloatingTabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingTabBarView.swift; sourceTree = "<group>"; };
 		5B510384592730A0D7147E58 /* Supplement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Supplement.swift; sourceTree = "<group>"; };
 		5C085E4E5BD1AFAC010B03D1 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
@@ -120,6 +123,7 @@
 		6E3CABD1CAC280DB0958A83D /* SupplementEditorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementEditorViewController.swift; sourceTree = "<group>"; };
 		6F80873A72A781EB3D6BEDFA /* WellnarioRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioRepository.swift; sourceTree = "<group>"; };
 		700DC00A048C2D25BAB73DF6 /* WellnessViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnessViews.swift; sourceTree = "<group>"; };
+		74580C31440AEBF88DDC378A /* SleepCardEditorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepCardEditorViewController.swift; sourceTree = "<group>"; };
 		756A916CE1EC3B9021CED0CA /* WellnarioNavigationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioNavigationController.swift; sourceTree = "<group>"; };
 		75AA826B78C53FF24EADBDD1 /* SchemaMigrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaMigrator.swift; sourceTree = "<group>"; };
 		7C7B1C42F345CC0B4C020717 /* SleepViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepViewController.swift; sourceTree = "<group>"; };
@@ -292,7 +296,9 @@
 				DEAB51551B10530185BFD564 /* AppleHealthUIFormatting.swift */,
 				97283BDF005691C38A8E1DAF /* FitnessViewController.swift */,
 				846C762D3896FE4920A77055 /* HealthViewController.swift */,
+				57B39B3DEE92C3893ACD9EBA /* MedicalReviewsViewController.swift */,
 				A678CC41876F69746A469CA1 /* QuickActionViewControllers.swift */,
+				74580C31440AEBF88DDC378A /* SleepCardEditorViewController.swift */,
 				7C7B1C42F345CC0B4C020717 /* SleepViewController.swift */,
 				700DC00A048C2D25BAB73DF6 /* WellnessViews.swift */,
 			);
@@ -580,6 +586,7 @@
 				2B32C88D026D26E2FC38DB60 /* IntakeEditorViewController.swift in Sources */,
 				83C8D08AAC1DDD696CD8441A /* IntegrationSettingsViewController.swift in Sources */,
 				AAE17958C835AF3B0C4D02CD /* LocalizationManager.swift in Sources */,
+				850A83A82AFCBEEF8536E0BC /* MedicalReviewsViewController.swift in Sources */,
 				7864D87CE3AEE3898A1C3D19 /* MoreCoordinator.swift in Sources */,
 				C27A1DDA25BD61B6EEC47C3B /* MoreFeature.swift in Sources */,
 				D3CC330B5B35061E65FDE1BE /* MoreViewController.swift in Sources */,
@@ -593,6 +600,7 @@
 				4C6F57C1800E3875FC2DC595 /* SchemaMigrator.swift in Sources */,
 				786970C03229CBAC32A95DEE /* SeedData.swift in Sources */,
 				03139FA281C37036380E3B79 /* SettingsViewController.swift in Sources */,
+				053B277664390B972890EA9F /* SleepCardEditorViewController.swift in Sources */,
 				9C269273D4115C5CA866353A /* SleepViewController.swift in Sources */,
 				454A356639B10577A8BE8716 /* Supplement.swift in Sources */,
 				A8E95AA9FFB90A68A3B45B4A /* SupplementDetailViewController.swift in Sources */,

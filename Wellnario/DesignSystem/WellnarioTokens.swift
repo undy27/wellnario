@@ -68,6 +68,8 @@ enum WellnarioPalette {
 
     static let success = adaptive(light: 0x238A31, dark: 0x66E26F)
     static let warning = adaptive(light: 0xA85F00, dark: 0xFFB44D)
+    static let yellow = adaptive(light: 0x8A6C00, dark: 0xFFD84D)
+    static let orange = adaptive(light: 0xC45B00, dark: 0xFF8A3D)
     static let danger = adaptive(light: 0xC72F48, dark: 0xFF5C72)
     static let information = adaptive(light: 0x256EC4, dark: 0x5BA7FF)
     static let synchronizationBannerOpacity: CGFloat = 0.45

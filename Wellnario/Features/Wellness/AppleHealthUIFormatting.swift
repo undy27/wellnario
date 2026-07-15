@@ -36,7 +36,14 @@ enum AppleHealthUIFormatting {
     }
 
     static func syncedAt(_ date: Date) -> String {
-        L10n.text("apple_health.synced_at", WellnarioFormatters.dateAndTime(date))
+        L10n.text("apple_health.synced_at", WellnarioFormatters.numericDateAndTime(date))
+    }
+
+    static var twoLineSyncNowActionTitle: String {
+        let title = L10n.text("apple_health.sync_now")
+        let parts = title.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return title }
+        return parts.joined(separator: "\n")
     }
 
     static func weekdayInitial(for date: Date) -> String {

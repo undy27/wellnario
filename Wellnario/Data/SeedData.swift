@@ -9,6 +9,7 @@ enum SeedData {
         let unit: DoseUnit
         let proposedMale: Decimal?
         let proposedFemale: Decimal?
+        let categories: [ActiveCategory]
     }
 
     struct PresentationSeed {
@@ -18,17 +19,31 @@ enum SeedData {
     }
 
     static let activeSeeds: [ActiveSeed] = [
-        ActiveSeed(id: activeID(1), slug: "vitamin_c", unit: .milligram, proposedMale: 90, proposedFemale: 75),
-        ActiveSeed(id: activeID(2), slug: "vitamin_d", unit: .microgram, proposedMale: 15, proposedFemale: 15),
-        ActiveSeed(id: activeID(3), slug: "vitamin_b12", unit: .microgram, proposedMale: decimal("2.4"), proposedFemale: decimal("2.4")),
-        ActiveSeed(id: activeID(4), slug: "magnesium", unit: .milligram, proposedMale: 420, proposedFemale: 320),
-        ActiveSeed(id: activeID(5), slug: "omega_3", unit: .milligram, proposedMale: nil, proposedFemale: nil),
-        ActiveSeed(id: activeID(6), slug: "caffeine", unit: .milligram, proposedMale: nil, proposedFemale: nil),
-        ActiveSeed(id: activeID(7), slug: "zinc", unit: .milligram, proposedMale: 11, proposedFemale: 8),
-        ActiveSeed(id: activeID(8), slug: "iron", unit: .milligram, proposedMale: 8, proposedFemale: 18),
-        ActiveSeed(id: activeID(9), slug: "calcium", unit: .milligram, proposedMale: 1_000, proposedFemale: 1_000),
-        ActiveSeed(id: activeID(10), slug: "creatine", unit: .gram, proposedMale: nil, proposedFemale: nil),
-        ActiveSeed(id: activeID(11), slug: "melatonin", unit: .milligram, proposedMale: nil, proposedFemale: nil)
+        ActiveSeed(id: activeID(1), slug: "vitamin_c", unit: .milligram, proposedMale: 90, proposedFemale: 75, categories: [.immunity, .aesthetics, .antioxidant]),
+        ActiveSeed(id: activeID(2), slug: "vitamin_d", unit: .microgram, proposedMale: 15, proposedFemale: 15, categories: [.immunity, .bonesAndJoints]),
+        ActiveSeed(id: activeID(3), slug: "vitamin_b12", unit: .microgram, proposedMale: decimal("2.4"), proposedFemale: decimal("2.4"), categories: [.energy, .cognition]),
+        ActiveSeed(id: activeID(4), slug: "magnesium", unit: .milligram, proposedMale: 420, proposedFemale: 320, categories: [.sleep, .physicalPerformance, .stress]),
+        ActiveSeed(id: activeID(5), slug: "omega_3", unit: .milligram, proposedMale: nil, proposedFemale: nil, categories: [.cardiovascular, .cognition, .aesthetics]),
+        ActiveSeed(id: activeID(6), slug: "caffeine", unit: .milligram, proposedMale: nil, proposedFemale: nil, categories: [.physicalPerformance, .energy, .cognition]),
+        ActiveSeed(id: activeID(7), slug: "zinc", unit: .milligram, proposedMale: 11, proposedFemale: 8, categories: [.immunity, .aesthetics, .antioxidant]),
+        ActiveSeed(id: activeID(8), slug: "iron", unit: .milligram, proposedMale: 8, proposedFemale: 18, categories: [.physicalPerformance, .energy]),
+        ActiveSeed(id: activeID(9), slug: "calcium", unit: .milligram, proposedMale: 1_000, proposedFemale: 1_000, categories: [.bonesAndJoints]),
+        ActiveSeed(id: activeID(10), slug: "creatine", unit: .gram, proposedMale: nil, proposedFemale: nil, categories: [.physicalPerformance, .energy, .cognition]),
+        ActiveSeed(id: activeID(11), slug: "melatonin", unit: .milligram, proposedMale: nil, proposedFemale: nil, categories: [.sleep]),
+        ActiveSeed(id: activeID(12), slug: "ashwagandha", unit: .milligram, proposedMale: nil, proposedFemale: nil, categories: [.sleep, .physicalPerformance, .stress]),
+        ActiveSeed(id: activeID(13), slug: "astaxanthin", unit: .milligram, proposedMale: nil, proposedFemale: nil, categories: [.cardiovascular, .aesthetics, .antioxidant]),
+        ActiveSeed(id: activeID(14), slug: "berberine", unit: .milligram, proposedMale: nil, proposedFemale: nil, categories: [.cardiovascular, .metabolicHealth]),
+        ActiveSeed(id: activeID(15), slug: "coenzyme_q10", unit: .milligram, proposedMale: nil, proposedFemale: nil, categories: [.energy, .cardiovascular, .antioxidant]),
+        ActiveSeed(id: activeID(16), slug: "hydrolyzed_collagen", unit: .gram, proposedMale: nil, proposedFemale: nil, categories: [.bonesAndJoints, .aesthetics]),
+        ActiveSeed(id: activeID(17), slug: "spermidine", unit: .milligram, proposedMale: nil, proposedFemale: nil, categories: [.metabolicHealth, .healthyAging]),
+        ActiveSeed(id: activeID(18), slug: "l_arginine", unit: .gram, proposedMale: nil, proposedFemale: nil, categories: [.physicalPerformance, .cardiovascular]),
+        ActiveSeed(id: activeID(19), slug: "glycine", unit: .gram, proposedMale: nil, proposedFemale: nil, categories: [.sleep, .bonesAndJoints, .aesthetics]),
+        ActiveSeed(id: activeID(20), slug: "taurine", unit: .gram, proposedMale: nil, proposedFemale: nil, categories: [.physicalPerformance, .energy, .cardiovascular]),
+        ActiveSeed(id: activeID(21), slug: "resveratrol", unit: .milligram, proposedMale: nil, proposedFemale: nil, categories: [.cardiovascular, .antioxidant, .healthyAging]),
+        ActiveSeed(id: activeID(22), slug: "nicotinamide_riboside", unit: .milligram, proposedMale: nil, proposedFemale: nil, categories: [.energy, .metabolicHealth, .healthyAging]),
+        ActiveSeed(id: activeID(23), slug: "quercetin", unit: .milligram, proposedMale: nil, proposedFemale: nil, categories: [.immunity, .antioxidant]),
+        ActiveSeed(id: activeID(24), slug: "lutein", unit: .milligram, proposedMale: nil, proposedFemale: nil, categories: [.antioxidant, .vision]),
+        ActiveSeed(id: activeID(25), slug: "sulforaphane", unit: .milligram, proposedMale: nil, proposedFemale: nil, categories: [.antioxidant, .metabolicHealth])
     ]
 
     static let presentationSeeds: [PresentationSeed] = [
@@ -71,6 +86,13 @@ enum SeedData {
                         .real(now)
                     ]
                 )
+
+                for category in seed.categories {
+                    try database.execute(
+                        "INSERT OR IGNORE INTO active_category_assignments (active_id, category) VALUES (?, ?);",
+                        bindings: [.text(seed.id.uuidString), .text(category.rawValue)]
+                    )
+                }
             }
 
             var illustrationCounter = 1

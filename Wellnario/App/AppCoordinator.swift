@@ -13,19 +13,23 @@ protocol RootFeatureBuilding {
 private final class LiveRootFeatureFactory: RootFeatureBuilding {
     private let repository: WellnarioRepositoryProtocol
     private let appleHealthService: AppleHealthSyncing
+    private let medicalReviewStore: MedicalReviewStore
 
     init(
         repository: WellnarioRepositoryProtocol,
-        appleHealthService: AppleHealthSyncing
+        appleHealthService: AppleHealthSyncing,
+        medicalReviewStore: MedicalReviewStore
     ) {
         self.repository = repository
         self.appleHealthService = appleHealthService
+        self.medicalReviewStore = medicalReviewStore
     }
 
     func makeToday() -> TodayViewController {
         TodayViewController(
             repository: repository,
-            appleHealthService: appleHealthService
+            appleHealthService: appleHealthService,
+            medicalReviewStore: medicalReviewStore
         )
     }
 
@@ -38,7 +42,10 @@ private final class LiveRootFeatureFactory: RootFeatureBuilding {
     }
 
     func makeHealth() -> HealthViewController {
-        HealthViewController(appleHealthService: appleHealthService)
+        HealthViewController(
+            appleHealthService: appleHealthService,
+            medicalReviewStore: medicalReviewStore
+        )
     }
 
     func makeFitness() -> FitnessViewController {
@@ -70,7 +77,8 @@ final class AppCoordinator: NSObject {
         self.featureFactory = featureFactory
             ?? LiveRootFeatureFactory(
                 repository: environment.repository,
-                appleHealthService: environment.appleHealthService
+                appleHealthService: environment.appleHealthService,
+                medicalReviewStore: environment.medicalReviewStore
             )
         super.init()
 
@@ -149,9 +157,20 @@ final class AppCoordinator: NSObject {
         let sleepNavigation = makeNavigationController(root: sleepController, identifier: "navigation.sleep")
         let healthNavigation = makeNavigationController(root: healthController, identifier: "navigation.health")
         let fitnessNavigation = makeNavigationController(root: fitnessController, identifier: "navigation.fitness")
+        let navigationControllers = [
+            todayNavigation,
+            supplementsNavigation,
+            sleepNavigation,
+            healthNavigation,
+            fitnessNavigation
+        ]
+        let safeSelectedIndex = min(
+            max(0, selectedIndex),
+            max(0, navigationControllers.count - 1)
+        )
 
         if restoringSettings {
-            todayNavigation.pushViewController(
+            navigationControllers[safeSelectedIndex].pushViewController(
                 SettingsViewController(appleHealthService: environment.appleHealthService),
                 animated: false
             )
@@ -159,14 +178,8 @@ final class AppCoordinator: NSObject {
 
         let rootController = RootTabBarController()
         rootController.install(
-            viewControllers: [
-                todayNavigation,
-                supplementsNavigation,
-                sleepNavigation,
-                healthNavigation,
-                fitnessNavigation
-            ],
-            selectedIndex: selectedIndex
+            viewControllers: navigationControllers,
+            selectedIndex: safeSelectedIndex
         )
 
         todayController.onOpenSettings = { [weak self] in
@@ -188,6 +201,12 @@ final class AppCoordinator: NSObject {
             self?.showSettings()
         }
         healthController.onOpenSettings = { [weak self] in
+            self?.showSettings()
+        }
+        supplementsController.onOpenSettings = { [weak self] in
+            self?.showSettings()
+        }
+        fitnessController.onOpenSettings = { [weak self] in
             self?.showSettings()
         }
         fitnessController.onStartWorkout = { [weak fitnessController] in
@@ -227,12 +246,12 @@ final class AppCoordinator: NSObject {
 
     private func showSettings() {
         guard let rootTabBarController,
-              let todayNavigation = rootTabBarController.viewControllers?.first as? UINavigationController else {
+              let selectedNavigation = rootTabBarController.selectedViewController
+                as? UINavigationController else {
             return
         }
-        rootTabBarController.select(index: AppLaunchConfiguration.InitialTab.today.rawValue)
-        guard !(todayNavigation.topViewController is SettingsViewController) else { return }
-        todayNavigation.pushViewController(
+        guard !(selectedNavigation.topViewController is SettingsViewController) else { return }
+        selectedNavigation.pushViewController(
             SettingsViewController(appleHealthService: environment.appleHealthService),
             animated: true
         )
@@ -244,13 +263,9 @@ final class AppCoordinator: NSObject {
 
         let selectedIndex = rootTabBarController?.selectedIndex
             ?? environment.launchConfiguration.initialTab.rawValue
-        let settingsIsVisible = rootTabBarController?.viewControllers?.first
-            .flatMap { $0 as? UINavigationController }?
-            .viewControllers
-            .contains { $0 is SettingsViewController } ?? false
         installRoot(
             selectedIndex: selectedIndex,
-            restoringSettings: settingsIsVisible,
+            restoringSettings: settingsIsVisibleInSelectedTab,
             animated: true
         )
         isRebuildingRoot = false
@@ -271,15 +286,19 @@ final class AppCoordinator: NSObject {
         isRebuildingRoot = true
         let selectedIndex = rootTabBarController?.selectedIndex
             ?? environment.launchConfiguration.initialTab.rawValue
-        let settingsIsVisible = rootTabBarController?.viewControllers?.first
-            .flatMap { $0 as? UINavigationController }?
-            .viewControllers
-            .contains { $0 is SettingsViewController } ?? false
         installRoot(
             selectedIndex: selectedIndex,
-            restoringSettings: settingsIsVisible,
+            restoringSettings: settingsIsVisibleInSelectedTab,
             animated: animated
         )
         isRebuildingRoot = false
+    }
+
+    private var settingsIsVisibleInSelectedTab: Bool {
+        guard let selectedNavigation = rootTabBarController?.selectedViewController
+                as? UINavigationController else {
+            return false
+        }
+        return selectedNavigation.viewControllers.contains { $0 is SettingsViewController }
     }
 }

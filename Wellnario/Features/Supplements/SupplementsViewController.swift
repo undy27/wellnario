@@ -4,12 +4,17 @@ import UIKit
 final class SupplementsViewController: FeatureViewController {
     private enum Mode: Int { case products, inventory, actives }
 
+    var onOpenSettings: (() -> Void)?
+
     private let segmentedControl = UISegmentedControl(items: ["", "", ""])
+    private let categoryFilterScrollView = UIScrollView()
+    private let categoryFilterStack = UIStackView()
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let searchController = UISearchController(searchResultsController: nil)
     private let emptyState = EmptyStateView()
     private let addBarButtonItem = UIBarButtonItem()
     private let moreBarButtonItem = UIBarButtonItem()
+    private let settingsBarButtonItem = UIBarButtonItem()
 
     private var mode: Mode = .products
     private var presentations: [PresentationType] = []
@@ -18,6 +23,9 @@ final class SupplementsViewController: FeatureViewController {
     private var actives: [Active] = []
     private var todayProgress: [UUID: ActiveDailyProgress] = [:]
     private var query = ""
+    private var selectedCategory: ActiveCategory?
+    private var categoryButtons: [(category: ActiveCategory?, button: ChipButton)] = []
+    private var categoryFilterHeightConstraint: NSLayoutConstraint!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -37,10 +45,13 @@ final class SupplementsViewController: FeatureViewController {
         segmentedControl.setTitle(L10n.Supplements.products, forSegmentAt: 0)
         segmentedControl.setTitle(L10n.Supplements.inventory, forSegmentAt: 1)
         segmentedControl.setTitle(L10n.Supplements.actives, forSegmentAt: 2)
-        searchController.searchBar.placeholder = L10n.Common.search
+        updateSearchPlaceholder()
         addBarButtonItem.accessibilityLabel = addButtonTitle
         moreBarButtonItem.accessibilityLabel = L10n.text("supplements.more.accessibility")
+        settingsBarButtonItem.accessibilityLabel = L10n.Settings.title
         moreBarButtonItem.menu = makeMoreMenu()
+        categoryFilterScrollView.accessibilityLabel = L10n.text("actives.categories.filter.accessibility")
+        rebuildCategoryFilterButtons()
         tableView.reloadData()
         updateEmptyState()
     }
@@ -77,7 +88,17 @@ final class SupplementsViewController: FeatureViewController {
         moreBarButtonItem.style = .plain
         moreBarButtonItem.tintColor = WellnarioPalette.textSecondary
         moreBarButtonItem.accessibilityIdentifier = "supplements.more"
-        navigationItem.rightBarButtonItems = [addBarButtonItem, moreBarButtonItem]
+
+        settingsBarButtonItem.image = UIImage(systemName: "gearshape")
+        settingsBarButtonItem.style = .plain
+        settingsBarButtonItem.target = self
+        settingsBarButtonItem.action = #selector(openSettings)
+        settingsBarButtonItem.accessibilityIdentifier = "supplements.settings"
+        navigationItem.rightBarButtonItems = [
+            settingsBarButtonItem,
+            addBarButtonItem,
+            moreBarButtonItem
+        ]
 
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchResultsUpdater = self
@@ -101,6 +122,16 @@ final class SupplementsViewController: FeatureViewController {
         segmentedControl.addTarget(self, action: #selector(modeChanged), for: .valueChanged)
         view.addForAutoLayout(segmentedControl)
 
+        categoryFilterScrollView.showsHorizontalScrollIndicator = false
+        categoryFilterScrollView.alwaysBounceHorizontal = true
+        categoryFilterScrollView.isHidden = true
+        categoryFilterStack.axis = .horizontal
+        categoryFilterStack.alignment = .center
+        categoryFilterStack.spacing = WellnarioSpacing.xSmall
+        categoryFilterScrollView.addForAutoLayout(categoryFilterStack)
+        view.addForAutoLayout(categoryFilterScrollView)
+        categoryFilterHeightConstraint = categoryFilterScrollView.heightAnchor.constraint(equalToConstant: 0)
+
         tableView.backgroundColor = .clear
         tableView.separatorStyle = .none
         tableView.contentInset = UIEdgeInsets(top: 8, left: 0, bottom: WellnarioSpacing.bottomNavigationInset, right: 0)
@@ -119,14 +150,25 @@ final class SupplementsViewController: FeatureViewController {
             segmentedControl.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: WellnarioSpacing.xSmall),
             segmentedControl.heightAnchor.constraint(equalToConstant: 40),
 
+            categoryFilterScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            categoryFilterScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            categoryFilterScrollView.topAnchor.constraint(equalTo: segmentedControl.bottomAnchor, constant: WellnarioSpacing.xxSmall),
+            categoryFilterHeightConstraint,
+
+            categoryFilterStack.leadingAnchor.constraint(equalTo: categoryFilterScrollView.contentLayoutGuide.leadingAnchor, constant: WellnarioSpacing.screenHorizontal),
+            categoryFilterStack.trailingAnchor.constraint(equalTo: categoryFilterScrollView.contentLayoutGuide.trailingAnchor, constant: -WellnarioSpacing.screenHorizontal),
+            categoryFilterStack.topAnchor.constraint(equalTo: categoryFilterScrollView.contentLayoutGuide.topAnchor),
+            categoryFilterStack.bottomAnchor.constraint(equalTo: categoryFilterScrollView.contentLayoutGuide.bottomAnchor),
+            categoryFilterStack.heightAnchor.constraint(equalTo: categoryFilterScrollView.frameLayoutGuide.heightAnchor),
+
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.topAnchor.constraint(equalTo: segmentedControl.bottomAnchor, constant: WellnarioSpacing.xxSmall),
+            tableView.topAnchor.constraint(equalTo: categoryFilterScrollView.bottomAnchor),
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             emptyState.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: WellnarioSpacing.screenHorizontal),
             emptyState.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -WellnarioSpacing.screenHorizontal),
-            emptyState.topAnchor.constraint(equalTo: segmentedControl.bottomAnchor),
+            emptyState.topAnchor.constraint(equalTo: categoryFilterScrollView.bottomAnchor),
             emptyState.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -WellnarioSpacing.bottomNavigationInset)
         ])
     }
@@ -172,8 +214,11 @@ final class SupplementsViewController: FeatureViewController {
     }
 
     private var filteredActives: [Active] {
-        guard !query.isEmpty else { return actives }
-        return actives.filter {
+        let categoryFiltered = selectedCategory.map { category in
+            actives.filter { $0.categories.contains(category) }
+        } ?? actives
+        guard !query.isEmpty else { return categoryFiltered }
+        return categoryFiltered.filter {
             $0.localizedName(language: catalogLanguage).localizedCaseInsensitiveContains(query)
         }
     }
@@ -197,6 +242,15 @@ final class SupplementsViewController: FeatureViewController {
                 kind: .other,
                 title: L10n.text("search.empty.title"),
                 message: L10n.text("search.empty.message"),
+                actionTitle: nil
+            )
+            return
+        }
+        if mode == .actives, selectedCategory != nil {
+            emptyState.configure(
+                kind: .other,
+                title: L10n.text("actives.categories.empty.title"),
+                message: L10n.text("actives.categories.empty.message"),
                 actionTitle: nil
             )
             return
@@ -269,6 +323,7 @@ final class SupplementsViewController: FeatureViewController {
         } ?? "—"
         cell.configure(
             kind: .other,
+            imageKey: active.imageKey,
             title: active.localizedName(language: catalogLanguage),
             subtitle: L10n.text("actives.today", consumed),
             detail: L10n.text("actives.target.value", target),
@@ -308,9 +363,81 @@ final class SupplementsViewController: FeatureViewController {
     @objc private func modeChanged() {
         mode = Mode(rawValue: segmentedControl.selectedSegmentIndex) ?? .products
         addBarButtonItem.accessibilityLabel = addButtonTitle
+        updateSearchPlaceholder()
+        updateCategoryFilterVisibility()
         tableView.reloadSections(IndexSet(integer: 0), with: .fade)
         updateEmptyState()
     }
+
+    private func updateSearchPlaceholder() {
+        searchController.searchBar.placeholder = mode == .actives
+            ? L10n.text("actives.search.placeholder")
+            : L10n.Common.search
+    }
+
+    private func rebuildCategoryFilterButtons() {
+        categoryFilterStack.arrangedSubviews.forEach { view in
+            categoryFilterStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        categoryButtons.removeAll()
+
+        addCategoryButton(
+            title: L10n.text("actives.categories.all"),
+            category: nil,
+            accessibilityIdentifier: "actives.category.all"
+        )
+        for category in ActiveCategory.allCases {
+            addCategoryButton(
+                title: category.localizedName(language: catalogLanguage),
+                category: category,
+                accessibilityIdentifier: "actives.category.\(category.rawValue)"
+            )
+        }
+        updateCategoryButtonSelection()
+    }
+
+    private func addCategoryButton(
+        title: String,
+        category: ActiveCategory?,
+        accessibilityIdentifier: String
+    ) {
+        let button = ChipButton(title: title)
+        button.accessibilityIdentifier = accessibilityIdentifier
+        button.addAction(UIAction { [weak self, weak button] _ in
+            guard let button else { return }
+            self?.selectCategory(category, button: button)
+        }, for: .touchUpInside)
+        categoryButtons.append((category, button))
+        categoryFilterStack.addArrangedSubview(button)
+    }
+
+    private func selectCategory(_ category: ActiveCategory?, button: ChipButton) {
+        guard selectedCategory != category else { return }
+        selectedCategory = category
+        updateCategoryButtonSelection()
+        tableView.reloadData()
+        updateEmptyState()
+        let visibleRect = button.convert(button.bounds, to: categoryFilterScrollView)
+            .insetBy(dx: -WellnarioSpacing.small, dy: 0)
+        categoryFilterScrollView.scrollRectToVisible(visibleRect, animated: true)
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+
+    private func updateCategoryButtonSelection() {
+        for item in categoryButtons {
+            item.button.isSelected = item.category == selectedCategory
+        }
+    }
+
+    private func updateCategoryFilterVisibility() {
+        let shouldShow = mode == .actives
+        categoryFilterScrollView.isHidden = !shouldShow
+        categoryFilterHeightConstraint.constant = shouldShow ? 52 : 0
+        view.setNeedsLayout()
+    }
+
+    @objc private func openSettings() { onOpenSettings?() }
 
     @objc private func addTapped() {
         switch mode {
@@ -439,6 +566,8 @@ private final class CatalogListCell: UITableViewCell {
 
     private let card = PremiumCardView()
     private let artwork = PresentationArtworkView(kind: .capsule)
+    private let artworkContainer = UIView()
+    private let activeIconView = UIImageView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let detailLabel = UILabel()
@@ -452,8 +581,20 @@ private final class CatalogListCell: UITableViewCell {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func configure(kind: PresentationKind, title: String, subtitle: String, detail: String, badge: String?, tone: WellnarioTone) {
+    func configure(
+        kind: PresentationKind,
+        imageKey: String? = nil,
+        title: String,
+        subtitle: String,
+        detail: String,
+        badge: String?,
+        tone: WellnarioTone
+    ) {
         artwork.kind = kind
+        let activeIcon = imageKey.flatMap { UIImage(named: $0) }
+        activeIconView.image = activeIcon
+        activeIconView.isHidden = activeIcon == nil
+        artwork.isHidden = activeIcon != nil
         titleLabel.text = title
         subtitleLabel.text = subtitle
         detailLabel.text = detail
@@ -471,13 +612,22 @@ private final class CatalogListCell: UITableViewCell {
         card.pinEdges(to: contentView, insets: NSDirectionalEdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
         card.isUserInteractionEnabled = false
 
+        artworkContainer.addForAutoLayout(artwork)
+        artworkContainer.addForAutoLayout(activeIconView)
+        artwork.pinEdges(to: artworkContainer)
+        activeIconView.pinEdges(to: artworkContainer)
+        activeIconView.contentMode = .scaleAspectFit
+        activeIconView.isHidden = true
+        activeIconView.isAccessibilityElement = false
+
         NSLayoutConstraint.activate([
-            artwork.widthAnchor.constraint(equalToConstant: 78),
-            artwork.heightAnchor.constraint(equalTo: artwork.widthAnchor)
+            artworkContainer.widthAnchor.constraint(equalToConstant: 78),
+            artworkContainer.heightAnchor.constraint(equalTo: artworkContainer.widthAnchor)
         ])
 
         titleLabel.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textPrimary)
-        titleLabel.numberOfLines = 1
+        titleLabel.numberOfLines = 2
+        titleLabel.lineBreakMode = .byWordWrapping
         subtitleLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
         subtitleLabel.numberOfLines = 1
         detailLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)
@@ -492,7 +642,7 @@ private final class CatalogListCell: UITableViewCell {
 
         let titleRow = UIStackView(arrangedSubviews: [titleLabel, badgeLabel], axis: .horizontal, spacing: 8, alignment: .center)
         let labels = UIStackView(arrangedSubviews: [titleRow, subtitleLabel, detailLabel], axis: .vertical, spacing: 4)
-        let row = UIStackView(arrangedSubviews: [artwork, labels], axis: .horizontal, spacing: 14, alignment: .center)
+        let row = UIStackView(arrangedSubviews: [artworkContainer, labels], axis: .horizontal, spacing: 14, alignment: .center)
         card.contentView.addForAutoLayout(row)
         row.pinEdges(to: card.contentView, insets: NSDirectionalEdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14))
     }

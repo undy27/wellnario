@@ -94,7 +94,9 @@ final class SQLiteDatabase {
     init(url: URL) throws {
         self.url = url
         let path: String
-        if url.path == ":memory:" || url.absoluteString == ":memory:" {
+        if url.path == ":memory:"
+            || url.lastPathComponent == ":memory:"
+            || url.absoluteString == ":memory:" {
             path = ":memory:"
         } else {
             path = url.path

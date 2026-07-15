@@ -310,6 +310,7 @@ final class FormFieldView: UIView {
         textField.returnKeyType = .done
         textField.addTarget(self, action: #selector(editingDidBegin), for: .editingDidBegin)
         textField.addTarget(self, action: #selector(editingDidEnd), for: .editingDidEnd)
+        textField.addTarget(self, action: #selector(editingDidEndOnExit), for: .editingDidEndOnExit)
         textField.addTarget(self, action: #selector(textDidChange), for: .editingChanged)
 
         var unitConfiguration = UIButton.Configuration.plain()
@@ -385,6 +386,10 @@ final class FormFieldView: UIView {
     @objc private func editingDidEnd() {
         guard errorMessage == nil else { return }
         fieldContainer.layer.borderColor = WellnarioPalette.hairline.cgColor
+    }
+
+    @objc private func editingDidEndOnExit() {
+        textField.resignFirstResponder()
     }
 
     @objc private func textDidChange() {

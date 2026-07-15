@@ -184,6 +184,53 @@ enum SchemaMigrator {
             CREATE INDEX IF NOT EXISTS idx_snapshot_active
                 ON consumption_active_snapshots(active_id, consumption_id);
             """
+        ),
+        Migration(
+            version: 3,
+            sql: """
+            CREATE TABLE IF NOT EXISTS medical_review_plans (
+                id TEXT PRIMARY KEY NOT NULL,
+                user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                title TEXT NOT NULL COLLATE NOCASE,
+                kind TEXT NOT NULL,
+                interval_months INTEGER NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE(user_id, title)
+            );
+
+            CREATE TABLE IF NOT EXISTS medical_review_completions (
+                id TEXT PRIMARY KEY NOT NULL,
+                plan_id TEXT NOT NULL REFERENCES medical_review_plans(id) ON DELETE CASCADE,
+                completed_at REAL NOT NULL,
+                created_at REAL NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_medical_review_plans_user
+                ON medical_review_plans(user_id, title);
+            CREATE INDEX IF NOT EXISTS idx_medical_review_completions_plan_date
+                ON medical_review_completions(plan_id, completed_at DESC);
+            """
+        ),
+        Migration(
+            version: 4,
+            sql: """
+            ALTER TABLE medical_review_completions
+                ADD COLUMN notes TEXT;
+            """
+        ),
+        Migration(
+            version: 5,
+            sql: """
+            CREATE TABLE IF NOT EXISTS active_category_assignments (
+                active_id TEXT NOT NULL REFERENCES actives(id) ON DELETE CASCADE,
+                category TEXT NOT NULL,
+                PRIMARY KEY(active_id, category)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_active_category_lookup
+                ON active_category_assignments(category, active_id);
+            """
         )
     ]
 }
