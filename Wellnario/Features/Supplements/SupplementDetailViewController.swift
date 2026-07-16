@@ -74,14 +74,9 @@ final class SupplementDetailViewController: FeatureViewController {
         stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
         stackView.addArrangedSubview(makeHero(supplement))
 
-        let logButton = PrimaryButton(title: L10n.Today.logIntake)
-        logButton.setImage(UIImage(systemName: "plus.circle.fill"), for: .normal)
-        logButton.tintColor = WellnarioPalette.textPrimary
-        logButton.addTarget(self, action: #selector(logIntake), for: .touchUpInside)
         let batchButton = PrimaryButton(title: L10n.Inventory.add, style: .secondary)
         batchButton.addTarget(self, action: #selector(addInstance), for: .touchUpInside)
-        let actionStack = UIStackView(arrangedSubviews: [logButton, batchButton], axis: .vertical, spacing: 10)
-        stackView.addArrangedSubview(actionStack)
+        stackView.addArrangedSubview(batchButton)
 
         stackView.addArrangedSubview(makeCompositionCard(supplement))
         stackView.addArrangedSubview(makeInventoryCard())
@@ -95,9 +90,22 @@ final class SupplementDetailViewController: FeatureViewController {
     private func makeHero(_ supplement: Supplement) -> PremiumCardView {
         let card = PremiumCardView()
         let kind = presentation.map { PresentationKind(name: $0.localizedName(language: catalogLanguage)) } ?? .other
-        let artwork = PresentationArtworkView(kind: kind)
-        artwork.primaryColor = WellnarioPalette.cyan
-        artwork.secondaryColor = WellnarioPalette.magenta
+        let artwork: UIView
+        if let photo = SupplementPhotoStore.image(
+            reference: supplement.imageReference,
+            databaseURL: repository.databaseURL
+        ) {
+            let imageView = UIImageView(image: photo)
+            imageView.contentMode = .scaleAspectFit
+            imageView.applyContinuousCorners(WellnarioRadius.control)
+            imageView.clipsToBounds = true
+            artwork = imageView
+        } else {
+            let presentationArtwork = PresentationArtworkView(kind: kind)
+            presentationArtwork.primaryColor = WellnarioPalette.cyan
+            presentationArtwork.secondaryColor = WellnarioPalette.magenta
+            artwork = presentationArtwork
+        }
         NSLayoutConstraint.activate([
             artwork.widthAnchor.constraint(equalToConstant: 176),
             artwork.heightAnchor.constraint(equalTo: artwork.widthAnchor)
@@ -110,7 +118,10 @@ final class SupplementDetailViewController: FeatureViewController {
         name.numberOfLines = 0
         let brand = UILabel()
         brand.applyWellnarioStyle(.body, color: WellnarioPalette.textSecondary)
-        brand.text = [supplement.brand, presentation?.localizedName(language: catalogLanguage)].compactMap { $0 }.joined(separator: " · ")
+        brand.text = [supplement.brand, presentation?.localizedName(language: catalogLanguage)]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
         brand.textAlignment = .center
         brand.numberOfLines = 0
         let details = UILabel()
@@ -176,7 +187,14 @@ final class SupplementDetailViewController: FeatureViewController {
                 let button = UIButton(type: .system)
                 var config = UIButton.Configuration.plain()
                 config.title = instance.label
-                config.subtitle = FeatureFormatting.expirationText(instance.expirationDay)
+                let total = instance.totalQuantity.flatMap { quantity in
+                    instance.totalUnit.map {
+                        "\(FeatureFormatting.decimal(quantity)) \($0.symbol(languageCode: catalogLanguage.rawValue))"
+                    }
+                }
+                config.subtitle = [total, FeatureFormatting.expirationText(instance.expirationDay)]
+                    .compactMap { $0 }
+                    .joined(separator: " · ")
                 config.image = UIImage(systemName: "shippingbox")
                 config.imagePadding = 12
                 config.baseForegroundColor = WellnarioPalette.textPrimary
@@ -263,29 +281,6 @@ final class SupplementDetailViewController: FeatureViewController {
 
     @objc private func addInstance() {
         presentSheet(InstanceEditorViewController(repository: repository, supplementID: supplementID), largeOnly: true)
-    }
-
-    @objc private func logIntake() {
-        guard !instances.isEmpty else {
-            let alert = UIAlertController(title: L10n.Inventory.noItemsTitle, message: L10n.text("intake.requires_batch"), preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: L10n.Common.cancel, style: .cancel))
-            alert.addAction(UIAlertAction(title: L10n.Inventory.add, style: .default) { [weak self] _ in self?.addInstance() })
-            present(alert, animated: true)
-            return
-        }
-        if instances.count == 1 {
-            presentSheet(IntakeEditorViewController(repository: repository, preferredInstanceID: instances[0].id), largeOnly: true)
-            return
-        }
-        let sheet = UIAlertController(title: L10n.Inventory.batch, message: L10n.text("intake.choose_batch"), preferredStyle: .actionSheet)
-        instances.forEach { instance in
-            sheet.addAction(UIAlertAction(title: instance.label, style: .default) { [weak self] _ in
-                guard let self else { return }
-                self.presentSheet(IntakeEditorViewController(repository: self.repository, preferredInstanceID: instance.id), largeOnly: true)
-            })
-        }
-        sheet.addAction(UIAlertAction(title: L10n.Common.cancel, style: .cancel))
-        present(sheet, animated: true)
     }
 
     @objc private func archiveTapped() {

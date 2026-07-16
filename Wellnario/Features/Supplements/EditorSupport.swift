@@ -151,9 +151,12 @@ final class FormSectionView: PremiumCardView {
 final class SelectionFieldView: UIView {
     let button = UIButton(type: .system)
     private let titleLabel = UILabel()
+    private let leadingImageView = UIImageView()
+    private let accessoryImageView = UIImageView(image: UIImage(systemName: "chevron.up.chevron.down"))
 
     var title: String = "" { didSet { titleLabel.text = title } }
     var value: String = "" { didSet { updateValue() } }
+    var leadingImage: UIImage? { didSet { updateValue() } }
     var menu: UIMenu? { didSet { button.menu = menu } }
 
     override init(frame: CGRect) {
@@ -179,6 +182,26 @@ final class SelectionFieldView: UIView {
         button.showsMenuAsPrimaryAction = true
         button.heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.fieldMinimumHeight).isActive = true
 
+        leadingImageView.contentMode = .scaleAspectFit
+        leadingImageView.clipsToBounds = true
+        leadingImageView.isHidden = true
+        leadingImageView.isUserInteractionEnabled = false
+        accessoryImageView.contentMode = .scaleAspectFit
+        accessoryImageView.tintColor = WellnarioPalette.textTertiary
+        accessoryImageView.isUserInteractionEnabled = false
+        button.addForAutoLayout(leadingImageView)
+        button.addForAutoLayout(accessoryImageView)
+        NSLayoutConstraint.activate([
+            leadingImageView.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 12),
+            leadingImageView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+            leadingImageView.widthAnchor.constraint(equalToConstant: 34),
+            leadingImageView.heightAnchor.constraint(equalTo: leadingImageView.widthAnchor),
+            accessoryImageView.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -16),
+            accessoryImageView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+            accessoryImageView.widthAnchor.constraint(equalToConstant: 14),
+            accessoryImageView.heightAnchor.constraint(equalToConstant: 14)
+        ])
+
         let stack = UIStackView(arrangedSubviews: [titleLabel, button], axis: .vertical, spacing: 7)
         addForAutoLayout(stack)
         stack.pinEdges(to: self)
@@ -187,17 +210,21 @@ final class SelectionFieldView: UIView {
     private func updateValue() {
         var configuration = UIButton.Configuration.plain()
         configuration.title = value
-        configuration.image = UIImage(systemName: "chevron.up.chevron.down")
-        configuration.imagePlacement = .trailing
-        configuration.imagePadding = 8
         configuration.baseForegroundColor = WellnarioPalette.textPrimary
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16)
+        configuration.contentInsets = NSDirectionalEdgeInsets(
+            top: 10,
+            leading: leadingImage == nil ? 16 : 56,
+            bottom: 10,
+            trailing: 44
+        )
         configuration.cornerStyle = .fixed
         configuration.background.backgroundColor = WellnarioPalette.fieldBackground
         configuration.background.cornerRadius = WellnarioRadius.control
         configuration.background.strokeColor = WellnarioPalette.hairline
         configuration.background.strokeWidth = 1
         button.configuration = configuration
+        leadingImageView.image = leadingImage
+        leadingImageView.isHidden = leadingImage == nil
         button.accessibilityLabel = title
         button.accessibilityValue = value
     }

@@ -102,6 +102,37 @@ extension WellnarioRepository {
         return updated
     }
 
+    public func setActiveFavorite(id: UUID, isFavorite: Bool) throws -> Active {
+        let updated = try withLock { () -> Active in
+            guard try loadActive(id: id) != nil else {
+                throw RepositoryError.notFound(entity: "Active", id: id)
+            }
+            if isFavorite {
+                try database.execute(
+                    """
+                    INSERT OR IGNORE INTO active_favorites (user_id, active_id, created_at)
+                    VALUES (?, ?, ?);
+                    """,
+                    bindings: [
+                        .text(userID.uuidString), .text(id.uuidString),
+                        .real(Date().timeIntervalSince1970)
+                    ]
+                )
+            } else {
+                try database.execute(
+                    "DELETE FROM active_favorites WHERE user_id = ? AND active_id = ?;",
+                    bindings: [.text(userID.uuidString), .text(id.uuidString)]
+                )
+            }
+            guard let result = try loadActive(id: id) else {
+                throw RepositoryError.notFound(entity: "Active", id: id)
+            }
+            return result
+        }
+        notify(entity: .active, mutation: .updated, id: id)
+        return updated
+    }
+
     public func deleteActive(id: UUID) throws -> DeletionDisposition {
         let disposition = try withLock { () -> DeletionDisposition in
             guard let existing = try loadActive(id: id) else {
@@ -179,6 +210,7 @@ extension WellnarioRepository {
         activeID: UUID,
         lowerBound: Decimal,
         upperBound: Decimal,
+        unit: DoseUnit,
         effectiveFrom: LocalDay
     ) throws -> ActiveTarget {
         let result = try withLock { () -> ActiveTarget in
@@ -189,6 +221,9 @@ extension WellnarioRepository {
             try requireNonnegative(upperBound, field: "Upper target")
             guard lowerBound <= upperBound else {
                 throw RepositoryError.validation("The lower target cannot exceed the upper target.")
+            }
+            guard unit.isCompatible(with: active.baseUnit) else {
+                throw RepositoryError.validation("The target unit must use the same magnitude as the active.")
             }
 
             return try database.transaction {
@@ -248,7 +283,7 @@ extension WellnarioRepository {
                     bindings: [
                         .text(targetID.uuidString), .text(userID.uuidString), .text(activeID.uuidString),
                         .text(try DecimalCodec.encode(lowerBound)), .text(try DecimalCodec.encode(upperBound)),
-                        .text(active.baseUnit.rawValue), .text(effectiveFrom.iso8601),
+                        .text(unit.rawValue), .text(effectiveFrom.iso8601),
                         effectiveThrough.map { .text($0.iso8601) } ?? .null,
                         .real(now), .real(now)
                     ]

@@ -50,7 +50,9 @@ final class InstanceEditorViewController: EditorViewController {
             supplementID: selectedSupplementID,
             label: normalized(labelField.textField.text),
             expirationDay: expirationDay,
-            notes: normalized(notesField.text)
+            notes: normalized(notesField.text),
+            totalQuantity: instance?.totalQuantity,
+            totalUnit: instance?.totalUnit
         )
 
         do {
@@ -127,6 +129,24 @@ final class InstanceEditorViewController: EditorViewController {
 
         addSection(title: L10n.Form.basics, views: [artContainer, productField, labelField])
         addSection(title: L10n.Form.details, views: [expiryRow, expiryPicker, notesField])
+        if let instance, !instance.isArchived {
+            let logIntakeButton = PrimaryButton(
+                title: L10n.Today.logIntake,
+                style: .secondary
+            )
+            logIntakeButton.setImage(
+                UIImage(systemName: "plus.circle.fill"),
+                for: .normal
+            )
+            logIntakeButton.tintColor = WellnarioPalette.fuchsia
+            logIntakeButton.accessibilityIdentifier = "instance.log_intake"
+            logIntakeButton.addTarget(
+                self,
+                action: #selector(logIntake),
+                for: .touchUpInside
+            )
+            contentStack.addArrangedSubview(logIntakeButton)
+        }
         addSaveButton()
     }
 
@@ -160,6 +180,18 @@ final class InstanceEditorViewController: EditorViewController {
             self.expiryPicker.isHidden = !self.expirySwitch.isOn
             self.view.layoutIfNeeded()
         }
+    }
+
+    @objc private func logIntake() {
+        guard let instance, !instance.isArchived else { return }
+        view.endEditing(true)
+        presentSheet(
+            IntakeEditorViewController(
+                repository: repository,
+                preferredInstanceID: instance.id
+            ),
+            largeOnly: true
+        )
     }
 
     private func normalized(_ value: String?) -> String? {

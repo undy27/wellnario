@@ -231,6 +231,29 @@ enum SchemaMigrator {
             CREATE INDEX IF NOT EXISTS idx_active_category_lookup
                 ON active_category_assignments(category, active_id);
             """
+        ),
+        Migration(
+            version: 6,
+            sql: """
+            ALTER TABLE supplement_instances
+                ADD COLUMN total_quantity TEXT;
+            ALTER TABLE supplement_instances
+                ADD COLUMN total_unit TEXT;
+            """
+        ),
+        Migration(
+            version: 7,
+            sql: """
+            CREATE TABLE IF NOT EXISTS active_favorites (
+                user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                active_id TEXT NOT NULL REFERENCES actives(id) ON DELETE CASCADE,
+                created_at REAL NOT NULL,
+                PRIMARY KEY(user_id, active_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_active_favorites_user
+                ON active_favorites(user_id, active_id);
+            """
         )
     ]
 }

@@ -54,6 +54,48 @@ public enum WellnarioRepositoryNotificationKey {
     public static let change = "change"
 }
 
+/// Device-local preference used when an active has a single-value target.
+/// Explicit target ranges are never expanded because their bounds already
+/// express the user's intended tolerance.
+struct ActiveTargetMarginPreferences {
+    static let defaultPercentage = 10
+    static let allowedPercentages = 0...50
+
+    private static let storageKey = "wellnario.actives.targetMarginPercentage"
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    var percentage: Int {
+        guard defaults.object(forKey: Self.storageKey) != nil else {
+            return Self.defaultPercentage
+        }
+        return Self.allowedPercentages.clamped(defaults.integer(forKey: Self.storageKey))
+    }
+
+    func setPercentage(_ percentage: Int) {
+        defaults.set(Self.allowedPercentages.clamped(percentage), forKey: Self.storageKey)
+    }
+
+    func adjustedBounds(lower: Decimal, upper: Decimal) throws -> (lower: Decimal, upper: Decimal) {
+        guard lower == upper, percentage > 0 else { return (lower, upper) }
+        let lowerFactor = try DecimalMath.divide(Decimal(100 - percentage), 100)
+        let upperFactor = try DecimalMath.divide(Decimal(100 + percentage), 100)
+        return (
+            try DecimalMath.multiply(lower, lowerFactor),
+            try DecimalMath.multiply(upper, upperFactor)
+        )
+    }
+}
+
+private extension ClosedRange where Bound == Int {
+    func clamped(_ value: Int) -> Int {
+        Swift.min(Swift.max(value, lowerBound), upperBound)
+    }
+}
+
 public protocol WellnarioRepositoryProtocol: AnyObject {
     var databaseURL: URL { get }
     var userID: UUID { get }
@@ -64,10 +106,11 @@ public protocol WellnarioRepositoryProtocol: AnyObject {
     func active(id: UUID) throws -> Active?
     func createActive(_ draft: ActiveDraft) throws -> Active
     func updateActive(id: UUID, with draft: ActiveDraft) throws -> Active
+    func setActiveFavorite(id: UUID, isFavorite: Bool) throws -> Active
     func deleteActive(id: UUID) throws -> DeletionDisposition
     func restoreActive(id: UUID) throws -> Active
     func targetHistory(activeID: UUID) throws -> [ActiveTarget]
-    func setTarget(activeID: UUID, lowerBound: Decimal, upperBound: Decimal, effectiveFrom: LocalDay) throws -> ActiveTarget
+    func setTarget(activeID: UUID, lowerBound: Decimal, upperBound: Decimal, unit: DoseUnit, effectiveFrom: LocalDay) throws -> ActiveTarget
     func clearTarget(activeID: UUID, effectiveFrom: LocalDay) throws
 
     func fetchSupplements(includeArchived: Bool) throws -> [Supplement]
@@ -95,6 +138,26 @@ public protocol WellnarioRepositoryProtocol: AnyObject {
     func dailyConsumption(activeID: UUID, from: LocalDay, through: LocalDay) throws -> ConsumptionSeries
 }
 
+public extension WellnarioRepositoryProtocol {
+    func setTarget(
+        activeID: UUID,
+        lowerBound: Decimal,
+        upperBound: Decimal,
+        effectiveFrom: LocalDay
+    ) throws -> ActiveTarget {
+        guard let active = try active(id: activeID) else {
+            throw RepositoryError.notFound(entity: "Active", id: activeID)
+        }
+        return try setTarget(
+            activeID: activeID,
+            lowerBound: lowerBound,
+            upperBound: upperBound,
+            unit: active.baseUnit,
+            effectiveFrom: effectiveFrom
+        )
+    }
+}
+
 public final class WellnarioRepository: WellnarioRepositoryProtocol, @unchecked Sendable {
     public static let defaultUserID = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
 
@@ -103,10 +166,16 @@ public final class WellnarioRepository: WellnarioRepositoryProtocol, @unchecked 
 
     let database: SQLiteDatabase
     let lock = NSRecursiveLock()
+    let activeTargetMarginPreferences: ActiveTargetMarginPreferences
 
-    public init(databaseURL: URL, userID: UUID = WellnarioRepository.defaultUserID) throws {
+    public init(
+        databaseURL: URL,
+        userID: UUID = WellnarioRepository.defaultUserID,
+        preferencesDefaults: UserDefaults = .standard
+    ) throws {
         self.databaseURL = databaseURL
         self.userID = userID
+        activeTargetMarginPreferences = ActiveTargetMarginPreferences(defaults: preferencesDefaults)
         do {
             let database = try SQLiteDatabase(url: databaseURL)
             try SchemaMigrator.migrate(database)

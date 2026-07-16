@@ -131,12 +131,20 @@ extension WellnarioRepository {
             proposedDailyFemale: try optionalDecimal(row, "proposed_daily_female"),
             imageKey: try row.optionalString("image_key"),
             categories: try activeCategories(activeID: id),
+            isFavorite: try isActiveFavorite(activeID: id),
             isSeeded: try row.integer("is_seeded") != 0,
             currentTarget: try currentTarget(activeID: id, on: targetDay ?? today),
             createdAt: try date(row, "created_at"),
             updatedAt: try date(row, "updated_at"),
             archivedAt: try optionalDate(row, "archived_at")
         )
+    }
+
+    func isActiveFavorite(activeID: UUID) throws -> Bool {
+        try database.scalarInteger(
+            "SELECT COUNT(*) AS count FROM active_favorites WHERE user_id = ? AND active_id = ?;",
+            bindings: [.text(userID.uuidString), .text(activeID.uuidString)]
+        ) > 0
     }
 
     func activeCategories(activeID: UUID) throws -> [ActiveCategory] {
@@ -254,6 +262,13 @@ extension WellnarioRepository {
             label: try row.string("label"),
             expirationDay: try optionalLocalDay(row, "expiration_day"),
             notes: try row.optionalString("notes"),
+            totalQuantity: try optionalDecimal(row, "total_quantity"),
+            totalUnit: try row.optionalString("total_unit").map { rawValue in
+                guard let unit = DoseUnit(rawValue: rawValue) else {
+                    throw RepositoryError.storage("Invalid dose unit in total_unit: \(rawValue)")
+                }
+                return unit
+            },
             createdAt: try date(row, "created_at"),
             updatedAt: try date(row, "updated_at"),
             archivedAt: try optionalDate(row, "archived_at")

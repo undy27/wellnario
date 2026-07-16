@@ -215,8 +215,13 @@ extension WellnarioRepository {
                 let amount = totals[day] ?? 0
                 total = try DecimalMath.add(total, amount)
                 let target = try currentTarget(activeID: activeID, on: day)
-                let lower = try target.map { try $0.unit.convert($0.lowerBound, to: active.baseUnit) }
-                let upper = try target.map { try $0.unit.convert($0.upperBound, to: active.baseUnit) }
+                let targetBounds: (lower: Decimal, upper: Decimal)? = try target.map { target in
+                    let lower = try target.unit.convert(target.lowerBound, to: active.baseUnit)
+                    let upper = try target.unit.convert(target.upperBound, to: active.baseUnit)
+                    return try activeTargetMarginPreferences.adjustedBounds(lower: lower, upper: upper)
+                }
+                let lower = targetBounds?.lower
+                let upper = targetBounds?.upper
                 let progressStatus = status(amount: amount, lower: lower, upper: upper)
                 if progressStatus == .within { daysWithinTarget += 1 }
                 points.append(

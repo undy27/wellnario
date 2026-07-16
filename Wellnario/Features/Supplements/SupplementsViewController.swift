@@ -3,6 +3,11 @@ import UIKit
 @MainActor
 final class SupplementsViewController: FeatureViewController {
     private enum Mode: Int { case products, inventory, actives }
+    private enum ActiveFilter: Equatable {
+        case all
+        case favorites
+        case category(ActiveCategory)
+    }
 
     var onOpenSettings: (() -> Void)?
 
@@ -13,7 +18,9 @@ final class SupplementsViewController: FeatureViewController {
     private let searchController = UISearchController(searchResultsController: nil)
     private let emptyState = EmptyStateView()
     private let addBarButtonItem = UIBarButtonItem()
+    private let intakeBarButtonItem = UIBarButtonItem()
     private let moreBarButtonItem = UIBarButtonItem()
+    private let trendsBarButtonItem = UIBarButtonItem()
     private let settingsBarButtonItem = UIBarButtonItem()
 
     private var mode: Mode = .products
@@ -22,9 +29,10 @@ final class SupplementsViewController: FeatureViewController {
     private var instances: [SupplementInstance] = []
     private var actives: [Active] = []
     private var todayProgress: [UUID: ActiveDailyProgress] = [:]
+    private var weeklyConsumption: [UUID: [Double]] = [:]
     private var query = ""
-    private var selectedCategory: ActiveCategory?
-    private var categoryButtons: [(category: ActiveCategory?, button: ChipButton)] = []
+    private var selectedActiveFilter: ActiveFilter = .all
+    private var activeFilterButtons: [(filter: ActiveFilter, button: ChipButton)] = []
     private var categoryFilterHeightConstraint: NSLayoutConstraint!
 
     override func viewDidLoad() {
@@ -37,6 +45,8 @@ final class SupplementsViewController: FeatureViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         navigationController?.setNavigationBarHidden(false, animated: animated)
+        navigationController?.navigationBar.prefersLargeTitles = false
+        navigationItem.largeTitleDisplayMode = .never
         reloadContent()
     }
 
@@ -47,9 +57,12 @@ final class SupplementsViewController: FeatureViewController {
         segmentedControl.setTitle(L10n.Supplements.actives, forSegmentAt: 2)
         updateSearchPlaceholder()
         addBarButtonItem.accessibilityLabel = addButtonTitle
+        intakeBarButtonItem.accessibilityLabel = L10n.Today.logIntake
         moreBarButtonItem.accessibilityLabel = L10n.text("supplements.more.accessibility")
+        trendsBarButtonItem.accessibilityLabel = L10n.Trends.title
         settingsBarButtonItem.accessibilityLabel = L10n.Settings.title
         moreBarButtonItem.menu = makeMoreMenu()
+        updateTopBarButtons()
         categoryFilterScrollView.accessibilityLabel = L10n.text("actives.categories.filter.accessibility")
         rebuildCategoryFilterButtons()
         tableView.reloadData()
@@ -62,8 +75,21 @@ final class SupplementsViewController: FeatureViewController {
             supplements = try repository.fetchSupplements(includeArchived: false)
             instances = try repository.fetchInstances(supplementID: nil, includeArchived: false)
             actives = try repository.fetchActives(includeArchived: false)
+            let today = LocalDay(containing: Date(), in: .current)
+            let weekStart = try today.adding(days: -6)
+            let weekDays = try (0..<7).map { try weekStart.adding(days: $0) }
+            let weekConsumptions = try repository.fetchConsumptions(
+                from: weekStart,
+                through: today,
+                limit: nil
+            )
+            weeklyConsumption = try WeeklyConsumptionAggregator.values(
+                actives: actives,
+                consumptions: weekConsumptions,
+                days: weekDays
+            )
             let dashboard = try repository.dashboard(
-                on: LocalDay(containing: Date(), in: .current),
+                on: today,
                 expiringWithinDays: 30
             )
             todayProgress = Dictionary(uniqueKeysWithValues: dashboard.activeProgress.map { ($0.id, $0) })
@@ -75,8 +101,8 @@ final class SupplementsViewController: FeatureViewController {
     }
 
     private func setUpView() {
-        navigationItem.largeTitleDisplayMode = .always
-        navigationController?.navigationBar.prefersLargeTitles = true
+        navigationItem.largeTitleDisplayMode = .never
+        navigationController?.navigationBar.prefersLargeTitles = false
         addBarButtonItem.image = UIImage(systemName: "plus")
         addBarButtonItem.style = .plain
         addBarButtonItem.target = self
@@ -84,21 +110,31 @@ final class SupplementsViewController: FeatureViewController {
         addBarButtonItem.tintColor = WellnarioPalette.cyan
         addBarButtonItem.accessibilityIdentifier = "supplements.add"
 
+        intakeBarButtonItem.image = makeEatingPersonIcon()
+        intakeBarButtonItem.style = .plain
+        intakeBarButtonItem.target = self
+        intakeBarButtonItem.action = #selector(logIntakeFromInventory)
+        intakeBarButtonItem.tintColor = WellnarioPalette.fuchsia
+        intakeBarButtonItem.accessibilityIdentifier = "supplements.log_intake"
+
         moreBarButtonItem.image = UIImage(systemName: "ellipsis.circle")
         moreBarButtonItem.style = .plain
         moreBarButtonItem.tintColor = WellnarioPalette.textSecondary
         moreBarButtonItem.accessibilityIdentifier = "supplements.more"
+
+        trendsBarButtonItem.image = UIImage(systemName: "chart.xyaxis.line")
+        trendsBarButtonItem.style = .plain
+        trendsBarButtonItem.target = self
+        trendsBarButtonItem.action = #selector(openTrends)
+        trendsBarButtonItem.tintColor = WellnarioPalette.fuchsia
+        trendsBarButtonItem.accessibilityIdentifier = "supplements.trends"
 
         settingsBarButtonItem.image = UIImage(systemName: "gearshape")
         settingsBarButtonItem.style = .plain
         settingsBarButtonItem.target = self
         settingsBarButtonItem.action = #selector(openSettings)
         settingsBarButtonItem.accessibilityIdentifier = "supplements.settings"
-        navigationItem.rightBarButtonItems = [
-            settingsBarButtonItem,
-            addBarButtonItem,
-            moreBarButtonItem
-        ]
+        updateTopBarButtons()
 
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchResultsUpdater = self
@@ -132,7 +168,12 @@ final class SupplementsViewController: FeatureViewController {
         view.addForAutoLayout(categoryFilterScrollView)
         categoryFilterHeightConstraint = categoryFilterScrollView.heightAnchor.constraint(equalToConstant: 0)
 
-        tableView.backgroundColor = .clear
+        tableView.backgroundColor = WellnarioPalette.background
+        tableView.isOpaque = true
+        let tableBackgroundView = UIView()
+        tableBackgroundView.backgroundColor = WellnarioPalette.background
+        tableBackgroundView.isOpaque = true
+        tableView.backgroundView = tableBackgroundView
         tableView.separatorStyle = .none
         tableView.contentInset = UIEdgeInsets(top: 8, left: 0, bottom: WellnarioSpacing.bottomNavigationInset, right: 0)
         tableView.verticalScrollIndicatorInsets.bottom = WellnarioSpacing.bottomNavigationInset
@@ -214,11 +255,17 @@ final class SupplementsViewController: FeatureViewController {
     }
 
     private var filteredActives: [Active] {
-        let categoryFiltered = selectedCategory.map { category in
-            actives.filter { $0.categories.contains(category) }
-        } ?? actives
-        guard !query.isEmpty else { return categoryFiltered }
-        return categoryFiltered.filter {
+        let filterMatches: [Active]
+        switch selectedActiveFilter {
+        case .all:
+            filterMatches = actives
+        case .favorites:
+            filterMatches = actives.filter(\.isFavorite)
+        case let .category(category):
+            filterMatches = actives.filter { $0.categories.contains(category) }
+        }
+        guard !query.isEmpty else { return filterMatches }
+        return filterMatches.filter {
             $0.localizedName(language: catalogLanguage).localizedCaseInsensitiveContains(query)
         }
     }
@@ -246,14 +293,27 @@ final class SupplementsViewController: FeatureViewController {
             )
             return
         }
-        if mode == .actives, selectedCategory != nil {
-            emptyState.configure(
-                kind: .other,
-                title: L10n.text("actives.categories.empty.title"),
-                message: L10n.text("actives.categories.empty.message"),
-                actionTitle: nil
-            )
-            return
+        if mode == .actives {
+            switch selectedActiveFilter {
+            case .all:
+                break
+            case .favorites:
+                emptyState.configure(
+                    kind: .other,
+                    title: L10n.text("actives.favorites.empty.title"),
+                    message: L10n.text("actives.favorites.empty.message"),
+                    actionTitle: nil
+                )
+                return
+            case .category:
+                emptyState.configure(
+                    kind: .other,
+                    title: L10n.text("actives.categories.empty.title"),
+                    message: L10n.text("actives.categories.empty.message"),
+                    actionTitle: nil
+                )
+                return
+            }
         }
         switch mode {
         case .products:
@@ -292,6 +352,10 @@ final class SupplementsViewController: FeatureViewController {
             .joined(separator: " · ")
         cell.configure(
             kind: presentationKind(for: supplement),
+            image: SupplementPhotoStore.image(
+                reference: supplement.imageReference,
+                databaseURL: repository.databaseURL
+            ),
             title: supplement.name,
             subtitle: subtitle,
             detail: componentSummary.isEmpty ? L10n.text("supplements.no_components") : componentSummary,
@@ -302,22 +366,39 @@ final class SupplementsViewController: FeatureViewController {
 
     private func configureInstance(_ cell: CatalogListCell, instance: SupplementInstance) {
         let supplement = supplement(for: instance)
-        let state = expirationState(instance.expirationDay)
+        let packageTotal = instance.totalQuantity.flatMap { quantity in
+            instance.totalUnit.map {
+                "\(FeatureFormatting.decimal(quantity)) \($0.symbol(languageCode: catalogLanguage.rawValue))"
+            }
+        }
+        let expirationText = FeatureFormatting.expirationText(instance.expirationDay)
         cell.configure(
             kind: supplement.map(presentationKind(for:)) ?? .other,
+            image: supplement.flatMap {
+                SupplementPhotoStore.image(reference: $0.imageReference, databaseURL: repository.databaseURL)
+            },
             title: instance.label,
             subtitle: [supplement?.brand, supplement?.name].compactMap { $0 }.joined(separator: " · "),
-            detail: FeatureFormatting.expirationText(instance.expirationDay),
-            badge: state.label,
-            tone: state.tone
+            detail: [packageTotal, expirationText]
+                .compactMap { $0 }
+                .joined(separator: " · "),
+            highlightedDetail: instance.expirationDay.map { (expirationText, expirationTone($0)) },
+            badge: nil,
+            tone: .neutral
         )
     }
 
     private func configureActive(_ cell: CatalogListCell, active: Active) {
         let progress = todayProgress[active.id]
+        let weeklyValues = weeklyConsumption[active.id] ?? Array(repeating: 0, count: 7)
+        let weeklyTotal = weeklyValues.reduce(0, +)
+        let unit = active.baseUnit.symbol(languageCode: catalogLanguage.rawValue)
         let target = active.currentTarget.map {
-            "\(FeatureFormatting.decimal($0.lowerBound))–\(FeatureFormatting.decimal($0.upperBound)) \($0.unit.symbol(languageCode: catalogLanguage.rawValue))"
-        } ?? L10n.text("actives.target.not_set")
+            let amount = $0.lowerBound == $0.upperBound
+                ? FeatureFormatting.decimal($0.lowerBound)
+                : "\(FeatureFormatting.decimal($0.lowerBound))–\(FeatureFormatting.decimal($0.upperBound))"
+            return "\(amount) \($0.unit.symbol(languageCode: catalogLanguage.rawValue))"
+        } ?? L10n.text("actives.target.not_set.short")
         let consumed = progress.map {
             "\(FeatureFormatting.decimal($0.consumedAmount)) \($0.unit.symbol(languageCode: catalogLanguage.rawValue))"
         } ?? "—"
@@ -328,46 +409,38 @@ final class SupplementsViewController: FeatureViewController {
             title: active.localizedName(language: catalogLanguage),
             subtitle: L10n.text("actives.today", consumed),
             detail: L10n.text("actives.target.value", target),
-            badge: progress.map { statusLabel($0.status) },
-            tone: progress.map { tone($0.status) } ?? .neutral
+            favoriteStatus: active.isFavorite,
+            weeklyValues: weeklyValues,
+            weeklySummary: L10n.text(
+                "actives.weekly_consumption.summary",
+                "\(WellnarioFormatters.number(weeklyTotal, maximumFractionDigits: 2)) \(unit)"
+            ),
+            badge: nil,
+            tone: .neutral
         )
     }
 
-    private func expirationState(_ day: LocalDay?) -> (label: String, tone: WellnarioTone) {
-        guard let day else { return (L10n.Common.noDate, .neutral) }
+    private func expirationTone(_ day: LocalDay) -> WellnarioTone {
         let today = LocalDay(containing: Date(), in: .current)
-        if day < today { return (L10n.text("expiry.expired"), .danger) }
+        if day < today { return .danger }
         if let warning = try? today.adding(days: 30), day <= warning {
-            return (L10n.text("expiry.soon"), .warning)
+            return .warning
         }
-        return (L10n.text("expiry.ok"), .success)
-    }
-
-    private func statusLabel(_ status: TargetProgressStatus) -> String {
-        switch status {
-        case .noTarget: L10n.text("target.no_target")
-        case .below: L10n.text("target.below")
-        case .within: L10n.text("target.within")
-        case .above: L10n.text("target.above")
-        }
-    }
-
-    private func tone(_ status: TargetProgressStatus) -> WellnarioTone {
-        switch status {
-        case .noTarget: .neutral
-        case .below: .information
-        case .within: .success
-        case .above: .warning
-        }
+        return .success
     }
 
     @objc private func modeChanged() {
         mode = Mode(rawValue: segmentedControl.selectedSegmentIndex) ?? .products
         addBarButtonItem.accessibilityLabel = addButtonTitle
+        updateTopBarButtons()
         updateSearchPlaceholder()
         updateCategoryFilterVisibility()
-        tableView.reloadSections(IndexSet(integer: 0), with: .fade)
         updateEmptyState()
+        tableView.layer.removeAllAnimations()
+        UIView.performWithoutAnimation {
+            tableView.reloadData()
+            tableView.layoutIfNeeded()
+        }
     }
 
     private func updateSearchPlaceholder() {
@@ -381,42 +454,47 @@ final class SupplementsViewController: FeatureViewController {
             categoryFilterStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        categoryButtons.removeAll()
+        activeFilterButtons.removeAll()
 
-        addCategoryButton(
+        addActiveFilterButton(
             title: L10n.text("actives.categories.all"),
-            category: nil,
+            filter: .all,
             accessibilityIdentifier: "actives.category.all"
         )
+        addActiveFilterButton(
+            title: L10n.text("actives.favorites"),
+            filter: .favorites,
+            accessibilityIdentifier: "actives.category.favorites"
+        )
         for category in ActiveCategory.allCases {
-            addCategoryButton(
+            addActiveFilterButton(
                 title: category.localizedName(language: catalogLanguage),
-                category: category,
+                filter: .category(category),
                 accessibilityIdentifier: "actives.category.\(category.rawValue)"
             )
         }
-        updateCategoryButtonSelection()
+        updateActiveFilterButtonSelection()
     }
 
-    private func addCategoryButton(
+    private func addActiveFilterButton(
         title: String,
-        category: ActiveCategory?,
+        filter: ActiveFilter,
         accessibilityIdentifier: String
     ) {
         let button = ChipButton(title: title)
         button.accessibilityIdentifier = accessibilityIdentifier
         button.addAction(UIAction { [weak self, weak button] _ in
             guard let button else { return }
-            self?.selectCategory(category, button: button)
+            self?.selectActiveFilter(filter, button: button)
         }, for: .touchUpInside)
-        categoryButtons.append((category, button))
+        activeFilterButtons.append((filter, button))
         categoryFilterStack.addArrangedSubview(button)
     }
 
-    private func selectCategory(_ category: ActiveCategory?, button: ChipButton) {
-        guard selectedCategory != category else { return }
-        selectedCategory = category
-        updateCategoryButtonSelection()
+    private func selectActiveFilter(_ filter: ActiveFilter, button: ChipButton) {
+        guard selectedActiveFilter != filter else { return }
+        selectedActiveFilter = filter
+        updateActiveFilterButtonSelection()
         tableView.setContentOffset(
             CGPoint(x: 0, y: -tableView.adjustedContentInset.top),
             animated: false
@@ -429,9 +507,9 @@ final class SupplementsViewController: FeatureViewController {
         UISelectionFeedbackGenerator().selectionChanged()
     }
 
-    private func updateCategoryButtonSelection() {
-        for item in categoryButtons {
-            item.button.isSelected = item.category == selectedCategory
+    private func updateActiveFilterButtonSelection() {
+        for item in activeFilterButtons {
+            item.button.isSelected = item.filter == selectedActiveFilter
         }
     }
 
@@ -444,17 +522,82 @@ final class SupplementsViewController: FeatureViewController {
 
     @objc private func openSettings() { onOpenSettings?() }
 
+    @objc private func openTrends() {
+        guard mode == .actives, let navigationController else { return }
+        searchController.isActive = false
+        view.endEditing(true)
+        navigationController.pushViewController(
+            TrendsViewController(repository: repository),
+            animated: true
+        )
+    }
+
+    private func updateTopBarButtons() {
+        var items = [settingsBarButtonItem, addBarButtonItem]
+        if mode == .inventory { items.append(intakeBarButtonItem) }
+        if mode == .actives { items.append(trendsBarButtonItem) }
+        items.append(moreBarButtonItem)
+        navigationItem.rightBarButtonItems = items
+    }
+
+    private func makeEatingPersonIcon() -> UIImage? {
+        let faceConfiguration = UIImage.SymbolConfiguration(pointSize: 17, weight: .regular)
+        let utensilConfiguration = UIImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+        guard let face = UIImage(systemName: "face.smiling", withConfiguration: faceConfiguration),
+              let utensil = UIImage(systemName: "fork.knife", withConfiguration: utensilConfiguration) else {
+            return UIImage(systemName: "fork.knife.circle")
+        }
+
+        let size = CGSize(width: 27, height: 22)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            UIColor.black.setFill()
+            face.withTintColor(.black, renderingMode: .alwaysOriginal).draw(
+                in: CGRect(x: 0, y: 1, width: 20, height: 20)
+            )
+            utensil.withTintColor(.black, renderingMode: .alwaysOriginal).draw(
+                in: CGRect(x: 18, y: 11, width: 9, height: 9)
+            )
+        }.withRenderingMode(.alwaysTemplate)
+    }
+
+    @objc private func logIntakeFromInventory() {
+        guard mode == .inventory else { return }
+        do {
+            guard !(try repository.fetchInstances(
+                supplementID: nil,
+                includeArchived: false
+            )).isEmpty else {
+                let alert = UIAlertController(
+                    title: L10n.Inventory.noItemsTitle,
+                    message: L10n.text("intake.requires_batch"),
+                    preferredStyle: .alert
+                )
+                alert.addAction(UIAlertAction(title: L10n.Common.cancel, style: .cancel))
+                alert.addAction(UIAlertAction(title: L10n.Inventory.add, style: .default) { [weak self] _ in
+                    self?.addTapped()
+                })
+                present(alert, animated: true)
+                return
+            }
+            searchController.isActive = false
+            view.endEditing(true)
+            presentSheet(IntakeEditorViewController(repository: repository), largeOnly: true)
+        } catch {
+            showError(error)
+        }
+    }
+
     @objc private func addTapped() {
         switch mode {
         case .products:
-            presentSheet(SupplementEditorViewController(repository: repository), largeOnly: true)
+            presentSheet(ProductPackageWizardViewController(repository: repository), largeOnly: true)
         case .inventory:
             guard !supplements.isEmpty else {
                 let alert = UIAlertController(title: L10n.Inventory.noItemsTitle, message: L10n.text("inventory.requires_supplement"), preferredStyle: .alert)
                 alert.addAction(UIAlertAction(title: L10n.Common.cancel, style: .cancel))
                 alert.addAction(UIAlertAction(title: L10n.Supplements.addSupplement, style: .default) { [weak self] _ in
                     guard let self else { return }
-                    self.presentSheet(SupplementEditorViewController(repository: self.repository), largeOnly: true)
+                    self.presentSheet(ProductPackageWizardViewController(repository: self.repository), largeOnly: true)
                 })
                 present(alert, animated: true)
                 return
@@ -477,7 +620,10 @@ final class SupplementsViewController: FeatureViewController {
     }
 
     private func delete(at indexPath: IndexPath) {
-        showConfirmation(title: L10n.Common.delete, message: L10n.text("delete.confirmation")) { [weak self] in
+        let confirmationMessage = mode == .products
+            ? L10n.text("supplements.delete.message")
+            : L10n.text("delete.confirmation")
+        showConfirmation(title: L10n.Common.delete, message: confirmationMessage) { [weak self] in
             guard let self else { return }
             do {
                 switch self.mode {
@@ -567,6 +713,40 @@ extension SupplementsViewController: UITableViewDataSource, UITableViewDelegate 
     }
 }
 
+enum WeeklyConsumptionAggregator {
+    static func values(
+        actives: [Active],
+        consumptions: [Consumption],
+        days: [LocalDay]
+    ) throws -> [UUID: [Double]] {
+        let activeByID = Dictionary(uniqueKeysWithValues: actives.map { ($0.id, $0) })
+        var totals: [UUID: [LocalDay: Decimal]] = [:]
+
+        for consumption in consumptions where days.contains(consumption.localDay) {
+            for snapshot in consumption.activeSnapshots {
+                guard let active = activeByID[snapshot.activeID] else { continue }
+                let normalizedAmount = try snapshot.unit.convert(
+                    snapshot.amount,
+                    to: active.baseUnit
+                )
+                let currentAmount = totals[snapshot.activeID]?[consumption.localDay] ?? 0
+                totals[snapshot.activeID, default: [:]][consumption.localDay] = try DecimalMath.add(
+                    currentAmount,
+                    normalizedAmount
+                )
+            }
+        }
+
+        return Dictionary(uniqueKeysWithValues: actives.map { active in
+            let dailyTotals = totals[active.id] ?? [:]
+            let values = days.map { day in
+                NSDecimalNumber(decimal: dailyTotals[day] ?? 0).doubleValue
+            }
+            return (active.id, values)
+        })
+    }
+}
+
 @MainActor
 private final class CatalogListCell: UITableViewCell {
     static let reuseIdentifier = "CatalogListCell"
@@ -576,9 +756,13 @@ private final class CatalogListCell: UITableViewCell {
     private let artworkContainer = UIView()
     private let activeIconView = UIImageView()
     private let titleLabel = UILabel()
+    private let favoriteImageView = UIImageView()
     private let subtitleLabel = UILabel()
     private let detailLabel = UILabel()
     private let badgeLabel = UILabel()
+    private let weeklyChartLabel = UILabel()
+    private let weeklyChartView = SparklineView()
+    private let weeklyChartStack = UIStackView()
     private var artworkSizeConstraint: NSLayoutConstraint!
     private var rowEdgeConstraints: [NSLayoutConstraint] = []
 
@@ -593,10 +777,15 @@ private final class CatalogListCell: UITableViewCell {
     func configure(
         kind: PresentationKind,
         imageKey: String? = nil,
+        image: UIImage? = nil,
         compact: Bool = false,
         title: String,
         subtitle: String,
         detail: String,
+        highlightedDetail: (text: String, tone: WellnarioTone)? = nil,
+        favoriteStatus: Bool? = nil,
+        weeklyValues: [Double]? = nil,
+        weeklySummary: String? = nil,
         badge: String?,
         tone: WellnarioTone
     ) {
@@ -604,22 +793,70 @@ private final class CatalogListCell: UITableViewCell {
         artworkSizeConstraint.constant = compact ? 62 : 78
         let contentInset: CGFloat = compact ? 10 : 14
         rowEdgeConstraints.forEach { $0.constant = contentInset }
-        let activeIcon = imageKey.flatMap { UIImage(named: $0) }
+        let activeIcon = image ?? imageKey.flatMap { UIImage(named: $0) }
         activeIconView.image = activeIcon
         activeIconView.isHidden = activeIcon == nil
         artwork.isHidden = activeIcon != nil
         titleLabel.text = title
         subtitleLabel.text = subtitle
-        detailLabel.text = detail
+        let attributedDetail = NSMutableAttributedString(
+            string: detail,
+            attributes: [.foregroundColor: WellnarioPalette.textTertiary]
+        )
+        if let highlightedDetail {
+            let range = (detail as NSString).range(of: highlightedDetail.text)
+            if range.location != NSNotFound {
+                attributedDetail.addAttribute(
+                    .foregroundColor,
+                    value: WellnarioPalette.color(for: highlightedDetail.tone),
+                    range: range
+                )
+            }
+        }
+        detailLabel.attributedText = attributedDetail
+        if let favoriteStatus {
+            favoriteImageView.image = UIImage(
+                systemName: favoriteStatus ? "star.fill" : "star"
+            )
+            favoriteImageView.tintColor = favoriteStatus
+                ? WellnarioPalette.fuchsia
+                : WellnarioPalette.textTertiary
+            favoriteImageView.isHidden = false
+        } else {
+            favoriteImageView.image = nil
+            favoriteImageView.isHidden = true
+        }
+        if let weeklyValues {
+            weeklyChartLabel.text = L10n.Trends.sevenDays
+            weeklyChartView.values = weeklyValues
+            weeklyChartView.accessibilityLabel = L10n.text("actives.weekly_consumption")
+            weeklyChartView.accessibilityValue = weeklySummary
+            weeklyChartStack.isHidden = false
+        } else {
+            weeklyChartView.values = []
+            weeklyChartView.accessibilityLabel = nil
+            weeklyChartView.accessibilityValue = nil
+            weeklyChartStack.isHidden = true
+        }
         badgeLabel.text = badge
         badgeLabel.isHidden = badge == nil
         badgeLabel.textColor = WellnarioPalette.color(for: tone)
         badgeLabel.backgroundColor = WellnarioPalette.color(for: tone).withAlphaComponent(0.12)
-        accessibilityLabel = [title, subtitle, detail, badge].compactMap { $0 }.joined(separator: ", ")
+        let favoriteDescription = favoriteStatus.map {
+            L10n.text(
+                $0
+                    ? "actives.favorite.accessibility.on"
+                    : "actives.favorite.accessibility.off"
+            )
+        }
+        accessibilityLabel = [title, favoriteDescription, subtitle, detail, weeklySummary, badge]
+            .compactMap { $0 }
+            .joined(separator: ", ")
     }
 
     private func setUp() {
         backgroundColor = .clear
+        contentView.backgroundColor = .clear
         selectionStyle = .none
         contentView.addForAutoLayout(card)
         card.pinEdges(to: contentView, insets: NSDirectionalEdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
@@ -642,6 +879,15 @@ private final class CatalogListCell: UITableViewCell {
         titleLabel.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textPrimary)
         titleLabel.numberOfLines = 2
         titleLabel.lineBreakMode = .byWordWrapping
+        favoriteImageView.contentMode = .scaleAspectFit
+        favoriteImageView.isHidden = true
+        favoriteImageView.isAccessibilityElement = false
+        favoriteImageView.setContentHuggingPriority(.required, for: .horizontal)
+        favoriteImageView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        NSLayoutConstraint.activate([
+            favoriteImageView.widthAnchor.constraint(equalToConstant: 19),
+            favoriteImageView.heightAnchor.constraint(equalToConstant: 19)
+        ])
         subtitleLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
         subtitleLabel.numberOfLines = 1
         detailLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)
@@ -654,9 +900,41 @@ private final class CatalogListCell: UITableViewCell {
         badgeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         badgeLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 28).isActive = true
 
-        let titleRow = UIStackView(arrangedSubviews: [titleLabel, badgeLabel], axis: .horizontal, spacing: 8, alignment: .center)
+        weeklyChartLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)
+        weeklyChartLabel.text = L10n.Trends.sevenDays
+        weeklyChartLabel.textAlignment = .right
+        weeklyChartView.lineColor = WellnarioPalette.fuchsia
+        weeklyChartView.showsEndMarker = true
+        weeklyChartView.includesZeroBaseline = true
+        weeklyChartView.accessibilityIdentifier = "active.weekly.chart"
+        weeklyChartStack.axis = .vertical
+        weeklyChartStack.spacing = 0
+        weeklyChartStack.alignment = .fill
+        weeklyChartStack.addArrangedSubview(weeklyChartLabel)
+        weeklyChartStack.addArrangedSubview(weeklyChartView)
+        weeklyChartStack.isHidden = true
+        weeklyChartStack.setContentHuggingPriority(.required, for: .horizontal)
+        weeklyChartStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+        NSLayoutConstraint.activate([
+            weeklyChartStack.widthAnchor.constraint(equalToConstant: 66),
+            weeklyChartView.heightAnchor.constraint(equalToConstant: 42)
+        ])
+
+        let titleRow = UIStackView(
+            arrangedSubviews: [titleLabel, favoriteImageView, badgeLabel],
+            axis: .horizontal,
+            spacing: 8,
+            alignment: .center
+        )
         let labels = UIStackView(arrangedSubviews: [titleRow, subtitleLabel, detailLabel], axis: .vertical, spacing: 4)
-        let row = UIStackView(arrangedSubviews: [artworkContainer, labels], axis: .horizontal, spacing: 14, alignment: .center)
+        labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let row = UIStackView(
+            arrangedSubviews: [artworkContainer, labels, weeklyChartStack],
+            axis: .horizontal,
+            spacing: 8,
+            alignment: .center
+        )
+        row.setCustomSpacing(14, after: artworkContainer)
         card.contentView.addForAutoLayout(row)
         rowEdgeConstraints = [
             row.topAnchor.constraint(equalTo: card.contentView.topAnchor, constant: 14),

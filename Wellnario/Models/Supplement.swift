@@ -193,6 +193,9 @@ public struct SupplementInstance: Identifiable, Hashable, Sendable {
     public let label: String
     public let expirationDay: LocalDay?
     public let notes: String?
+    /// Total amount originally contained in this package or batch.
+    public let totalQuantity: Decimal?
+    public let totalUnit: DoseUnit?
     public let createdAt: Date
     public let updatedAt: Date
     public let archivedAt: Date?
@@ -203,6 +206,8 @@ public struct SupplementInstance: Identifiable, Hashable, Sendable {
         label: String,
         expirationDay: LocalDay?,
         notes: String?,
+        totalQuantity: Decimal? = nil,
+        totalUnit: DoseUnit? = nil,
         createdAt: Date,
         updatedAt: Date,
         archivedAt: Date?
@@ -212,6 +217,8 @@ public struct SupplementInstance: Identifiable, Hashable, Sendable {
         self.label = label
         self.expirationDay = expirationDay
         self.notes = notes
+        self.totalQuantity = totalQuantity
+        self.totalUnit = totalUnit
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.archivedAt = archivedAt
@@ -225,16 +232,22 @@ public struct SupplementInstanceDraft: Hashable, Sendable {
     public var label: String?
     public var expirationDay: LocalDay?
     public var notes: String?
+    public var totalQuantity: Decimal?
+    public var totalUnit: DoseUnit?
 
     public init(
         supplementID: UUID,
         label: String? = nil,
         expirationDay: LocalDay? = nil,
-        notes: String? = nil
+        notes: String? = nil,
+        totalQuantity: Decimal? = nil,
+        totalUnit: DoseUnit? = nil
     ) {
         self.supplementID = supplementID
         self.label = label
         self.expirationDay = expirationDay
         self.notes = notes
+        self.totalQuantity = totalQuantity
+        self.totalUnit = totalUnit
     }
 }

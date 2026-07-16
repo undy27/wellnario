@@ -670,6 +670,9 @@ final class WellnessTrendChartView: UIView {
     var labels: [String] = [] { didSet { setNeedsDisplay() } }
     var selectionLabels: [String] = [] { didSet { setNeedsDisplay() } }
     var lineColor = WellnarioPalette.violet { didSet { setNeedsDisplay() } }
+    var lineColors: [UIColor?] = [] { didSet { setNeedsDisplay() } }
+    var targetRanges: [ClosedRange<Double>?] = [] { didSet { setNeedsDisplay() } }
+    var targetBandColor = WellnarioPalette.fuchsia { didSet { setNeedsDisplay() } }
     var emptyText = "" { didSet { setNeedsDisplay() } }
     var smoothingWindow = 1 { didSet { setNeedsDisplay() } }
     var averageTitle = "" { didSet { setNeedsDisplay() } }
@@ -725,7 +728,10 @@ final class WellnessTrendChartView: UIView {
         let trendScaleValues: [Double?] = referenceLine == .linearTrend
             ? [linearTrend?.startValue, linearTrend?.endValue]
             : []
-        let scaleValues = plottedValues + trendScaleValues
+        let targetScaleValues: [Double?] = targetRanges.flatMap { targetRange in
+            [targetRange?.lowerBound, targetRange?.upperBound]
+        }
+        let scaleValues = plottedValues + trendScaleValues + targetScaleValues
         guard plottedValues.contains(where: { $0 != nil }),
               let bounds = WellnessTrendScale.bounds(for: scaleValues) else {
             let paragraph = NSMutableParagraphStyle()
@@ -756,22 +762,29 @@ final class WellnessTrendChartView: UIView {
         let periodValues = values.compactMap { $0 }
         let average = periodValues.reduce(0, +) / Double(periodValues.count)
         drawYAxisLabels(minimum: lower, maximum: upper, in: chartRect)
+        drawTargetRanges(lower: lower, range: range, in: chartRect)
 
         let pointCount = max(values.count, 2)
 
-        var points: [CGPoint] = []
+        var indexedPoints: [(index: Int, point: CGPoint)] = []
         for (index, value) in plottedValues.enumerated() {
             guard let value else { continue }
-            points.append(CGPoint(
-                x: chartRect.minX + chartRect.width * CGFloat(index) / CGFloat(pointCount - 1),
-                y: chartRect.maxY - chartRect.height * CGFloat((value - lower) / range)
+            indexedPoints.append((
+                index,
+                CGPoint(
+                    x: chartRect.minX + chartRect.width * CGFloat(index) / CGFloat(pointCount - 1),
+                    y: chartRect.maxY - chartRect.height * CGFloat((value - lower) / range)
+                )
             ))
         }
+        let points = indexedPoints.map { $0.point }
         guard points.count > 1 else {
-            if let point = points.first {
-                lineColor.withAlphaComponent(0.20).setFill()
+            if let indexedPoint = indexedPoints.first {
+                let point = indexedPoint.point
+                let pointColor = colorForLine(at: indexedPoint.index)
+                pointColor.withAlphaComponent(0.20).setFill()
                 UIBezierPath(ovalIn: CGRect(x: point.x - 7, y: point.y - 7, width: 14, height: 14)).fill()
-                lineColor.setFill()
+                pointColor.setFill()
                 UIBezierPath(ovalIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)).fill()
             }
             drawReferenceLine(average: average, lower: lower, range: range, in: chartRect)
@@ -788,22 +801,27 @@ final class WellnessTrendChartView: UIView {
         lineColor.withAlphaComponent(0.12).setFill()
         fillPath.fill()
 
-        let linePath = UIBezierPath()
-        linePath.move(to: points[0])
-        addSmoothCurve(points: points, to: linePath)
-        lineColor.setStroke()
-        linePath.lineWidth = 3
-        linePath.lineCapStyle = .round
-        linePath.lineJoinStyle = .round
-        linePath.stroke()
+        if lineColors.isEmpty {
+            let linePath = UIBezierPath()
+            linePath.move(to: points[0])
+            addSmoothCurve(points: points, to: linePath)
+            lineColor.setStroke()
+            linePath.lineWidth = 3
+            linePath.lineCapStyle = .round
+            linePath.lineJoinStyle = .round
+            linePath.stroke()
+        } else {
+            drawColoredSmoothLine(indexedPoints)
+        }
 
         drawReferenceLine(average: average, lower: lower, range: range, in: chartRect)
 
-        if let last = points.last {
-            lineColor.withAlphaComponent(0.20).setFill()
-            UIBezierPath(ovalIn: CGRect(x: last.x - 7, y: last.y - 7, width: 14, height: 14)).fill()
-            lineColor.setFill()
-            UIBezierPath(ovalIn: CGRect(x: last.x - 3.5, y: last.y - 3.5, width: 7, height: 7)).fill()
+        if let last = indexedPoints.last {
+            let lastColor = colorForLine(at: last.index)
+            lastColor.withAlphaComponent(0.20).setFill()
+            UIBezierPath(ovalIn: CGRect(x: last.point.x - 7, y: last.point.y - 7, width: 14, height: 14)).fill()
+            lastColor.setFill()
+            UIBezierPath(ovalIn: CGRect(x: last.point.x - 3.5, y: last.point.y - 3.5, width: 7, height: 7)).fill()
         }
         drawSelection(plottedValues: plottedValues, lower: lower, range: range, in: chartRect)
     }
@@ -1058,13 +1076,14 @@ final class WellnessTrendChartView: UIView {
         let guide = UIBezierPath()
         guide.move(to: CGPoint(x: x, y: rect.minY))
         guide.addLine(to: CGPoint(x: x, y: rect.maxY))
-        lineColor.withAlphaComponent(0.62).setStroke()
+        let selectionColor = colorForLine(at: selectedIndex)
+        selectionColor.withAlphaComponent(0.62).setStroke()
         guide.lineWidth = 1
         guide.stroke()
 
         WellnarioPalette.surfaceElevated.setFill()
         UIBezierPath(ovalIn: CGRect(x: x - 6, y: y - 6, width: 12, height: 12)).fill()
-        lineColor.setFill()
+        selectionColor.setFill()
         UIBezierPath(ovalIn: CGRect(x: x - 3.5, y: y - 3.5, width: 7, height: 7)).fill()
 
         guard let selectionText = selectionText(for: plottedValues) else { return }
@@ -1087,7 +1106,7 @@ final class WellnessTrendChartView: UIView {
         let bubble = UIBezierPath(roundedRect: bubbleRect, cornerRadius: bubbleRect.height / 2)
         WellnarioPalette.surfaceElevated.withAlphaComponent(0.98).setFill()
         bubble.fill()
-        lineColor.withAlphaComponent(0.75).setStroke()
+        selectionColor.withAlphaComponent(0.75).setStroke()
         bubble.lineWidth = 1
         bubble.stroke()
         selectionText.draw(
@@ -1113,6 +1132,151 @@ final class WellnessTrendChartView: UIView {
 
     private var plottedValues: [Double?] {
         WellnessTrendSmoothing.movingAverage(values, window: smoothingWindow)
+    }
+
+    private func colorForLine(at index: Int) -> UIColor {
+        guard lineColors.indices.contains(index), let color = lineColors[index] else {
+            return lineColor
+        }
+        return color
+    }
+
+    private func drawTargetRanges(lower: Double, range: Double, in rect: CGRect) {
+        guard !targetRanges.isEmpty, !values.isEmpty else { return }
+        var chunkStart: Int?
+        for index in 0...targetRanges.count {
+            if index < targetRanges.count, targetRanges[index] != nil {
+                if chunkStart == nil { chunkStart = index }
+            } else if let start = chunkStart {
+                drawTargetRangeChunk(start...index - 1, lower: lower, range: range, in: rect)
+                chunkStart = nil
+            }
+        }
+    }
+
+    private func drawTargetRangeChunk(
+        _ indexes: ClosedRange<Int>,
+        lower: Double,
+        range: Double,
+        in rect: CGRect
+    ) {
+        let pointCount = max(values.count, 2)
+        let bandPoints: [(upper: CGPoint, lower: CGPoint)] = indexes.compactMap { index in
+            guard targetRanges.indices.contains(index), let targetRange = targetRanges[index] else {
+                return nil
+            }
+            let x = rect.minX + rect.width * CGFloat(index) / CGFloat(pointCount - 1)
+            var upperY = rect.maxY
+                - rect.height * CGFloat((targetRange.upperBound - lower) / range)
+            var lowerY = rect.maxY
+                - rect.height * CGFloat((targetRange.lowerBound - lower) / range)
+            if lowerY - upperY < 3 {
+                let middle = (lowerY + upperY) / 2
+                upperY = middle - 1.5
+                lowerY = middle + 1.5
+            }
+            return (
+                CGPoint(x: x, y: upperY),
+                CGPoint(x: x, y: lowerY)
+            )
+        }
+        guard let first = bandPoints.first else { return }
+
+        if bandPoints.count == 1 {
+            let step = rect.width / CGFloat(max(values.count - 1, 1))
+            let bandRect = CGRect(
+                x: max(rect.minX, first.upper.x - step / 2),
+                y: first.upper.y,
+                width: min(step, rect.maxX - max(rect.minX, first.upper.x - step / 2)),
+                height: first.lower.y - first.upper.y
+            )
+            targetBandColor.withAlphaComponent(0.14).setFill()
+            UIBezierPath(roundedRect: bandRect, cornerRadius: 2).fill()
+            return
+        }
+
+        let fillPath = UIBezierPath()
+        fillPath.move(to: first.upper)
+        bandPoints.dropFirst().forEach { fillPath.addLine(to: $0.upper) }
+        bandPoints.reversed().forEach { fillPath.addLine(to: $0.lower) }
+        fillPath.close()
+        targetBandColor.withAlphaComponent(0.14).setFill()
+        fillPath.fill()
+
+        let upperPath = UIBezierPath()
+        upperPath.move(to: first.upper)
+        bandPoints.dropFirst().forEach { upperPath.addLine(to: $0.upper) }
+        let lowerPath = UIBezierPath()
+        lowerPath.move(to: first.lower)
+        bandPoints.dropFirst().forEach { lowerPath.addLine(to: $0.lower) }
+        targetBandColor.withAlphaComponent(0.48).setStroke()
+        for path in [upperPath, lowerPath] {
+            path.lineWidth = 1
+            path.stroke()
+        }
+    }
+
+    private func drawColoredSmoothLine(_ points: [(index: Int, point: CGPoint)]) {
+        guard points.count > 1 else { return }
+        for index in 1..<points.count {
+            let previous = points[index - 1]
+            let current = points[index]
+            let controlX = (previous.point.x + current.point.x) / 2
+            let control1 = CGPoint(x: controlX, y: previous.point.y)
+            let control2 = CGPoint(x: controlX, y: current.point.y)
+            let split = splitCubicBezier(
+                start: previous.point,
+                control1: control1,
+                control2: control2,
+                end: current.point
+            )
+            strokeCubicBezier(split.left, color: colorForLine(at: previous.index))
+            strokeCubicBezier(split.right, color: colorForLine(at: current.index))
+        }
+    }
+
+    private typealias CubicBezier = (
+        start: CGPoint,
+        control1: CGPoint,
+        control2: CGPoint,
+        end: CGPoint
+    )
+
+    private func splitCubicBezier(
+        start: CGPoint,
+        control1: CGPoint,
+        control2: CGPoint,
+        end: CGPoint
+    ) -> (left: CubicBezier, right: CubicBezier) {
+        let startControl = midpoint(start, control1)
+        let controls = midpoint(control1, control2)
+        let controlEnd = midpoint(control2, end)
+        let leftControl = midpoint(startControl, controls)
+        let rightControl = midpoint(controls, controlEnd)
+        let middle = midpoint(leftControl, rightControl)
+        return (
+            (start, startControl, leftControl, middle),
+            (middle, rightControl, controlEnd, end)
+        )
+    }
+
+    private func midpoint(_ lhs: CGPoint, _ rhs: CGPoint) -> CGPoint {
+        CGPoint(x: (lhs.x + rhs.x) / 2, y: (lhs.y + rhs.y) / 2)
+    }
+
+    private func strokeCubicBezier(_ bezier: CubicBezier, color: UIColor) {
+        let path = UIBezierPath()
+        path.move(to: bezier.start)
+        path.addCurve(
+            to: bezier.end,
+            controlPoint1: bezier.control1,
+            controlPoint2: bezier.control2
+        )
+        color.setStroke()
+        path.lineWidth = 3
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        path.stroke()
     }
 
     private func drawGrid(in rect: CGRect) {

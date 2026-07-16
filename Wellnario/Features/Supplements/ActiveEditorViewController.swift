@@ -10,11 +10,13 @@ final class ActiveEditorViewController: EditorViewController {
     private let lowerField = FormFieldView()
     private let upperField = FormFieldView()
     private var selectedUnit: DoseUnit
+    private var selectedTargetUnit: DoseUnit
     private var selectedCategories: Set<ActiveCategory>
 
     init(repository: WellnarioRepositoryProtocol, active: Active? = nil) {
         self.active = active
         self.selectedUnit = active?.baseUnit ?? .milligram
+        self.selectedTargetUnit = active?.currentTarget?.unit ?? active?.baseUnit ?? .milligram
         self.selectedCategories = Set(active?.categories ?? [])
         super.init(repository: repository)
     }
@@ -107,6 +109,7 @@ final class ActiveEditorViewController: EditorViewController {
                     activeID: saved.id,
                     lowerBound: lower,
                     upperBound: upper,
+                    unit: selectedTargetUnit,
                     effectiveFrom: today
                 )
             } else if active?.currentTarget != nil {
@@ -146,8 +149,8 @@ final class ActiveEditorViewController: EditorViewController {
             text: active?.currentTarget.map { FeatureFormatting.decimal($0.upperBound) },
             keyboardType: .decimalPad
         )
-        lowerField.unitTitle = selectedUnit.symbol(languageCode: catalogLanguage.rawValue)
-        upperField.unitTitle = selectedUnit.symbol(languageCode: catalogLanguage.rawValue)
+        lowerField.unitTitle = selectedTargetUnit.symbol(languageCode: catalogLanguage.rawValue)
+        upperField.unitTitle = selectedTargetUnit.symbol(languageCode: catalogLanguage.rawValue)
         lowerField.helperText = L10n.text("actives.target.helper")
 
         unitField.button.isEnabled = !isSeeded
@@ -205,7 +208,7 @@ final class ActiveEditorViewController: EditorViewController {
                 return
             }
             do {
-                convertedValues.append(try selectedUnit.convert(value, to: unit))
+                convertedValues.append(try selectedTargetUnit.convert(value, to: unit))
             } catch {
                 showError(RepositoryError.validation(L10n.text("error.target_unit_conversion")))
                 return
@@ -213,6 +216,7 @@ final class ActiveEditorViewController: EditorViewController {
         }
 
         selectedUnit = unit
+        selectedTargetUnit = unit
         lowerField.textField.text = convertedValues[0].map { FeatureFormatting.decimal($0) }
         upperField.textField.text = convertedValues[1].map { FeatureFormatting.decimal($0) }
         lowerField.setError(nil)
@@ -253,10 +257,15 @@ final class ActiveEditorViewController: EditorViewController {
 }
 
 @MainActor
-final class ActiveDetailViewController: FeatureViewController {
+final class ActiveDetailViewController: FeatureViewController, UIGestureRecognizerDelegate {
     private let activeID: UUID
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
+    private let favoriteButton = UIButton(type: .system)
+    private let targetField = FormFieldView()
+    private let targetSaveButton = PrimaryButton(style: .secondary)
+    private var currentActive: Active?
+    private var selectedTargetUnit: DoseUnit = .milligram
 
     init(repository: WellnarioRepositoryProtocol, activeID: UUID) {
         self.activeID = activeID
@@ -275,6 +284,7 @@ final class ActiveDetailViewController: FeatureViewController {
             target: self,
             action: #selector(editTapped)
         )
+        configureControls()
         setUpView()
         reloadContent()
     }
@@ -294,6 +304,7 @@ final class ActiveDetailViewController: FeatureViewController {
     override func reloadContent() {
         do {
             guard let active = try repository.active(id: activeID) else { return }
+            currentActive = active
             title = active.localizedName(language: catalogLanguage)
             rebuild(active)
         } catch { showError(error) }
@@ -301,9 +312,15 @@ final class ActiveDetailViewController: FeatureViewController {
 
     private func setUpView() {
         view.addForAutoLayout(scrollView)
-        scrollView.pinEdges(to: view)
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
+        ])
         scrollView.alwaysBounceVertical = true
         scrollView.showsVerticalScrollIndicator = false
+        scrollView.keyboardDismissMode = .interactive
         stackView.axis = .vertical
         stackView.spacing = WellnarioSpacing.cardGap
         scrollView.addForAutoLayout(stackView)
@@ -314,6 +331,34 @@ final class ActiveDetailViewController: FeatureViewController {
             stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -WellnarioSpacing.bottomNavigationInset),
             stackView.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -(WellnarioSpacing.screenHorizontal * 2))
         ])
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+        tap.cancelsTouchesInView = false
+        tap.delegate = self
+        view.addGestureRecognizer(tap)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var touchedView = touch.view
+        while let candidate = touchedView {
+            if candidate is UIControl { return false }
+            touchedView = candidate.superview
+        }
+        return true
+    }
+
+    private func configureControls() {
+        favoriteButton.accessibilityIdentifier = "active.detail.favorite"
+        favoriteButton.addTarget(self, action: #selector(toggleFavorite), for: .touchUpInside)
+
+        targetField.textField.accessibilityIdentifier = "active.detail.target.amount"
+        targetField.unitButton.accessibilityIdentifier = "active.detail.target.unit"
+        targetField.unitButton.showsMenuAsPrimaryAction = true
+        targetField.helperText = L10n.text("actives.target.exact.helper")
+
+        targetSaveButton.setTitle(L10n.text("actives.target.save"), for: .normal)
+        targetSaveButton.accessibilityIdentifier = "active.detail.target.save"
+        targetSaveButton.addTarget(self, action: #selector(saveTarget), for: .touchUpInside)
     }
 
     private func rebuild(_ active: Active) {
@@ -333,7 +378,13 @@ final class ActiveDetailViewController: FeatureViewController {
         description.applyWellnarioStyle(.body, color: WellnarioPalette.textSecondary)
         description.text = active.localizedDescription(language: catalogLanguage)
         description.numberOfLines = 0
-        let heroStack = UIStackView(arrangedSubviews: [artwork, name, description], axis: .vertical, spacing: 12, alignment: .center)
+        configureFavoriteButton(isFavorite: active.isFavorite)
+        let heroStack = UIStackView(
+            arrangedSubviews: [artwork, name, description, favoriteButton],
+            axis: .vertical,
+            spacing: 12,
+            alignment: .center
+        )
         hero.contentView.addForAutoLayout(heroStack)
         heroStack.pinEdges(to: hero.contentView, insets: .all(WellnarioSpacing.cardPadding))
         stackView.addArrangedSubview(hero)
@@ -341,16 +392,35 @@ final class ActiveDetailViewController: FeatureViewController {
         let targetCard = PremiumCardView()
         let targetTitle = UILabel()
         targetTitle.applyWellnarioStyle(.cardTitle, color: WellnarioPalette.textPrimary)
-        targetTitle.text = L10n.Actives.target
-        let targetValue = UILabel()
-        targetValue.applyWellnarioStyle(.metric, color: active.currentTarget == nil ? WellnarioPalette.textTertiary : WellnarioPalette.cyan)
-        targetValue.numberOfLines = 0
+        targetTitle.text = L10n.text("actives.target.consumption")
+
+        let currentTargetLabel = UILabel()
+        currentTargetLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
+        currentTargetLabel.numberOfLines = 0
+        currentTargetLabel.accessibilityIdentifier = "active.detail.target.current"
         if let target = active.currentTarget {
-            targetValue.text = "\(FeatureFormatting.decimal(target.lowerBound))–\(FeatureFormatting.decimal(target.upperBound)) \(target.unit.symbol(languageCode: catalogLanguage.rawValue))"
+            currentTargetLabel.text = L10n.text("actives.target.current", targetDescription(target))
         } else {
-            targetValue.text = "—"
+            currentTargetLabel.text = L10n.text("actives.target.not_set")
         }
-        let targetStack = UIStackView(arrangedSubviews: [targetTitle, targetValue], axis: .vertical, spacing: 16)
+
+        selectedTargetUnit = active.currentTarget?.unit ?? active.baseUnit
+        let exactAmount = active.currentTarget.flatMap { target in
+            target.lowerBound == target.upperBound ? target.lowerBound : nil
+        }
+        targetField.configure(
+            title: L10n.text("actives.target.daily_amount"),
+            placeholder: "0",
+            text: exactAmount.map { FeatureFormatting.decimal($0) },
+            keyboardType: .decimalPad
+        )
+        rebuildTargetUnitMenu(active: active)
+
+        let targetStack = UIStackView(
+            arrangedSubviews: [targetTitle, currentTargetLabel, targetField, targetSaveButton],
+            axis: .vertical,
+            spacing: 16
+        )
         targetCard.contentView.addForAutoLayout(targetStack)
         targetStack.pinEdges(to: targetCard.contentView, insets: .all(WellnarioSpacing.cardPadding))
         stackView.addArrangedSubview(targetCard)
@@ -360,6 +430,107 @@ final class ActiveDetailViewController: FeatureViewController {
         trendsButton.addTarget(self, action: #selector(showTrends), for: .touchUpInside)
         stackView.addArrangedSubview(trendsButton)
     }
+
+    private func configureFavoriteButton(isFavorite: Bool) {
+        favoriteButton.isEnabled = true
+        var configuration = UIButton.Configuration.tinted()
+        configuration.image = UIImage(systemName: isFavorite ? "star.fill" : "star")
+        configuration.title = isFavorite
+            ? L10n.text("actives.favorite.selected")
+            : L10n.text("actives.favorite.add")
+        configuration.imagePadding = 8
+        configuration.baseForegroundColor = WellnarioPalette.fuchsia
+        configuration.baseBackgroundColor = WellnarioPalette.fuchsia.withAlphaComponent(0.16)
+        configuration.cornerStyle = .capsule
+        favoriteButton.configuration = configuration
+        favoriteButton.accessibilityValue = isFavorite
+            ? L10n.text("actives.favorite.accessibility.on")
+            : L10n.text("actives.favorite.accessibility.off")
+    }
+
+    private func rebuildTargetUnitMenu(active: Active) {
+        let units = DoseUnit.allCases.filter { $0.isCompatible(with: active.baseUnit) }
+        if !units.contains(selectedTargetUnit) { selectedTargetUnit = active.baseUnit }
+        targetField.unitTitle = selectedTargetUnit.symbol(languageCode: catalogLanguage.rawValue)
+        targetField.unitButton.menu = UIMenu(children: units.map { unit in
+            UIAction(
+                title: unit.symbol(languageCode: catalogLanguage.rawValue),
+                state: unit == selectedTargetUnit ? .on : .off
+            ) { [weak self] _ in
+                self?.selectTargetUnit(unit)
+            }
+        })
+        targetField.unitButton.accessibilityValue = selectedTargetUnit.symbol(languageCode: catalogLanguage.rawValue)
+    }
+
+    private func selectTargetUnit(_ unit: DoseUnit) {
+        guard let active = currentActive, unit != selectedTargetUnit else { return }
+        let text = targetField.textField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !text.isEmpty {
+            guard let amount = FeatureFormatting.parseDecimal(text) else {
+                targetField.setError(L10n.Error.invalidNumber)
+                return
+            }
+            do {
+                let converted = try selectedTargetUnit.convert(amount, to: unit)
+                targetField.textField.text = FeatureFormatting.decimal(converted)
+            } catch {
+                showError(error)
+                return
+            }
+        }
+        selectedTargetUnit = unit
+        targetField.setError(nil)
+        rebuildTargetUnitMenu(active: active)
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+
+    private func targetDescription(_ target: ActiveTarget) -> String {
+        let amount = target.lowerBound == target.upperBound
+            ? FeatureFormatting.decimal(target.lowerBound)
+            : "\(FeatureFormatting.decimal(target.lowerBound))–\(FeatureFormatting.decimal(target.upperBound))"
+        return "\(amount) \(target.unit.symbol(languageCode: catalogLanguage.rawValue))"
+    }
+
+    @objc private func toggleFavorite() {
+        guard let active = currentActive else { return }
+        favoriteButton.isEnabled = false
+        do {
+            _ = try repository.setActiveFavorite(id: activeID, isFavorite: !active.isFavorite)
+            UISelectionFeedbackGenerator().selectionChanged()
+            reloadContent()
+        } catch {
+            favoriteButton.isEnabled = true
+            showError(error)
+        }
+    }
+
+    @objc private func saveTarget() {
+        dismissKeyboard()
+        targetField.setError(nil)
+        guard let amount = FeatureFormatting.parseDecimal(targetField.textField.text), amount > 0 else {
+            targetField.setError(L10n.Error.positiveAmount)
+            return
+        }
+        targetSaveButton.isLoading = true
+        do {
+            _ = try repository.setTarget(
+                activeID: activeID,
+                lowerBound: amount,
+                upperBound: amount,
+                unit: selectedTargetUnit,
+                effectiveFrom: LocalDay(containing: Date(), in: .current)
+            )
+            targetSaveButton.isLoading = false
+            UIImpactFeedbackGenerator.wellnarioSuccess()
+            reloadContent()
+        } catch {
+            targetSaveButton.isLoading = false
+            showError(error)
+        }
+    }
+
+    @objc private func dismissKeyboard() { view.endEditing(true) }
 
     @objc private func editTapped() {
         do {

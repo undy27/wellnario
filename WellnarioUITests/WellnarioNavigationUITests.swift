@@ -71,6 +71,122 @@ final class WellnarioNavigationUITests: XCTestCase {
     }
 
     @MainActor
+    func testAdvancedSettingsConfiguresAndPersistsTargetMargin() {
+        let app = launch(language: "es", initialTab: "today")
+        let settings = app.buttons["today.settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        settings.tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["settings.advanced.card"]
+                .waitForExistence(timeout: 3)
+        )
+        let supplementsSection = app.descendants(matching: .any)[
+            "settings.advanced.supplements.card"
+        ]
+        XCTAssertTrue(supplementsSection.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["settings.advanced.sleep.card"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["settings.advanced.health.card"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["settings.advanced.fitness.card"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["settings.information.card"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["settings.about"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["settings.privacy"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["settings.medicalDisclaimer"].exists)
+        for _ in 0..<5 where !supplementsSection.isHittable { app.swipeUp() }
+        XCTAssertTrue(supplementsSection.isHittable)
+        supplementsSection.tap()
+
+        let slider = app.sliders["settings.advanced.target_margin.slider"]
+        XCTAssertTrue(slider.waitForExistence(timeout: 3))
+        let value = app.staticTexts["settings.advanced.target_margin.value"]
+        XCTAssertTrue(value.waitForExistence(timeout: 3))
+
+        slider.adjust(toNormalizedSliderPosition: 0)
+        XCTAssertEqual(value.label, "0 %")
+        slider.adjust(toNormalizedSliderPosition: 0.4)
+        let selectedValue = value.label
+        XCTAssertNotEqual(selectedValue, "0 %")
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["settings.root"]
+                .waitForExistence(timeout: 3)
+        )
+        for _ in 0..<5 where !supplementsSection.isHittable { app.swipeUp() }
+        XCTAssertTrue(supplementsSection.isHittable)
+        supplementsSection.tap()
+        XCTAssertEqual(
+            app.staticTexts["settings.advanced.target_margin.value"].label,
+            selectedValue
+        )
+    }
+
+    @MainActor
+    func testAdvancedSleepOptionsSaveManualQualityAndDuration() {
+        let app = launch(language: "es", initialTab: "today")
+        let settings = app.buttons["today.settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        settings.tap()
+
+        let sleepSection = app.descendants(matching: .any)["settings.advanced.sleep.card"]
+        XCTAssertTrue(sleepSection.waitForExistence(timeout: 3))
+        for _ in 0..<5 where !sleepSection.isHittable { app.swipeUp() }
+        XCTAssertTrue(sleepSection.isHittable)
+        sleepSection.tap()
+
+        let qualityCard = app.descendants(matching: .any)[
+            "settings.advanced.sleep.quality.card"
+        ]
+        XCTAssertTrue(qualityCard.waitForExistence(timeout: 3))
+        qualityCard.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["settings.advanced.sleep.quality.root"]
+                .waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["settings.advanced.sleep.quality.target.picker"].exists
+        )
+        XCTAssertTrue(app.sliders["settings.advanced.sleep.quality.weight.duration"].exists)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["settings.advanced.sleep.quality.table.card"].exists
+        )
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        let manualCard = app.descendants(matching: .any)[
+            "settings.advanced.sleep.manual.card"
+        ]
+        XCTAssertTrue(manualCard.waitForExistence(timeout: 3))
+        for _ in 0..<3 where !manualCard.isHittable { app.swipeUp() }
+        XCTAssertTrue(manualCard.isHittable)
+        manualCard.tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["settings.advanced.sleep.manual.calendar"]
+                .waitForExistence(timeout: 3)
+        )
+        let qualityToggle = app.switches["settings.advanced.sleep.manual.quality.toggle"]
+        let durationToggle = app.switches["settings.advanced.sleep.manual.duration.toggle"]
+        XCTAssertTrue(qualityToggle.waitForExistence(timeout: 3))
+        XCTAssertTrue(durationToggle.exists)
+        qualityToggle.tap()
+        durationToggle.tap()
+
+        let qualitySlider = app.sliders["settings.advanced.sleep.manual.quality.slider"]
+        XCTAssertTrue(qualitySlider.exists)
+        qualitySlider.adjust(toNormalizedSliderPosition: 0.88)
+
+        let save = app.buttons["settings.advanced.sleep.manual.save"]
+        for _ in 0..<7 where !save.isHittable { app.swipeUp() }
+        XCTAssertTrue(save.isHittable)
+        save.tap()
+
+        let source = app.staticTexts["settings.advanced.sleep.manual.source"]
+        XCTAssertTrue(source.waitForExistence(timeout: 3))
+        XCTAssertEqual(source.label, "Corrección manual guardada en Wellnario")
+        XCTAssertTrue(app.buttons["settings.advanced.sleep.manual.remove"].exists)
+    }
+
+    @MainActor
     func testTodayFitnessAndMedicalReviewsShareTheLastSummaryRow() {
         let app = launch(language: "es", initialTab: "today")
         let fitness = app.descendants(matching: .any)["today.summary.fitness"]
@@ -81,6 +197,11 @@ final class WellnarioNavigationUITests: XCTestCase {
         XCTAssertEqual(fitness.frame.width, reviews.frame.width, accuracy: 1)
         XCTAssertEqual(fitness.frame.minY, reviews.frame.minY, accuracy: 1)
         XCTAssertLessThan(fitness.frame.width, app.frame.width / 2)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["today.quick.intake"]
+                .waitForExistence(timeout: 3)
+        )
+        XCTAssertFalse(app.descendants(matching: .any)["today.recent_supplements"].exists)
     }
 
     @MainActor

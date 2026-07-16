@@ -95,6 +95,13 @@ struct AppleHealthSleepDay: Codable, Equatable, Sendable {
     let remHours: Double?
     let deepHours: Double?
     let lightHours: Double?
+    /// Start of the main sleep session ending on this day. It is retained so
+    /// Wellnario can assess bedtime regularity without querying HealthKit again.
+    let sleepStartDate: Date?
+    /// Awake time explicitly reported inside the sleep sessions for this day.
+    let awakeHours: Double?
+    /// Total scored sleep period (asleep plus explicitly awake time).
+    let sleepPeriodHours: Double?
 
     init(
         date: Date,
@@ -102,7 +109,10 @@ struct AppleHealthSleepDay: Codable, Equatable, Sendable {
         qualityScore: Double? = nil,
         remHours: Double? = nil,
         deepHours: Double? = nil,
-        lightHours: Double? = nil
+        lightHours: Double? = nil,
+        sleepStartDate: Date? = nil,
+        awakeHours: Double? = nil,
+        sleepPeriodHours: Double? = nil
     ) {
         self.date = date
         self.hours = hours
@@ -110,6 +120,9 @@ struct AppleHealthSleepDay: Codable, Equatable, Sendable {
         self.remHours = remHours
         self.deepHours = deepHours
         self.lightHours = lightHours
+        self.sleepStartDate = sleepStartDate
+        self.awakeHours = awakeHours
+        self.sleepPeriodHours = sleepPeriodHours
     }
 }
 
@@ -186,6 +199,7 @@ struct AppleHealthSourceSelection: Codable, Equatable, Hashable, Sendable {
 
 struct AppleHealthSnapshot: Codable, Equatable, Sendable {
     var lastSyncedAt: Date?
+    var dateOfBirthComponents: DateComponents? = nil
     var latestSleepSession: AppleHealthSleepSession?
     var sleepTrend: [AppleHealthSleepDay]
     var heartRateVariability: AppleHealthMeasurement?
@@ -225,6 +239,12 @@ enum AppleHealthSyncError: Error, Equatable {
 
 extension Notification.Name {
     static let appleHealthSyncDidChange = Notification.Name("appleHealthSyncDidChange")
+    static let sleepManualOverridesDidChange = Notification.Name(
+        "wellnarioSleepManualOverridesDidChange"
+    )
+    static let sleepQualityPreferencesDidChange = Notification.Name(
+        "wellnarioSleepQualityPreferencesDidChange"
+    )
 }
 
 @MainActor
@@ -327,6 +347,545 @@ struct AppleHealthSourcePreferences {
     func saveDisabledSourceSelections(_ selections: Set<AppleHealthSourceSelection>) {
         guard let data = try? JSONEncoder().encode(selections) else { return }
         defaults.set(data, forKey: disabledSelectionsKey)
+    }
+}
+
+struct SleepDurationRecommendation: Equatable, Sendable {
+    enum AgeGroup: String, CaseIterable, Sendable {
+        case newborn
+        case infant
+        case toddler
+        case preschool
+        case schoolAge
+        case teenager
+        case youngAdult
+        case adult
+        case olderAdult
+    }
+
+    let ageGroup: AgeGroup
+    let minimumHours: Double
+    let maximumHours: Double
+
+    var targetHours: Double { (minimumHours + maximumHours) / 2 }
+
+    static let all: [SleepDurationRecommendation] = [
+        .init(ageGroup: .newborn, minimumHours: 14, maximumHours: 17),
+        .init(ageGroup: .infant, minimumHours: 12, maximumHours: 15),
+        .init(ageGroup: .toddler, minimumHours: 11, maximumHours: 14),
+        .init(ageGroup: .preschool, minimumHours: 10, maximumHours: 13),
+        .init(ageGroup: .schoolAge, minimumHours: 9, maximumHours: 11),
+        .init(ageGroup: .teenager, minimumHours: 8, maximumHours: 10),
+        .init(ageGroup: .youngAdult, minimumHours: 7, maximumHours: 9),
+        .init(ageGroup: .adult, minimumHours: 7, maximumHours: 9),
+        .init(ageGroup: .olderAdult, minimumHours: 7, maximumHours: 8)
+    ]
+
+    static let adultDefault = all.first { $0.ageGroup == .adult }!
+
+    static func recommendation(ageInMonths: Int?) -> SleepDurationRecommendation {
+        guard let ageInMonths, ageInMonths >= 0 else { return adultDefault }
+        let ageGroup: AgeGroup
+        switch ageInMonths {
+        case 0..<4: ageGroup = .newborn
+        case 4..<12: ageGroup = .infant
+        case 12..<36: ageGroup = .toddler
+        case 36..<72: ageGroup = .preschool
+        case 72..<168: ageGroup = .schoolAge
+        case 168..<216: ageGroup = .teenager
+        case 216..<312: ageGroup = .youngAdult
+        case 312..<780: ageGroup = .adult
+        default: ageGroup = .olderAdult
+        }
+        return all.first { $0.ageGroup == ageGroup } ?? adultDefault
+    }
+
+    static func ageInMonths(
+        from components: DateComponents?,
+        at date: Date = Date(),
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Int? {
+        guard let components,
+              let birthDate = calendar.date(from: components),
+              birthDate <= date else { return nil }
+        return calendar.dateComponents([.month], from: birthDate, to: date).month
+    }
+}
+
+struct SleepQualityWeights: Equatable, Sendable {
+    let duration: Int
+    let regularity: Int
+    let interruptions: Int
+
+    static let `default` = SleepQualityWeights(
+        duration: 70,
+        regularity: 10,
+        interruptions: 20
+    )
+
+    var isValid: Bool {
+        duration >= 0
+            && regularity >= 0
+            && interruptions >= 0
+            && duration + regularity + interruptions == 100
+    }
+}
+
+struct SleepQualityConfiguration: Equatable, Sendable {
+    let targetHours: Double
+    let weights: SleepQualityWeights
+}
+
+struct SleepQualityPreferences {
+    static let targetRange = (1.0 / 60.0)...24.0
+
+    private let defaults: UserDefaults
+    private let durationWeightKey = "wellnario.sleep.quality.durationWeight.v1"
+    private let regularityWeightKey = "wellnario.sleep.quality.regularityWeight.v1"
+    private let interruptionWeightKey = "wellnario.sleep.quality.interruptionWeight.v1"
+    private let customTargetKey = "wellnario.sleep.quality.customTargetHours.v1"
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    var weights: SleepQualityWeights {
+        let requiredKeys = [durationWeightKey, regularityWeightKey, interruptionWeightKey]
+        guard requiredKeys.allSatisfy({ defaults.object(forKey: $0) != nil }) else {
+            return .default
+        }
+        let stored = SleepQualityWeights(
+            duration: defaults.integer(forKey: durationWeightKey),
+            regularity: defaults.integer(forKey: regularityWeightKey),
+            interruptions: defaults.integer(forKey: interruptionWeightKey)
+        )
+        return stored.isValid ? stored : .default
+    }
+
+    var customTargetHours: Double? {
+        guard let value = defaults.object(forKey: customTargetKey) as? NSNumber else { return nil }
+        let hours = value.doubleValue
+        return Self.targetRange.contains(hours) ? hours : nil
+    }
+
+    func recommendation(
+        dateOfBirthComponents: DateComponents?,
+        at date: Date = Date(),
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> SleepDurationRecommendation {
+        SleepDurationRecommendation.recommendation(
+            ageInMonths: SleepDurationRecommendation.ageInMonths(
+                from: dateOfBirthComponents,
+                at: date,
+                calendar: calendar
+            )
+        )
+    }
+
+    func configuration(
+        dateOfBirthComponents: DateComponents? = nil,
+        at date: Date = Date(),
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> SleepQualityConfiguration {
+        let recommended = recommendation(
+            dateOfBirthComponents: dateOfBirthComponents,
+            at: date,
+            calendar: calendar
+        )
+        return SleepQualityConfiguration(
+            targetHours: customTargetHours ?? recommended.targetHours,
+            weights: weights
+        )
+    }
+
+    @discardableResult
+    func setWeights(_ weights: SleepQualityWeights) -> Bool {
+        guard weights.isValid else { return false }
+        defaults.set(weights.duration, forKey: durationWeightKey)
+        defaults.set(weights.regularity, forKey: regularityWeightKey)
+        defaults.set(weights.interruptions, forKey: interruptionWeightKey)
+        notifyChange()
+        return true
+    }
+
+    @discardableResult
+    func setCustomTargetHours(_ hours: Double) -> Bool {
+        guard hours.isFinite, Self.targetRange.contains(hours) else { return false }
+        defaults.set(hours, forKey: customTargetKey)
+        notifyChange()
+        return true
+    }
+
+    func useRecommendedTarget() {
+        guard defaults.object(forKey: customTargetKey) != nil else { return }
+        defaults.removeObject(forKey: customTargetKey)
+        notifyChange()
+    }
+
+    func reset(notify: Bool = true) {
+        [
+            durationWeightKey,
+            regularityWeightKey,
+            interruptionWeightKey,
+            customTargetKey
+        ].forEach(defaults.removeObject(forKey:))
+        if notify { notifyChange() }
+    }
+
+    private func notifyChange() {
+        NotificationCenter.default.post(name: .sleepQualityPreferencesDidChange, object: nil)
+    }
+}
+
+struct SleepQualityBreakdown: Equatable, Sendable {
+    let durationScore: Double
+    let regularityScore: Double
+    let interruptionScore: Double
+    let compliantDays: Int
+    let awakePercentage: Double
+    let totalScore: Double
+}
+
+enum SleepQualityCalculator {
+    static let regularityWindowDays = 7
+    static let bedtimeToleranceMinutes = 60.0
+    static let zeroInterruptionScoreAtPercentage = 15.0
+
+    static func applying(
+        to history: [AppleHealthSleepDay],
+        configuration: SleepQualityConfiguration,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> [AppleHealthSleepDay] {
+        let sorted = history.sorted { $0.date < $1.date }
+        let startsByDay = sleepStartsByDay(in: sorted, calendar: calendar)
+        return sorted.map { entry in
+            guard let breakdown = breakdown(
+                for: entry,
+                configuration: configuration,
+                calendar: calendar,
+                startsByDay: startsByDay
+            ) else { return entry }
+            return AppleHealthSleepDay(
+                date: entry.date,
+                hours: entry.hours,
+                qualityScore: breakdown.totalScore,
+                remHours: entry.remHours,
+                deepHours: entry.deepHours,
+                lightHours: entry.lightHours,
+                sleepStartDate: entry.sleepStartDate,
+                awakeHours: entry.awakeHours,
+                sleepPeriodHours: entry.sleepPeriodHours
+            )
+        }
+    }
+
+    static func breakdown(
+        for entry: AppleHealthSleepDay,
+        in history: [AppleHealthSleepDay],
+        configuration: SleepQualityConfiguration,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> SleepQualityBreakdown? {
+        breakdown(
+            for: entry,
+            configuration: configuration,
+            calendar: calendar,
+            startsByDay: sleepStartsByDay(in: history, calendar: calendar)
+        )
+    }
+
+    private static func breakdown(
+        for entry: AppleHealthSleepDay,
+        configuration: SleepQualityConfiguration,
+        calendar: Calendar,
+        startsByDay: [Date: Date]
+    ) -> SleepQualityBreakdown? {
+        guard let hours = entry.hours, hours >= 0, configuration.targetHours > 0 else { return nil }
+
+        let durationScore = min(max(hours / configuration.targetHours, 0), 1) * 100
+        let awakePercentage: Double
+        let interruptionScore: Double
+        if let reportedAwakeHours = entry.awakeHours {
+            let awakeHours = max(reportedAwakeHours, 0)
+            let periodHours = max(entry.sleepPeriodHours ?? (hours + awakeHours), 0)
+            awakePercentage = periodHours > 0 ? min(awakeHours / periodHours * 100, 100) : 0
+            interruptionScore = max(
+                0,
+                1 - awakePercentage / zeroInterruptionScoreAtPercentage
+            ) * 100
+        } else {
+            // Missing interruption data is unknown, not equivalent to zero awakenings.
+            awakePercentage = 0
+            interruptionScore = 0
+        }
+        let compliantDays = regularityComplianceDays(
+            endingOn: entry.date,
+            startsByDay: startsByDay,
+            calendar: calendar
+        )
+        let regularityScore = Double(compliantDays) / Double(regularityWindowDays) * 100
+        let weights = configuration.weights
+        let total = (
+            durationScore * Double(weights.duration)
+                + regularityScore * Double(weights.regularity)
+                + interruptionScore * Double(weights.interruptions)
+        ) / 100
+
+        return SleepQualityBreakdown(
+            durationScore: durationScore,
+            regularityScore: regularityScore,
+            interruptionScore: interruptionScore,
+            compliantDays: compliantDays,
+            awakePercentage: awakePercentage,
+            totalScore: min(max(total, 0), 100)
+        )
+    }
+
+    private static func regularityComplianceDays(
+        endingOn endDate: Date,
+        startsByDay: [Date: Date],
+        calendar: Calendar
+    ) -> Int {
+        let endDay = calendar.startOfDay(for: endDate)
+        let starts = (0..<regularityWindowDays).compactMap { offset -> Date? in
+            guard let day = calendar.date(byAdding: .day, value: -offset, to: endDay) else {
+                return nil
+            }
+            return startsByDay[day]
+        }
+        let minutes = starts.map { start -> Double in
+            let components = calendar.dateComponents([.hour, .minute, .second], from: start)
+            return Double(components.hour ?? 0) * 60
+                + Double(components.minute ?? 0)
+                + Double(components.second ?? 0) / 60
+        }
+        guard let mean = circularMeanMinutes(minutes) else { return 0 }
+        return minutes.filter {
+            circularDistanceMinutes($0, mean) <= bedtimeToleranceMinutes
+        }.count
+    }
+
+    private static func sleepStartsByDay(
+        in history: [AppleHealthSleepDay],
+        calendar: Calendar
+    ) -> [Date: Date] {
+        var result: [Date: Date] = [:]
+        for entry in history {
+            guard let start = entry.sleepStartDate else { continue }
+            result[calendar.startOfDay(for: entry.date)] = start
+        }
+        return result
+    }
+
+    private static func circularMeanMinutes(_ values: [Double]) -> Double? {
+        guard !values.isEmpty else { return nil }
+        let fullDay = 24.0 * 60.0
+        let angles = values.map { $0 / fullDay * 2 * Double.pi }
+        let sine = angles.map(sin).reduce(0, +) / Double(angles.count)
+        let cosine = angles.map(cos).reduce(0, +) / Double(angles.count)
+        guard abs(sine) > 0.000_001 || abs(cosine) > 0.000_001 else { return nil }
+        var angle = atan2(sine, cosine)
+        if angle < 0 { angle += 2 * Double.pi }
+        return angle / (2 * Double.pi) * fullDay
+    }
+
+    private static func circularDistanceMinutes(_ lhs: Double, _ rhs: Double) -> Double {
+        let fullDay = 24.0 * 60.0
+        let direct = abs(lhs - rhs).truncatingRemainder(dividingBy: fullDay)
+        return min(direct, fullDay - direct)
+    }
+}
+
+/// A device-local correction applied only while Wellnario presents sleep data.
+/// It is deliberately stored outside the Apple Health snapshot so a later sync
+/// cannot remove it, and it is never written back to HealthKit.
+struct SleepManualOverride: Codable, Equatable, Sendable {
+    let day: LocalDay
+    let qualityScore: Double?
+    let durationHours: Double?
+    let updatedAt: Date
+}
+
+struct SleepManualOverrideStore {
+    static let qualityRange = 0.0...100.0
+    static let durationRange = (1.0 / 60.0)...24.0
+
+    private let defaults: UserDefaults
+    private let storageKey: String
+    let qualityPreferences: SleepQualityPreferences
+
+    init(
+        defaults: UserDefaults = .standard,
+        storageKey: String = "wellnario.sleep.manualOverrides.v1"
+    ) {
+        self.defaults = defaults
+        self.storageKey = storageKey
+        qualityPreferences = SleepQualityPreferences(defaults: defaults)
+    }
+
+    var overrides: [SleepManualOverride] {
+        guard let data = defaults.data(forKey: storageKey),
+              let decoded = try? JSONDecoder().decode([SleepManualOverride].self, from: data) else {
+            return []
+        }
+        return decoded.sorted { $0.day < $1.day }
+    }
+
+    func override(for day: LocalDay) -> SleepManualOverride? {
+        overrides.first { $0.day == day }
+    }
+
+    func override(
+        for date: Date,
+        timeZone: TimeZone = .current
+    ) -> SleepManualOverride? {
+        override(for: LocalDay(containing: date, in: timeZone))
+    }
+
+    @discardableResult
+    func save(
+        day: LocalDay,
+        qualityScore: Double?,
+        durationHours: Double?,
+        updatedAt: Date = Date()
+    ) -> Bool {
+        guard qualityScore != nil || durationHours != nil,
+              qualityScore.map({ $0.isFinite && Self.qualityRange.contains($0) }) ?? true,
+              durationHours.map({ $0.isFinite && Self.durationRange.contains($0) }) ?? true else {
+            return false
+        }
+
+        var stored = overrides.filter { $0.day != day }
+        stored.append(SleepManualOverride(
+            day: day,
+            qualityScore: qualityScore,
+            durationHours: durationHours,
+            updatedAt: updatedAt
+        ))
+        persist(stored)
+        NotificationCenter.default.post(name: .sleepManualOverridesDidChange, object: nil)
+        return true
+    }
+
+    func remove(day: LocalDay) {
+        let currentOverrides = overrides
+        let stored = currentOverrides.filter { $0.day != day }
+        guard stored.count != currentOverrides.count else { return }
+        persist(stored)
+        NotificationCenter.default.post(name: .sleepManualOverridesDidChange, object: nil)
+    }
+
+    func removeAll(notify: Bool = true) {
+        defaults.removeObject(forKey: storageKey)
+        if notify {
+            NotificationCenter.default.post(name: .sleepManualOverridesDidChange, object: nil)
+        }
+    }
+
+    func applying(
+        to history: [AppleHealthSleepDay],
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> [AppleHealthSleepDay] {
+        resolve(
+            history: history,
+            configuration: qualityPreferences.configuration(calendar: calendar),
+            calendar: calendar
+        )
+    }
+
+    func applying(
+        to snapshot: AppleHealthSnapshot,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> AppleHealthSnapshot {
+        var effective = snapshot
+        let configuration = qualityPreferences.configuration(
+            dateOfBirthComponents: snapshot.dateOfBirthComponents,
+            calendar: calendar
+        )
+        effective.sleepTrend = resolve(
+            history: snapshot.sleepTrend,
+            configuration: configuration,
+            calendar: calendar
+        )
+
+        if let session = snapshot.latestSleepSession,
+           let manualOverride = override(
+               for: session.endDate,
+               timeZone: calendar.timeZone
+           ),
+           let durationHours = manualOverride.durationHours {
+            effective.latestSleepSession = AppleHealthSleepSession(
+                startDate: session.startDate,
+                endDate: session.endDate,
+                asleepSeconds: durationHours * 3_600,
+                inBedSeconds: session.inBedSeconds,
+                awakeSeconds: session.awakeSeconds,
+                coreSeconds: session.coreSeconds,
+                deepSeconds: session.deepSeconds,
+                remSeconds: session.remSeconds,
+                sourceNames: session.sourceNames,
+                stageIntervals: session.stageIntervals
+            )
+        }
+        return effective
+    }
+
+    private func resolve(
+        history: [AppleHealthSleepDay],
+        configuration: SleepQualityConfiguration,
+        calendar: Calendar
+    ) -> [AppleHealthSleepDay] {
+        var overridesByDay: [LocalDay: SleepManualOverride] = [:]
+        for manualOverride in overrides {
+            overridesByDay[manualOverride.day] = manualOverride
+        }
+        var entriesByDay: [LocalDay: AppleHealthSleepDay] = [:]
+        for entry in history {
+            entriesByDay[LocalDay(containing: entry.date, in: calendar.timeZone)] = entry
+        }
+
+        for manualOverride in overridesByDay.values {
+            let existing = entriesByDay[manualOverride.day]
+            guard let date = try? manualOverride.day.startDate(in: calendar.timeZone) else { continue }
+            entriesByDay[manualOverride.day] = AppleHealthSleepDay(
+                date: existing?.date ?? date,
+                hours: manualOverride.durationHours ?? existing?.hours,
+                qualityScore: existing?.qualityScore,
+                remHours: existing?.remHours,
+                deepHours: existing?.deepHours,
+                lightHours: existing?.lightHours,
+                sleepStartDate: existing?.sleepStartDate,
+                awakeHours: existing?.awakeHours,
+                sleepPeriodHours: existing?.sleepPeriodHours
+            )
+        }
+
+        let scored = SleepQualityCalculator.applying(
+            to: entriesByDay.values.sorted { $0.date < $1.date },
+            configuration: configuration,
+            calendar: calendar
+        )
+        return scored.map { entry in
+            let day = LocalDay(containing: entry.date, in: calendar.timeZone)
+            guard let manualQuality = overridesByDay[day]?.qualityScore else { return entry }
+            return AppleHealthSleepDay(
+                date: entry.date,
+                hours: entry.hours,
+                qualityScore: manualQuality,
+                remHours: entry.remHours,
+                deepHours: entry.deepHours,
+                lightHours: entry.lightHours,
+                sleepStartDate: entry.sleepStartDate,
+                awakeHours: entry.awakeHours,
+                sleepPeriodHours: entry.sleepPeriodHours
+            )
+        }
+    }
+
+    private func persist(_ overrides: [SleepManualOverride]) {
+        guard let data = try? JSONEncoder().encode(overrides.sorted(by: { $0.day < $1.day })) else {
+            return
+        }
+        defaults.set(data, forKey: storageKey)
     }
 }
 
@@ -470,7 +1029,10 @@ enum AppleHealthSleepAggregator {
                 qualityScore: entry.qualityScore,
                 remHours: entry.remHours,
                 deepHours: entry.deepHours,
-                lightHours: entry.lightHours
+                lightHours: entry.lightHours,
+                sleepStartDate: entry.sleepStartDate,
+                awakeHours: entry.awakeHours,
+                sleepPeriodHours: entry.sleepPeriodHours
             )
         }
 
@@ -537,7 +1099,10 @@ enum AppleHealthSleepAggregator {
                 qualityScore: average(bucketEntries.map(\.qualityScore)),
                 remHours: average(bucketEntries.map(\.remHours)),
                 deepHours: average(bucketEntries.map(\.deepHours)),
-                lightHours: average(bucketEntries.map(\.lightHours))
+                lightHours: average(bucketEntries.map(\.lightHours)),
+                sleepStartDate: nil,
+                awakeHours: average(bucketEntries.map(\.awakeHours)),
+                sleepPeriodHours: average(bucketEntries.map(\.sleepPeriodHours))
             )
         }
     }
@@ -572,20 +1137,57 @@ enum AppleHealthSleepAggregator {
         return days.map { day in
             let dailySessions = sessionsByDay[day, default: []]
             let asleepSeconds = dailySessions.reduce(0) { $0 + $1.asleepSeconds }
+            let awakeSeconds = dailySessions.reduce(0) {
+                $0 + interruptionAwakeSeconds(in: $1)
+            }
             let remSeconds = dailySessions.reduce(0) { $0 + $1.remSeconds }
             let deepSeconds = dailySessions.reduce(0) { $0 + $1.deepSeconds }
             let lightSeconds = dailySessions.reduce(0) { $0 + $1.coreSeconds }
+            let mainSession = dailySessions.max { lhs, rhs in
+                if lhs.asleepSeconds != rhs.asleepSeconds {
+                    return lhs.asleepSeconds < rhs.asleepSeconds
+                }
+                return lhs.endDate < rhs.endDate
+            }
             return AppleHealthSleepDay(
                 date: day,
                 hours: asleepSeconds > 0 ? asleepSeconds / 3_600 : nil,
-                // Apple Health's Sleep Score isn't exposed through the public HealthKit API.
-                // Keep this nil until an authorized source supplies a real score.
+                // Wellnario computes this later using the current target and weights.
                 qualityScore: nil,
                 remHours: remSeconds > 0 ? remSeconds / 3_600 : nil,
                 deepHours: deepSeconds > 0 ? deepSeconds / 3_600 : nil,
-                lightHours: lightSeconds > 0 ? lightSeconds / 3_600 : nil
+                lightHours: lightSeconds > 0 ? lightSeconds / 3_600 : nil,
+                sleepStartDate: mainSession.map(sleepStartDate),
+                awakeHours: dailySessions.isEmpty ? nil : awakeSeconds / 3_600,
+                sleepPeriodHours: dailySessions.isEmpty
+                    ? nil
+                    : (asleepSeconds + awakeSeconds) / 3_600
             )
         }
+    }
+
+    private static func interruptionAwakeSeconds(
+        in session: AppleHealthSleepSession
+    ) -> TimeInterval {
+        let asleepIntervals = session.stageIntervals.filter { $0.stage != .awake }
+        guard let firstAsleep = asleepIntervals.map(\.startDate).min(),
+              let lastAsleep = asleepIntervals.map(\.endDate).max() else {
+            return session.awakeSeconds
+        }
+        return session.stageIntervals
+            .filter { $0.stage == .awake }
+            .reduce(0) { total, interval in
+                let start = max(interval.startDate, firstAsleep)
+                let end = min(interval.endDate, lastAsleep)
+                return total + max(end.timeIntervalSince(start), 0)
+            }
+    }
+
+    private static func sleepStartDate(in session: AppleHealthSleepSession) -> Date {
+        session.stageIntervals
+            .filter { $0.stage != .awake }
+            .map(\.startDate)
+            .min() ?? session.startDate
     }
 
     private static func daySequence(
@@ -841,7 +1443,7 @@ final class AppleHealthSyncService: AppleHealthSyncing {
                 end: now
             )
 
-            let updated = AppleHealthSnapshot(
+            var updated = AppleHealthSnapshot(
                 lastSyncedAt: now,
                 latestSleepSession: sleepSessions.last,
                 sleepTrend: AppleHealthSleepAggregator.allTimeTrend(
@@ -857,6 +1459,7 @@ final class AppleHealthSyncService: AppleHealthSyncing {
                 activeEnergyKilocaloriesToday: activeEnergy,
                 workoutsThisWeek: workouts
             )
+            updated.dateOfBirthComponents = try? healthStore.dateOfBirthComponents()
             snapshot = updated
             cache.save(updated)
             setState(.ready)
@@ -870,6 +1473,7 @@ final class AppleHealthSyncService: AppleHealthSyncing {
         var types = Set<HKObjectType>()
         [
             HKObjectType.categoryType(forIdentifier: .sleepAnalysis),
+            HKObjectType.characteristicType(forIdentifier: .dateOfBirth),
             HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN),
             HKObjectType.quantityType(forIdentifier: .restingHeartRate),
             HKObjectType.quantityType(forIdentifier: .vo2Max),

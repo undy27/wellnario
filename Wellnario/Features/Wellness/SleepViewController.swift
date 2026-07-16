@@ -18,6 +18,7 @@ final class SleepViewController: WellnessScrollViewController {
     private let appleHealthService: AppleHealthSyncing
     private let defaults: UserDefaults
     private let cardLayoutPreferences: SleepCardLayoutPreferences
+    private let sleepManualOverrideStore: SleepManualOverrideStore
     private let sourceBanner = FeedbackBannerView()
     private let trendChart = WellnessTrendChartView()
     private var isSourceBannerVisible = false
@@ -29,9 +30,15 @@ final class SleepViewController: WellnessScrollViewController {
     private lazy var trendMetricControl: UISegmentedControl = makeTrendMetricControl()
     private lazy var trendReferenceLineControl: UISegmentedControl = makeTrendReferenceLineControl()
 
-    init(appleHealthService: AppleHealthSyncing, defaults: UserDefaults = .standard) {
+    init(
+        appleHealthService: AppleHealthSyncing,
+        defaults: UserDefaults = .standard,
+        sleepManualOverrideStore: SleepManualOverrideStore? = nil
+    ) {
         self.appleHealthService = appleHealthService
         self.defaults = defaults
+        self.sleepManualOverrideStore = sleepManualOverrideStore
+            ?? SleepManualOverrideStore(defaults: defaults)
         cardLayoutPreferences = SleepCardLayoutPreferences(defaults: defaults)
         let storedReferenceLine = defaults.object(forKey: Self.trendReferenceLinePreferenceKey) as? Int
         selectedTrendReferenceLine = storedReferenceLine
@@ -72,6 +79,18 @@ final class SleepViewController: WellnessScrollViewController {
             name: .appleHealthSyncDidChange,
             object: appleHealthService
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sleepManualOverridesDidChange),
+            name: .sleepManualOverridesDidChange,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sleepQualityPreferencesDidChange),
+            name: .sleepQualityPreferencesDidChange,
+            object: nil
+        )
         setUpSourceBanner()
         buildContent()
     }
@@ -91,7 +110,7 @@ final class SleepViewController: WellnessScrollViewController {
 
     private func buildContent() {
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let snapshot = appleHealthService.snapshot
+        let snapshot = effectiveSnapshot()
 
         updateSourceBanner(snapshot: snapshot)
         let visibleCards = cardLayoutPreferences.orderedCards.filter(cardLayoutPreferences.isVisible)
@@ -107,6 +126,10 @@ final class SleepViewController: WellnessScrollViewController {
         }
     }
 
+    private func effectiveSnapshot() -> AppleHealthSnapshot {
+        sleepManualOverrideStore.applying(to: appleHealthService.snapshot)
+    }
+
     private func makeCardSection(_ card: SleepCardKind, snapshot: AppleHealthSnapshot) -> UIView {
         let sectionTitle: UIView
         let cardView: UIView
@@ -116,7 +139,7 @@ final class SleepViewController: WellnessScrollViewController {
                 L10n.text("sleep.latest.title"),
                 detail: L10n.text("sleep.latest.detail")
             )
-            cardView = makeLatestSessionCard(snapshot.latestSleepSession)
+            cardView = makeLatestSessionCard(snapshot)
         case .trend:
             sectionTitle = makeSectionTitle(L10n.text("sleep.trend.title"))
             cardView = makeTrendCard(snapshot: snapshot)
@@ -500,25 +523,71 @@ final class SleepViewController: WellnessScrollViewController {
         }
     }
 
-    private func makeLatestSessionCard(_ session: AppleHealthSleepSession?) -> PremiumCardView {
+    private func makeLatestSessionCard(_ snapshot: AppleHealthSnapshot) -> PremiumCardView {
+        let session = snapshot.latestSleepSession
+        let sessionDay = session.map { LocalDay(containing: $0.endDate, in: .current) }
+        let latestManual: SleepManualOverride?
+        if let candidate = sleepManualOverrideStore.overrides.last,
+           sessionDay.map({ candidate.day >= $0 }) ?? true {
+            latestManual = candidate
+        } else {
+            latestManual = nil
+        }
+        let displayedSession = latestManual?.day == sessionDay || latestManual == nil
+            ? session
+            : nil
+        let displayedDay = latestManual?.day ?? sessionDay
+        let displayedQuality = displayedDay.flatMap { day in
+            snapshot.sleepTrend.last {
+                LocalDay(containing: $0.date, in: .current) == day
+            }?.qualityScore
+        }
+
         let moon = UIImageView(image: UIImage(systemName: "moon.stars.fill"))
         moon.tintColor = WellnarioPalette.violet
         moon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 29, weight: .semibold)
 
         let titleLabel = UILabel()
         titleLabel.applyWellnarioStyle(.cardTitle, color: WellnarioPalette.textPrimary)
-        titleLabel.text = session.map { AppleHealthUIFormatting.duration($0.asleepSeconds) }
-            ?? L10n.text("sleep.latest.empty.title")
+        if let durationHours = latestManual?.durationHours {
+            titleLabel.text = AppleHealthUIFormatting.duration(durationHours * 3_600)
+        } else if let displayedSession {
+            titleLabel.text = AppleHealthUIFormatting.duration(displayedSession.asleepSeconds)
+        } else if let quality = displayedQuality {
+            titleLabel.text = L10n.text("sleep.manual.quality", Int(quality.rounded()))
+        } else {
+            titleLabel.text = L10n.text("sleep.latest.empty.title")
+        }
         titleLabel.numberOfLines = 0
 
         let bodyLabel = UILabel()
         bodyLabel.applyWellnarioStyle(.body, color: WellnarioPalette.textSecondary)
-        if let session {
-            let range = AppleHealthUIFormatting.sleepRange(session)
-            let sources = session.sourceNames.joined(separator: ", ")
-            bodyLabel.text = sources.isEmpty
+        if let displayedSession {
+            let range = AppleHealthUIFormatting.sleepRange(displayedSession)
+            let sources = displayedSession.sourceNames.joined(separator: ", ")
+            let healthDescription = sources.isEmpty
                 ? range
                 : L10n.text("apple_health.sleep.range_source", range, sources)
+            var details = [healthDescription]
+            if latestManual != nil {
+                details.append(L10n.text("sleep.manual.source"))
+            }
+            if let quality = displayedQuality {
+                details.append(L10n.text("sleep.manual.quality", Int(quality.rounded())))
+            }
+            bodyLabel.text = details.joined(separator: " · ")
+        } else if let latestManual {
+            let formatter = DateFormatter()
+            formatter.locale = LocalizationManager.shared.locale
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .none
+            let date = try? latestManual.day.startDate(in: TimeZone.current)
+            var details = [L10n.text("sleep.manual.source")]
+            if let date { details.insert(formatter.string(from: date), at: 0) }
+            if let quality = displayedQuality {
+                details.append(L10n.text("sleep.manual.quality", Int(quality.rounded())))
+            }
+            bodyLabel.text = details.joined(separator: " · ")
         } else {
             bodyLabel.text = L10n.text("sleep.latest.empty.body")
         }
@@ -552,7 +621,7 @@ final class SleepViewController: WellnessScrollViewController {
         timelineTitle.text = L10n.text("sleep.stage.timeline.title")
 
         let timeline = SleepStageTimelineView()
-        timeline.configure(session: session)
+        timeline.configure(session: displayedSession)
         let timelineSection = UIStackView(
             arrangedSubviews: [timelineTitle, timeline],
             axis: .vertical,
@@ -615,19 +684,21 @@ final class SleepViewController: WellnessScrollViewController {
         navigationController?.pushViewController(editor, animated: true)
     }
     @objc private func appleHealthDidChange() { buildContent() }
+    @objc private func sleepManualOverridesDidChange() { buildContent() }
+    @objc private func sleepQualityPreferencesDidChange() { buildContent() }
     @objc private func trendPeriodDidChange() {
         guard let period = AppleHealthSleepTrendPeriod(rawValue: trendPeriodControl.selectedSegmentIndex) else {
             return
         }
         selectedTrendPeriod = period
-        configureTrendChart(with: appleHealthService.snapshot)
+        configureTrendChart(with: effectiveSnapshot())
     }
     @objc private func trendMetricDidChange() {
         guard let metric = TrendMetric(rawValue: trendMetricControl.selectedSegmentIndex) else {
             return
         }
         selectedTrendMetric = metric
-        configureTrendChart(with: appleHealthService.snapshot)
+        configureTrendChart(with: effectiveSnapshot())
     }
     @objc private func trendReferenceLineDidChange() {
         guard let referenceLine = WellnessTrendReferenceLine(

@@ -184,18 +184,20 @@ extension WellnarioRepository {
             }
             let label = try instanceLabel(draft.label, supplementID: draft.supplementID, existing: nil)
             let notes = try optionalTrimmed(draft.notes, field: "Instance notes")
+            try validateInstanceTotal(quantity: draft.totalQuantity, unit: draft.totalUnit)
             let now = Date().timeIntervalSince1970
             try database.execute(
                 """
                 INSERT INTO supplement_instances (
-                    id, supplement_id, user_id, label, expiration_day, notes,
+                    id, supplement_id, user_id, label, expiration_day, notes, total_quantity, total_unit,
                     created_at, updated_at, archived_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL);
                 """,
                 bindings: [
                     .text(id.uuidString), .text(draft.supplementID.uuidString), .text(userID.uuidString),
                     .text(label), draft.expirationDay.map { .text($0.iso8601) } ?? .null,
-                    binding(notes), .real(now), .real(now)
+                    binding(notes), try decimalBinding(draft.totalQuantity), binding(draft.totalUnit?.rawValue),
+                    .real(now), .real(now)
                 ]
             )
             guard let result = try loadInstance(id: id) else {
@@ -229,15 +231,18 @@ extension WellnarioRepository {
             }
             let label = try instanceLabel(draft.label, supplementID: draft.supplementID, existing: existing)
             let notes = try optionalTrimmed(draft.notes, field: "Instance notes")
+            try validateInstanceTotal(quantity: draft.totalQuantity, unit: draft.totalUnit)
             try database.execute(
                 """
                 UPDATE supplement_instances SET supplement_id = ?, label = ?, expiration_day = ?,
-                    notes = ?, updated_at = ? WHERE id = ? AND user_id = ?;
+                    notes = ?, total_quantity = ?, total_unit = ?, updated_at = ?
+                WHERE id = ? AND user_id = ?;
                 """,
                 bindings: [
                     .text(draft.supplementID.uuidString), .text(label),
                     draft.expirationDay.map { .text($0.iso8601) } ?? .null,
-                    binding(notes), .real(Date().timeIntervalSince1970),
+                    binding(notes), try decimalBinding(draft.totalQuantity), binding(draft.totalUnit?.rawValue),
+                    .real(Date().timeIntervalSince1970),
                     .text(id.uuidString), .text(userID.uuidString)
                 ]
             )
@@ -314,7 +319,7 @@ extension WellnarioRepository {
         allowingArchivedActiveIDs: Set<UUID>
     ) throws -> ValidatedSupplementDraft {
         let name = try requiredTrimmed(draft.name, field: "Supplement name")
-        let brand = try requiredTrimmed(draft.brand, field: "Brand")
+        let brand = try optionalTrimmed(draft.brand, field: "Brand", maximum: 120) ?? ""
         let details = try optionalTrimmed(draft.details, field: "Supplement description")
         let category = try optionalTrimmed(draft.category, field: "Category", maximum: 120)
         let imageReference = try optionalTrimmed(draft.imageReference, field: "Image reference", maximum: 1_024)
@@ -406,5 +411,12 @@ extension WellnarioRepository {
             bindings: [.text(supplementID.uuidString)]
         )
         return "#\(count + 1)"
+    }
+
+    private func validateInstanceTotal(quantity: Decimal?, unit: DoseUnit?) throws {
+        guard (quantity == nil) == (unit == nil) else {
+            throw RepositoryError.validation("Package total requires both an amount and a unit.")
+        }
+        if let quantity { try requirePositive(quantity, field: "Package total") }
     }
 }

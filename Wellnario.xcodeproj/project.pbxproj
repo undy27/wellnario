@@ -64,6 +64,7 @@
 		C6FBD3B68904B5666445B379 /* SupplementRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F43B812B503B178B38AC3F3F /* SupplementRepository.swift */; };
 		CDD38E488DFB981D84CECBC4 /* AppLaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AF49D4573211603C1FB7E0B /* AppLaunchConfiguration.swift */; };
 		D14FEF0F4E8CBD5F4FD58C9F /* PresentationArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3C56AA21E0E8F60D3AA9A2 /* PresentationArtworkView.swift */; };
+		D2D2C4D49113A0B7C2100CE9 /* ProductPackageWizardViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2A771CF2915313C61397B1D /* ProductPackageWizardViewController.swift */; };
 		D3CC330B5B35061E65FDE1BE /* MoreViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09C643AA3DC070D505358029 /* MoreViewController.swift */; };
 		D62F01B8EB8D9B021C919527 /* WellnarioRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F80873A72A781EB3D6BEDFA /* WellnarioRepository.swift */; };
 		DC5416B9CA4B075AE3405202 /* WellnarioNavigationUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD8C330B7E3D760DD9559F57 /* WellnarioNavigationUITests.swift */; };
@@ -139,6 +140,7 @@
 		A786C39C5ACBD63E42686FCC /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		AA8E3A61C72C4B3E09B25CD0 /* Consumption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Consumption.swift; sourceTree = "<group>"; };
 		AE19802AB1A2B26824FE1028 /* SupplementDetailViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementDetailViewController.swift; sourceTree = "<group>"; };
+		B2A771CF2915313C61397B1D /* ProductPackageWizardViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductPackageWizardViewController.swift; sourceTree = "<group>"; };
 		B61E62F90E3C1939114F9E0B /* WellnarioStateViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioStateViews.swift; sourceTree = "<group>"; };
 		B83F44EB6C7CF97D47824996 /* Wellnario.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Wellnario.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B9324B5E5B9957A44156A3AD /* ArchivedItemsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchivedItemsViewController.swift; sourceTree = "<group>"; };
@@ -260,6 +262,7 @@
 				FAC82015A0F90402551D4A16 /* EditorSupport.swift */,
 				D81E8C2E0047B5EEBFD4FE9D /* InstanceEditorViewController.swift */,
 				5C91DB98B8BC4D2E2EB540DD /* IntakeEditorViewController.swift */,
+				B2A771CF2915313C61397B1D /* ProductPackageWizardViewController.swift */,
 				AE19802AB1A2B26824FE1028 /* SupplementDetailViewController.swift */,
 				6E3CABD1CAC280DB0958A83D /* SupplementEditorViewController.swift */,
 				9218DDB4325018A500790ED1 /* SupplementsViewController.swift */,
@@ -592,6 +595,7 @@
 				D3CC330B5B35061E65FDE1BE /* MoreViewController.swift in Sources */,
 				B9ABA4EAAEDD0CE9B40FB070 /* PremiumCardView.swift in Sources */,
 				D14FEF0F4E8CBD5F4FD58C9F /* PresentationArtworkView.swift in Sources */,
+				D2D2C4D49113A0B7C2100CE9 /* ProductPackageWizardViewController.swift in Sources */,
 				A8BB2110A69A19E8BB46A3CD /* QuickActionViewControllers.swift in Sources */,
 				C136BAA3750870D507E5B0CE /* RepositoryMapping.swift in Sources */,
 				9B52637B17911E893DFE0B55 /* RootTabBarController.swift in Sources */,

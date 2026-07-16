@@ -1,2 +1,2 @@
-"NSHealthShareUsageDescription" = "Wellnario privately imports your sleep, activity, heart, and workout data to show it in your wellness summaries.";
+"NSHealthShareUsageDescription" = "Wellnario privately imports your sleep, activity, heart, workout, and date of birth data to personalize your wellness summaries and sleep target.";
 "NSHealthUpdateUsageDescription" = "Wellnario uses HealthKit to keep your wellness data connected with Apple Health. This version is read-only and does not save health samples.";

@@ -5,6 +5,7 @@ final class IntakeEditorViewController: EditorViewController {
     private let consumption: Consumption?
     private let preferredInstanceID: UUID?
     private let instanceField = SelectionFieldView(title: L10n.Inventory.batch)
+    private let fixedInstanceLabel = UILabel()
     private let quantityField = FormFieldView()
     private let datePicker = UIDatePicker()
     private let notesField = TextAreaFieldView()
@@ -33,6 +34,7 @@ final class IntakeEditorViewController: EditorViewController {
         super.viewDidLoad()
         title = consumption == nil ? L10n.Today.logIntake : L10n.text("intake.edit")
         view.accessibilityIdentifier = "intake.editor"
+        saveButton.accessibilityIdentifier = "intake.save"
         loadOptions()
         configureFields()
         buildForm()
@@ -97,6 +99,15 @@ final class IntakeEditorViewController: EditorViewController {
 
     private func configureFields() {
         rebuildInstanceMenu()
+        instanceField.button.accessibilityIdentifier = "intake.instance.selector"
+        instanceField.button.isEnabled = !isPreferredInstanceLocked
+        fixedInstanceLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
+        fixedInstanceLabel.text = L10n.text("intake.inventory.fixed")
+        fixedInstanceLabel.numberOfLines = 0
+        fixedInstanceLabel.isHidden = !isPreferredInstanceLocked
+        instanceField.button.accessibilityHint = isPreferredInstanceLocked
+            ? L10n.text("intake.inventory.fixed")
+            : nil
         quantityField.configure(
             title: L10n.Form.amountConsumed,
             placeholder: "1",
@@ -129,7 +140,10 @@ final class IntakeEditorViewController: EditorViewController {
     }
 
     private func buildForm() {
-        addSection(title: L10n.Form.basics, views: [instanceField, warningLabel, quantityField])
+        addSection(
+            title: L10n.Form.basics,
+            views: [instanceField, fixedInstanceLabel, warningLabel, quantityField]
+        )
 
         let dateTitle = UILabel()
         dateTitle.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
@@ -145,6 +159,10 @@ final class IntakeEditorViewController: EditorViewController {
 
     private var selectedInstance: SupplementInstance? {
         instances.first { $0.id == selectedInstanceID }
+    }
+
+    private var isPreferredInstanceLocked: Bool {
+        consumption == nil && preferredInstanceID != nil && selectedInstance != nil
     }
 
     private func supplement(for instance: SupplementInstance) -> Supplement? {

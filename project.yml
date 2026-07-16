@@ -63,7 +63,6 @@ targets:
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIRequiresFullScreen: true
-        UIUserInterfaceStyle: Dark
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UIViewControllerBasedStatusBarAppearance: true

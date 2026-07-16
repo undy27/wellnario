@@ -232,6 +232,7 @@ public struct Active: Identifiable, Hashable, Sendable {
     public let proposedDailyFemale: Decimal?
     public let imageKey: String?
     public let categories: [ActiveCategory]
+    public let isFavorite: Bool
     public let isSeeded: Bool
     public let currentTarget: ActiveTarget?
     public let createdAt: Date
@@ -249,6 +250,7 @@ public struct Active: Identifiable, Hashable, Sendable {
         proposedDailyFemale: Decimal?,
         imageKey: String?,
         categories: [ActiveCategory],
+        isFavorite: Bool,
         isSeeded: Bool,
         currentTarget: ActiveTarget?,
         createdAt: Date,
@@ -265,6 +267,7 @@ public struct Active: Identifiable, Hashable, Sendable {
         self.proposedDailyFemale = proposedDailyFemale
         self.imageKey = imageKey
         self.categories = categories
+        self.isFavorite = isFavorite
         self.isSeeded = isSeeded
         self.currentTarget = currentTarget
         self.createdAt = createdAt

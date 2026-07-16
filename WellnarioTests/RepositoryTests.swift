@@ -91,6 +91,104 @@ final class RepositoryTests: XCTestCase {
         )
     }
 
+    func testActiveFavoritesAreUserScopedAndPersist() throws {
+        let (repository, url) = try makeRepository()
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        XCTAssertFalse(active.isFavorite)
+
+        let favorite = try repository.setActiveFavorite(id: active.id, isFavorite: true)
+        XCTAssertTrue(favorite.isFavorite)
+        XCTAssertTrue(try XCTUnwrap(try WellnarioRepository(databaseURL: url).active(id: active.id)).isFavorite)
+
+        let otherUserRepository = try WellnarioRepository(databaseURL: url, userID: UUID())
+        XCTAssertFalse(try XCTUnwrap(try otherUserRepository.active(id: active.id)).isFavorite)
+
+        let restored = try repository.setActiveFavorite(id: active.id, isFavorite: false)
+        XCTAssertFalse(restored.isFavorite)
+    }
+
+    func testTargetPersistsSelectedCompatibleUnit() throws {
+        let (repository, url) = try makeRepository()
+        let active = try repository.createActive(
+            ActiveDraft(name: "Target unit active", baseUnit: .milligram)
+        )
+        let day = try LocalDay(year: 2026, month: 7, day: 16)
+        let target = try repository.setTarget(
+            activeID: active.id,
+            lowerBound: 1.5,
+            upperBound: 1.5,
+            unit: .gram,
+            effectiveFrom: day
+        )
+        XCTAssertEqual(target.unit, .gram)
+        XCTAssertEqual(target.lowerBound, 1.5)
+
+        let reopened = try WellnarioRepository(databaseURL: url)
+        XCTAssertEqual(try XCTUnwrap(try reopened.targetHistory(activeID: active.id).last).unit, .gram)
+        XCTAssertThrowsError(
+            try repository.setTarget(
+                activeID: active.id,
+                lowerBound: 1,
+                upperBound: 1,
+                unit: .milliliter,
+                effectiveFrom: day
+            )
+        )
+    }
+
+    func testPackageTotalAndOptionalBrandPersistAcrossRepositoryReopen() throws {
+        let (repository, url) = try makeRepository()
+        let presentation = try presentation(repository, key: "presentation.powder.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.creatine.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Creatina sin marca",
+            brand: "",
+            presentationTypeID: presentation.id,
+            basisQuantity: 100,
+            basisUnit: .gram,
+            components: [SupplementComponentDraft(activeID: active.id, amount: 100, unit: .gram)]
+        ))
+        let expiry = try LocalDay(year: 2028, month: 6, day: 30)
+        let instance = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            expirationDay: expiry,
+            totalQuantity: 500,
+            totalUnit: .gram
+        ))
+
+        XCTAssertEqual(supplement.brand, "")
+        XCTAssertEqual(instance.totalQuantity, 500)
+        XCTAssertEqual(instance.totalUnit, .gram)
+
+        let reopened = try WellnarioRepository(databaseURL: url)
+        let persistedSupplement = try XCTUnwrap(try reopened.supplement(id: supplement.id))
+        let persistedInstance = try XCTUnwrap(try reopened.instance(id: instance.id))
+        XCTAssertEqual(persistedSupplement.brand, "")
+        XCTAssertEqual(persistedInstance.expirationDay, expiry)
+        XCTAssertEqual(persistedInstance.totalQuantity, 500)
+        XCTAssertEqual(persistedInstance.totalUnit, .gram)
+    }
+
+    @MainActor
+    func testSupplementPhotoStoreRoundTripsAndRemovesUserPhoto() throws {
+        let (repository, _) = try makeRepository()
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 24)).image { context in
+            UIColor.systemPink.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 32, height: 24))
+        }
+
+        let reference = try SupplementPhotoStore.save(image, databaseURL: repository.databaseURL)
+        XCTAssertTrue(reference.hasPrefix("user-photo:"))
+        XCTAssertNotNil(SupplementPhotoStore.image(reference: reference, databaseURL: repository.databaseURL))
+
+        SupplementPhotoStore.remove(reference: reference, databaseURL: repository.databaseURL)
+        XCTAssertNil(SupplementPhotoStore.image(reference: reference, databaseURL: repository.databaseURL))
+    }
+
     func testFormulaPersistenceAndHistoryRemainInvariantAfterFormulaChange() throws {
         let (repository, url) = try makeRepository()
         let active = try repository.createActive(
@@ -224,6 +322,18 @@ final class RepositoryTests: XCTestCase {
         XCTAssertEqual(series.daysWithinTarget, 2)
         XCTAssertEqual(series.points.map(\.status), [.within, .below, .within, .below])
 
+        let aggregationDays = try (0..<4).map { try from.adding(days: $0) }
+        let weeklyValues = try WeeklyConsumptionAggregator.values(
+            actives: [active],
+            consumptions: try repository.fetchConsumptions(
+                from: from,
+                through: through,
+                limit: nil
+            ),
+            days: aggregationDays
+        )
+        XCTAssertEqual(weeklyValues[active.id], [100, 0, 200, 0])
+
         let diary = try repository.diary(from: from, through: through)
         XCTAssertEqual(diary.map(\.day), [
             try LocalDay(year: 2026, month: 7, day: 3),
@@ -232,6 +342,97 @@ final class RepositoryTests: XCTestCase {
         let dashboard = try repository.dashboard(on: from, expiringWithinDays: 30)
         XCTAssertEqual(dashboard.consumptionCount, 1)
         XCTAssertEqual(dashboard.activeProgress.first(where: { $0.id == active.id })?.consumedAmount, 100)
+    }
+
+    func testSingleValueTargetUsesConfiguredMarginWhileExplicitRangeRemainsUnchanged() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WellnarioTargetMarginTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let defaultsSuite = "WellnarioTargetMarginTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: directory)
+            UserDefaults(suiteName: defaultsSuite)?.removePersistentDomain(forName: defaultsSuite)
+        }
+
+        let repository = try WellnarioRepository(
+            databaseURL: directory.appendingPathComponent("test.sqlite"),
+            preferencesDefaults: defaults
+        )
+        let preferences = ActiveTargetMarginPreferences(defaults: defaults)
+        XCTAssertEqual(preferences.percentage, 10)
+
+        let active = try repository.createActive(
+            ActiveDraft(name: "Margin active", baseUnit: .milligram)
+        )
+        let from = try LocalDay(year: 2026, month: 7, day: 1)
+        let dayTwo = try LocalDay(year: 2026, month: 7, day: 2)
+        let dayThree = try LocalDay(year: 2026, month: 7, day: 3)
+        let dayFour = try LocalDay(year: 2026, month: 7, day: 4)
+        let dayFive = try LocalDay(year: 2026, month: 7, day: 5)
+        _ = try repository.setTarget(
+            activeID: active.id,
+            lowerBound: 26,
+            upperBound: 26,
+            effectiveFrom: from
+        )
+
+        let capsule = try presentation(repository, key: "presentation.capsule.name")
+        let supplement = try repository.createSupplement(
+            SupplementDraft(
+                name: "Margin product",
+                brand: "Well Labs",
+                presentationTypeID: capsule.id,
+                basisQuantity: 1,
+                basisUnit: .capsule,
+                components: [
+                    SupplementComponentDraft(activeID: active.id, amount: 1, unit: .milligram)
+                ]
+            )
+        )
+        let instance = try repository.createInstance(
+            SupplementInstanceDraft(supplementID: supplement.id)
+        )
+        for (day, amount) in [
+            (from, decimal("23.4")),
+            (dayTwo, decimal("28.6")),
+            (dayThree, decimal("23.39")),
+            (dayFour, decimal("28.61"))
+        ] {
+            _ = try repository.createConsumption(
+                ConsumptionDraft(
+                    instanceID: instance.id,
+                    quantity: amount,
+                    unit: .capsule,
+                    consumedAt: try day.startDate(in: TimeZone(secondsFromGMT: 0)!).addingTimeInterval(36_000),
+                    timeZoneID: "UTC"
+                )
+            )
+        }
+
+        let exactTargetSeries = try repository.dailyConsumption(
+            activeID: active.id,
+            from: from,
+            through: dayFour
+        )
+        XCTAssertEqual(exactTargetSeries.points.map(\.targetLower), Array(repeating: decimal("23.4"), count: 4))
+        XCTAssertEqual(exactTargetSeries.points.map(\.targetUpper), Array(repeating: decimal("28.6"), count: 4))
+        XCTAssertEqual(exactTargetSeries.points.map(\.status), [.within, .within, .below, .above])
+
+        preferences.setPercentage(50)
+        _ = try repository.setTarget(
+            activeID: active.id,
+            lowerBound: 20,
+            upperBound: 30,
+            effectiveFrom: dayFive
+        )
+        let explicitRangeSeries = try repository.dailyConsumption(
+            activeID: active.id,
+            from: dayFive,
+            through: dayFive
+        )
+        XCTAssertEqual(explicitRangeSeries.points.first?.targetLower, 20)
+        XCTAssertEqual(explicitRangeSeries.points.first?.targetUpper, 30)
     }
 
     func testCRUDDeletesUnusedRecordsAndArchivesRecordsWithHistory() throws {

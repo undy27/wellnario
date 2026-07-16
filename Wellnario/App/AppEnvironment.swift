@@ -24,6 +24,12 @@ final class AppEnvironment {
             isEnabled: !launchConfiguration.isUITesting
         )
 
+        if launchConfiguration.resetsData {
+            let sleepStore = SleepManualOverrideStore()
+            sleepStore.removeAll(notify: false)
+            sleepStore.qualityPreferences.reset(notify: false)
+        }
+
         let repository: WellnarioRepository
         if launchConfiguration.isUITesting {
             let databaseURL = try Self.uiTestDatabaseURL(fileManager: fileManager)

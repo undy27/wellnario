@@ -496,6 +496,7 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
         case .appleHealth:
             keys = [
                 ("bed.double.fill", "integrations.data.sleep"),
+                ("person.text.rectangle", "integrations.data.profile"),
                 ("heart.fill", "integrations.data.heart"),
                 ("figure.run", "integrations.data.activity"),
                 ("figure.strengthtraining.traditional", "integrations.data.workouts")
@@ -601,11 +602,10 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
     private func connectAppleHealth() {
         Task {
             do {
-                if appleHealthService.isConfigured {
-                    try await appleHealthService.sync()
-                } else {
-                    try await appleHealthService.requestAuthorizationAndSync()
-                }
+                // Requesting the complete current read set also gives existing
+                // users the opportunity to authorize data types added later,
+                // such as the birth date used for age-based sleep guidance.
+                try await appleHealthService.requestAuthorizationAndSync()
                 sourceSelectionsOnEntry = appleHealthService.disabledSourceSelections
                 let alert = UIAlertController(
                     title: L10n.text("apple_health.connected.title"),

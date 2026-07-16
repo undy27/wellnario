@@ -2,24 +2,27 @@ import UIKit
 
 @MainActor
 final class TrendsViewController: FeatureViewController {
+    private static let referenceLinePreferenceKey = "wellnario.consumption.trends.referenceLine"
+
     private enum Period: Int, CaseIterable { case sevenDays, thirtyDays, year, custom }
 
     private let initialActiveID: UUID?
     private let returnsToActiveDetail: Bool
+    private let defaults: UserDefaults
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
     private let activeField = SelectionFieldView(title: L10n.Form.active)
-    private let periodStack = UIStackView()
     private let chartCard = PremiumCardView()
-    private let chartScrollView = UIScrollView()
-    private let chartView = ConsumptionChartView()
-    private let selectedPointLabel = UILabel()
+    private let chartView = WellnessTrendChartView()
     private let summaryStack = UIStackView()
     private let emptyState = EmptyStateView()
+    private lazy var periodControl = makePeriodControl()
+    private lazy var referenceLineControl = makeReferenceLineControl()
 
     private var actives: [Active] = []
     private var selectedActiveID: UUID?
     private var selectedPeriod: Period = .sevenDays
+    private var selectedReferenceLine: WellnessTrendReferenceLine
     private var customFrom = LocalDay(containing: Calendar.current.date(byAdding: .day, value: -29, to: Date()) ?? Date(), in: .current)
     private var customThrough = LocalDay(containing: Date(), in: .current)
     private var series: ConsumptionSeries?
@@ -27,11 +30,17 @@ final class TrendsViewController: FeatureViewController {
     init(
         repository: WellnarioRepositoryProtocol,
         activeID: UUID? = nil,
-        returnsToActiveDetail: Bool = false
+        returnsToActiveDetail: Bool = false,
+        defaults: UserDefaults = .standard
     ) {
         self.initialActiveID = activeID
         self.selectedActiveID = activeID
         self.returnsToActiveDetail = returnsToActiveDetail
+        self.defaults = defaults
+        let storedReferenceLine = defaults.object(forKey: Self.referenceLinePreferenceKey) as? Int
+        selectedReferenceLine = storedReferenceLine
+            .flatMap(WellnessTrendReferenceLine.init(rawValue:))
+            ?? .linearTrend
         super.init(repository: repository)
     }
 
@@ -57,7 +66,7 @@ final class TrendsViewController: FeatureViewController {
     override func applyLocalizedCopy() {
         title = L10n.Trends.title
         rebuildActiveMenu()
-        rebuildPeriodButtons()
+        updateSelectorTitles()
         if let series { render(series) }
     }
 
@@ -83,20 +92,20 @@ final class TrendsViewController: FeatureViewController {
     }
 
     private func setUpView() {
-        navigationController?.navigationBar.prefersLargeTitles = true
-        navigationItem.largeTitleDisplayMode = .always
-        if returnsToActiveDetail {
-            navigationItem.hidesBackButton = true
-            let back = UIBarButtonItem(
-                image: UIImage(systemName: "chevron.backward"),
-                style: .plain,
-                target: self,
-                action: #selector(backToActiveDetail)
-            )
-            back.accessibilityLabel = L10n.Common.back
-            back.accessibilityIdentifier = "trends.back_to_active"
-            navigationItem.leftBarButtonItem = back
-        }
+        navigationController?.navigationBar.prefersLargeTitles = false
+        navigationItem.largeTitleDisplayMode = .never
+        navigationItem.hidesBackButton = true
+        let back = UIBarButtonItem(
+            image: UIImage(systemName: "chevron.backward"),
+            style: .plain,
+            target: self,
+            action: #selector(backTapped)
+        )
+        back.accessibilityLabel = L10n.Common.back
+        back.accessibilityIdentifier = returnsToActiveDetail
+            ? "trends.back_to_active"
+            : "trends.back"
+        navigationItem.leftBarButtonItem = back
 
         view.addForAutoLayout(scrollView)
         scrollView.pinEdges(to: view)
@@ -109,16 +118,13 @@ final class TrendsViewController: FeatureViewController {
         NSLayoutConstraint.activate([
             contentStack.leadingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.leadingAnchor, constant: WellnarioSpacing.screenHorizontal),
             contentStack.trailingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.trailingAnchor, constant: -WellnarioSpacing.screenHorizontal),
-            contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: WellnarioSpacing.medium),
+            contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: WellnarioSpacing.xSmall),
             contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -WellnarioSpacing.bottomNavigationInset),
             contentStack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -(WellnarioSpacing.screenHorizontal * 2))
         ])
 
         contentStack.addArrangedSubview(activeField)
-        periodStack.axis = .horizontal
-        periodStack.spacing = 8
-        periodStack.distribution = .fillEqually
-        contentStack.addArrangedSubview(periodStack)
+        activeField.button.accessibilityIdentifier = "trends.active.selector"
 
         setUpChartCard()
         contentStack.addArrangedSubview(chartCard)
@@ -139,10 +145,9 @@ final class TrendsViewController: FeatureViewController {
             emptyState.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -WellnarioSpacing.bottomNavigationInset)
         ])
         emptyState.isHidden = true
-        rebuildPeriodButtons()
     }
 
-    @objc private func backToActiveDetail() {
+    @objc private func backTapped() {
         guard let navigationController else { return }
 
         guard WellnarioMotion.animationsEnabled else {
@@ -167,31 +172,59 @@ final class TrendsViewController: FeatureViewController {
         icon.tintColor = WellnarioPalette.textTertiary
         let header = UIStackView(arrangedSubviews: [title, UIView(), icon], axis: .horizontal, spacing: 8, alignment: .center)
 
-        chartScrollView.showsHorizontalScrollIndicator = false
-        chartScrollView.alwaysBounceHorizontal = true
-        chartScrollView.layer.cornerRadius = WellnarioRadius.control
-        chartScrollView.backgroundColor = WellnarioPalette.background.withAlphaComponent(0.32)
-        chartScrollView.addForAutoLayout(chartView)
-        chartView.pinEdges(to: chartScrollView.contentLayoutGuide)
-        NSLayoutConstraint.activate([
-            chartScrollView.heightAnchor.constraint(equalToConstant: 270),
-            chartView.heightAnchor.constraint(equalTo: chartScrollView.frameLayoutGuide.heightAnchor),
-            chartView.widthAnchor.constraint(greaterThanOrEqualTo: chartScrollView.frameLayoutGuide.widthAnchor)
-        ])
-        chartView.onSelection = { [weak self] point in self?.show(point: point) }
+        chartView.accessibilityIdentifier = "trends.chart"
+        chartView.heightAnchor.constraint(equalToConstant: 190).isActive = true
 
-        selectedPointLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
-        selectedPointLabel.numberOfLines = 0
-        selectedPointLabel.textAlignment = .center
-        selectedPointLabel.isAccessibilityElement = true
+        let targetLegend = legend(
+            color: WellnarioPalette.fuchsia.withAlphaComponent(0.52),
+            title: L10n.Trends.targetBand
+        )
+        let withinLegend = legend(
+            color: WellnarioPalette.success,
+            title: L10n.text("target.within")
+        )
+        let belowLegend = legend(
+            color: WellnarioPalette.yellow,
+            title: L10n.text("target.below")
+        )
+        let aboveLegend = legend(
+            color: WellnarioPalette.danger,
+            title: L10n.text("target.above")
+        )
+        let firstLegendRow = UIStackView(
+            arrangedSubviews: [targetLegend, UIView(), withinLegend],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.xSmall,
+            alignment: .center
+        )
+        let secondLegendRow = UIStackView(
+            arrangedSubviews: [belowLegend, UIView(), aboveLegend],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.xSmall,
+            alignment: .center
+        )
+        let legends = UIStackView(
+            arrangedSubviews: [firstLegendRow, secondLegendRow],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxSmall
+        )
 
-        let targetLegend = legend(color: WellnarioPalette.violet.withAlphaComponent(0.55), title: L10n.Trends.targetBand)
-        let averageLegend = legend(color: WellnarioPalette.magenta, title: L10n.Trends.average)
-        let legendRow = UIStackView(arrangedSubviews: [targetLegend, averageLegend, UIView()], axis: .horizontal, spacing: 14, alignment: .center)
-
-        let stack = UIStackView(arrangedSubviews: [header, chartScrollView, selectedPointLabel, legendRow], axis: .vertical, spacing: 14)
+        let stack = UIStackView(
+            arrangedSubviews: [
+                header,
+                makeReferenceLineControlContainer(),
+                chartView,
+                periodControl,
+                legends
+            ],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xSmall
+        )
         chartCard.contentView.addForAutoLayout(stack)
-        stack.pinEdges(to: chartCard.contentView, insets: .all(WellnarioSpacing.cardPadding))
+        stack.pinEdges(
+            to: chartCard.contentView,
+            insets: NSDirectionalEdgeInsets(top: 16, leading: 8, bottom: 16, trailing: 8)
+        )
     }
 
     private func legend(color: UIColor, title: String) -> UIView {
@@ -211,39 +244,123 @@ final class TrendsViewController: FeatureViewController {
     private func rebuildActiveMenu() {
         let selected = actives.first { $0.id == selectedActiveID }
         activeField.value = selected?.localizedName(language: catalogLanguage) ?? L10n.Common.required
+        activeField.leadingImage = activeIcon(for: selected)
         activeField.menu = UIMenu(children: actives.map { active in
             UIAction(
                 title: active.localizedName(language: catalogLanguage),
+                image: activeIcon(for: active),
                 state: active.id == selectedActiveID ? .on : .off
             ) { [weak self] _ in
                 self?.selectedActiveID = active.id
                 self?.rebuildActiveMenu()
                 self?.reloadContent()
+                UISelectionFeedbackGenerator().selectionChanged()
             }
         })
     }
 
-    private func rebuildPeriodButtons() {
-        periodStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let titles = [L10n.Trends.sevenDays, L10n.Trends.thirtyDays, L10n.Trends.oneYear, L10n.Trends.customRange]
-        for (index, title) in titles.enumerated() {
-            let button = ChipButton(title: title)
-            button.tag = index
-            button.isSelected = selectedPeriod.rawValue == index
-            button.addTarget(self, action: #selector(periodTapped(_:)), for: .touchUpInside)
-            periodStack.addArrangedSubview(button)
+    private func activeIcon(for active: Active?) -> UIImage? {
+        if let imageKey = active?.imageKey, let image = UIImage(named: imageKey) {
+            return image
+        }
+        return UIImage(systemName: "leaf.fill")
+    }
+
+    private func makePeriodControl() -> UISegmentedControl {
+        let control = UISegmentedControl(items: Period.allCases.map(periodTitle))
+        control.selectedSegmentIndex = selectedPeriod.rawValue
+        control.apportionsSegmentWidthsByContent = true
+        styleSelector(control, fontSize: 13)
+        control.accessibilityIdentifier = "trends.period.selector"
+        control.accessibilityLabel = L10n.text("trends.period.selector.accessibility")
+        control.addTarget(self, action: #selector(periodDidChange), for: .valueChanged)
+        return control
+    }
+
+    private func makeReferenceLineControl() -> UISegmentedControl {
+        let control = UISegmentedControl(
+            items: WellnessTrendReferenceLine.allCases.map(referenceLineTitle)
+        )
+        control.selectedSegmentIndex = selectedReferenceLine.rawValue
+        styleSelector(control, fontSize: 11)
+        control.accessibilityIdentifier = "trends.reference.selector"
+        control.accessibilityLabel = L10n.text("trends.reference.selector.accessibility")
+        control.addTarget(self, action: #selector(referenceLineDidChange), for: .valueChanged)
+        return control
+    }
+
+    private func styleSelector(_ control: UISegmentedControl, fontSize: CGFloat) {
+        control.selectedSegmentTintColor = WellnarioPalette.fuchsia
+        control.setTitleTextAttributes([
+            .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .foregroundColor: WellnarioPalette.textSecondary
+        ], for: .normal)
+        control.setTitleTextAttributes([
+            .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .foregroundColor: UIColor.white
+        ], for: .selected)
+    }
+
+    private func makeReferenceLineControlContainer() -> UIView {
+        let container = UIView()
+        container.addForAutoLayout(referenceLineControl)
+        NSLayoutConstraint.activate([
+            referenceLineControl.topAnchor.constraint(equalTo: container.topAnchor),
+            referenceLineControl.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            referenceLineControl.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            referenceLineControl.widthAnchor.constraint(equalToConstant: 180),
+            referenceLineControl.heightAnchor.constraint(equalToConstant: 28)
+        ])
+        return container
+    }
+
+    private func updateSelectorTitles() {
+        for period in Period.allCases {
+            periodControl.setTitle(periodTitle(period), forSegmentAt: period.rawValue)
+        }
+        for referenceLine in WellnessTrendReferenceLine.allCases {
+            referenceLineControl.setTitle(
+                referenceLineTitle(referenceLine),
+                forSegmentAt: referenceLine.rawValue
+            )
         }
     }
 
-    @objc private func periodTapped(_ sender: ChipButton) {
-        guard let period = Period(rawValue: sender.tag) else { return }
+    private func periodTitle(_ period: Period) -> String {
+        switch period {
+        case .sevenDays: L10n.Trends.sevenDays
+        case .thirtyDays: L10n.Trends.thirtyDays
+        case .year: L10n.Trends.oneYear
+        case .custom: L10n.Trends.customRange
+        }
+    }
+
+    private func referenceLineTitle(_ referenceLine: WellnessTrendReferenceLine) -> String {
+        switch referenceLine {
+        case .average: L10n.text("trends.reference.average")
+        case .linearTrend: L10n.text("trends.reference.linear")
+        }
+    }
+
+    @objc private func periodDidChange() {
+        guard let period = Period(rawValue: periodControl.selectedSegmentIndex) else { return }
         if period == .custom {
+            periodControl.selectedSegmentIndex = selectedPeriod.rawValue
             presentCustomRangePicker()
         } else {
+            guard period != selectedPeriod else { return }
             selectedPeriod = period
-            rebuildPeriodButtons()
             reloadContent()
         }
+    }
+
+    @objc private func referenceLineDidChange() {
+        guard let referenceLine = WellnessTrendReferenceLine(
+            rawValue: referenceLineControl.selectedSegmentIndex
+        ) else { return }
+        selectedReferenceLine = referenceLine
+        defaults.set(referenceLine.rawValue, forKey: Self.referenceLinePreferenceKey)
+        chartView.referenceLine = referenceLine
     }
 
     private func dateRange() throws -> (from: LocalDay, through: LocalDay) {
@@ -257,19 +374,97 @@ final class TrendsViewController: FeatureViewController {
     }
 
     private func render(_ series: ConsumptionSeries) {
-        let minimumBarWidth: CGFloat = series.points.count > 60 ? 9 : 28
-        let chartWidth = max(view.bounds.width - 80, CGFloat(series.points.count) * minimumBarWidth)
-        chartView.widthConstraint?.isActive = false
-        chartView.widthConstraint = chartView.widthAnchor.constraint(equalToConstant: chartWidth)
-        chartView.widthConstraint?.priority = .required
-        chartView.widthConstraint?.isActive = true
-        chartView.configure(series: series, language: catalogLanguage)
-        chartScrollView.layoutIfNeeded()
-        let trailing = max(0, chartScrollView.contentSize.width - chartScrollView.bounds.width)
-        chartScrollView.setContentOffset(CGPoint(x: trailing, y: 0), animated: false)
-
-        if let last = series.points.last { show(point: last) }
+        let values = series.points.map { point -> Double? in
+            FeatureFormatting.double(point.amount)
+        }
+        chartView.values = values
+        chartView.labels = axisLabels(for: series)
+        chartView.selectionLabels = selectionLabels(for: series)
+        chartView.lineColor = WellnarioPalette.textSecondary
+        chartView.lineColors = series.points.map { lineColor(for: $0.status) }
+        chartView.targetRanges = series.points.map { point in
+            guard let lower = point.targetLower, let upper = point.targetUpper else { return nil }
+            return FeatureFormatting.double(lower)...FeatureFormatting.double(upper)
+        }
+        chartView.targetBandColor = WellnarioPalette.fuchsia
+        chartView.linearTrend = WellnessLinearRegression.fit(values: values)
+        chartView.referenceLine = selectedReferenceLine
+        chartView.averageTitle = L10n.Trends.average
+        chartView.averageColor = WellnarioPalette.cyan
+        chartView.smoothingWindow = 1
+        chartView.emptyText = L10n.Trends.noDataMessage
+        let unit = series.unit.symbol(languageCode: catalogLanguage.rawValue)
+        chartView.valueFormatter = { value in
+            "\(WellnarioFormatters.number(value, maximumFractionDigits: 2)) \(unit)"
+        }
+        chartView.accessibilityHint = L10n.text("trends.chart.interaction.hint")
+        chartView.accessibilityLabel = L10n.text(
+            "trends.chart.accessibility",
+            series.active.localizedName(language: catalogLanguage),
+            periodTitle(selectedPeriod)
+        )
+        chartView.accessibilityValue = L10n.text(
+            "trends.chart.accessibility.values",
+            chartView.valueFormatter(FeatureFormatting.double(series.average)),
+            series.daysWithinTarget,
+            series.points.count
+        )
         rebuildSummary(series)
+    }
+
+    private func lineColor(for status: TargetProgressStatus) -> UIColor {
+        switch status {
+        case .within: WellnarioPalette.success
+        case .below: WellnarioPalette.yellow
+        case .above: WellnarioPalette.danger
+        case .noTarget: WellnarioPalette.fuchsia
+        }
+    }
+
+    private func axisLabels(for series: ConsumptionSeries) -> [String] {
+        guard !series.points.isEmpty else { return [] }
+        if selectedPeriod == .sevenDays {
+            let formatter = DateFormatter()
+            formatter.locale = LocalizationManager.shared.locale
+            formatter.setLocalizedDateFormatFromTemplate("EEEEE")
+            return series.points.map { point in
+                guard let date = FeatureFormatting.localDayDate(point.day) else { return "" }
+                return formatter.string(from: date).uppercased(with: formatter.locale)
+            }
+        }
+
+        let labelCount = min(selectedPeriod == .thirtyDays ? 4 : 3, series.points.count)
+        let indexes = Set((0..<labelCount).map { labelIndex in
+            guard labelCount > 1 else { return 0 }
+            return Int(
+                (Double(labelIndex) * Double(series.points.count - 1) / Double(labelCount - 1))
+                    .rounded()
+            )
+        })
+        let formatter = DateFormatter()
+        formatter.locale = LocalizationManager.shared.locale
+        let startDate = FeatureFormatting.localDayDate(series.from)
+        let endDate = FeatureFormatting.localDayDate(series.through)
+        let span = endDate?.timeIntervalSince(startDate ?? endDate ?? Date()) ?? 0
+        let spanInDays = Int(span / 86_400)
+        formatter.setLocalizedDateFormatFromTemplate(
+            spanInDays > 370 ? "MMMyy" : (spanInDays > 45 ? "MMM" : "dMMM")
+        )
+        return series.points.enumerated().map { index, point in
+            guard indexes.contains(index),
+                  let date = FeatureFormatting.localDayDate(point.day) else { return "" }
+            return formatter.string(from: date)
+        }
+    }
+
+    private func selectionLabels(for series: ConsumptionSeries) -> [String] {
+        let formatter = DateFormatter()
+        formatter.locale = LocalizationManager.shared.locale
+        formatter.setLocalizedDateFormatFromTemplate("dMMMy")
+        return series.points.map { point in
+            guard let date = FeatureFormatting.localDayDate(point.day) else { return point.day.iso8601 }
+            return formatter.string(from: date)
+        }
     }
 
     private func rebuildSummary(_ series: ConsumptionSeries) {
@@ -322,18 +517,6 @@ final class TrendsViewController: FeatureViewController {
         return card
     }
 
-    private func show(point: DailyConsumptionPoint) {
-        guard let date = FeatureFormatting.localDayDate(point.day), let series else { return }
-        let status: String
-        switch point.status {
-        case .noTarget: status = L10n.text("target.no_target")
-        case .below: status = L10n.text("target.below")
-        case .within: status = L10n.text("target.within")
-        case .above: status = L10n.text("target.above")
-        }
-        selectedPointLabel.text = "\(WellnarioFormatters.shortDate(date)) · \(FeatureFormatting.decimal(point.amount)) \(series.unit.symbol(languageCode: catalogLanguage.rawValue)) · \(status)"
-    }
-
     private func showEmptyActives() {
         contentStack.isHidden = true
         emptyState.isHidden = false
@@ -351,152 +534,12 @@ final class TrendsViewController: FeatureViewController {
             self.customFrom = from
             self.customThrough = through
             self.selectedPeriod = .custom
-            self.rebuildPeriodButtons()
+            self.periodControl.selectedSegmentIndex = Period.custom.rawValue
             self.reloadContent()
         }
         presentSheet(controller, largeOnly: true)
     }
 
-}
-
-@MainActor
-private final class ConsumptionChartView: UIView {
-    var widthConstraint: NSLayoutConstraint?
-    var onSelection: ((DailyConsumptionPoint) -> Void)?
-
-    private var series: ConsumptionSeries?
-    private var language: CatalogLanguage = .spanish
-    private var selectedIndex: Int?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .clear
-        isOpaque = false
-        isAccessibilityElement = true
-        accessibilityTraits = [.image, .adjustable]
-        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    func configure(series: ConsumptionSeries, language: CatalogLanguage) {
-        self.series = series
-        self.language = language
-        selectedIndex = series.points.indices.last
-        accessibilityLabel = L10n.text("trends.chart.accessibility", series.points.count, FeatureFormatting.decimal(series.average), series.unit.symbol(languageCode: language.rawValue))
-        setNeedsDisplay()
-    }
-
-    override func draw(_ rect: CGRect) {
-        guard let series, !series.points.isEmpty, let context = UIGraphicsGetCurrentContext() else { return }
-        let plot = rect.inset(by: UIEdgeInsets(top: 20, left: 14, bottom: 30, right: 14))
-        let amounts = series.points.map { FeatureFormatting.double($0.amount) }
-        let targetMax = series.points.compactMap { $0.targetUpper }.map(FeatureFormatting.double).max() ?? 0
-        let maximum = max(amounts.max() ?? 0, targetMax, FeatureFormatting.double(series.average), 1) * 1.15
-        let step = plot.width / CGFloat(series.points.count)
-        let barWidth = max(2, min(step * 0.62, 18))
-
-        context.saveGState()
-        let grid = UIBezierPath()
-        for line in 0...3 {
-            let y = plot.minY + plot.height * CGFloat(line) / 3
-            grid.move(to: CGPoint(x: plot.minX, y: y))
-            grid.addLine(to: CGPoint(x: plot.maxX, y: y))
-        }
-        grid.setLineDash([2, 5], count: 2, phase: 0)
-        WellnarioPalette.hairline.setStroke()
-        grid.lineWidth = 1
-        grid.stroke()
-
-        context.setFillColor(WellnarioPalette.violet.withAlphaComponent(0.16).cgColor)
-        for (index, point) in series.points.enumerated() {
-            guard let lower = point.targetLower, let upper = point.targetUpper else { continue }
-            let lowerY = plot.maxY - plot.height * CGFloat(FeatureFormatting.double(lower) / maximum)
-            let upperY = plot.maxY - plot.height * CGFloat(FeatureFormatting.double(upper) / maximum)
-            let bandRect = CGRect(
-                x: plot.minX + (CGFloat(index) * step),
-                y: upperY,
-                width: step + 0.5,
-                height: max(2, lowerY - upperY)
-            )
-            context.fill(bandRect)
-        }
-
-        for (index, value) in amounts.enumerated() {
-            let height = plot.height * CGFloat(value / maximum)
-            let x = plot.minX + step * (CGFloat(index) + 0.5) - barWidth / 2
-            let bar = UIBezierPath(roundedRect: CGRect(x: x, y: plot.maxY - height, width: barWidth, height: max(1, height)), cornerRadius: barWidth / 2)
-            let color: UIColor
-            switch series.points[index].status {
-            case .within: color = WellnarioPalette.success
-            case .above: color = WellnarioPalette.warning
-            case .below: color = WellnarioPalette.cyan
-            case .noTarget: color = WellnarioPalette.violet
-            }
-            color.withAlphaComponent(index == selectedIndex ? 1 : 0.78).setFill()
-            bar.fill()
-        }
-
-        let average = FeatureFormatting.double(series.average)
-        let averageY = plot.maxY - plot.height * CGFloat(average / maximum)
-        let averagePath = UIBezierPath()
-        averagePath.move(to: CGPoint(x: plot.minX, y: averageY))
-        averagePath.addLine(to: CGPoint(x: plot.maxX, y: averageY))
-        averagePath.setLineDash([7, 5], count: 2, phase: 0)
-        WellnarioPalette.magenta.setStroke()
-        averagePath.lineWidth = 2
-        averagePath.stroke()
-
-        if let selectedIndex {
-            let x = plot.minX + step * (CGFloat(selectedIndex) + 0.5)
-            context.setStrokeColor(WellnarioPalette.textPrimary.withAlphaComponent(0.5).cgColor)
-            context.setLineWidth(1)
-            context.move(to: CGPoint(x: x, y: plot.minY))
-            context.addLine(to: CGPoint(x: x, y: plot.maxY))
-            context.strokePath()
-        }
-        context.restoreGState()
-
-        let labelStride = max(1, series.points.count / 6)
-        for index in stride(from: 0, to: series.points.count, by: labelStride) {
-            guard let date = FeatureFormatting.localDayDate(series.points[index].day) else { continue }
-            let formatter = DateFormatter()
-            formatter.locale = LocalizationManager.shared.locale
-            formatter.dateFormat = series.points.count > 60 ? "MMM" : "d/M"
-            let text = formatter.string(from: date) as NSString
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: WellnarioTypography.font(for: .caption),
-                .foregroundColor: WellnarioPalette.textTertiary
-            ]
-            let size = text.size(withAttributes: attributes)
-            let x = plot.minX + step * (CGFloat(index) + 0.5) - size.width / 2
-            text.draw(at: CGPoint(x: x, y: plot.maxY + 8), withAttributes: attributes)
-        }
-    }
-
-    @objc private func tapped(_ gesture: UITapGestureRecognizer) {
-        guard let series, !series.points.isEmpty else { return }
-        let plot = bounds.inset(by: UIEdgeInsets(top: 20, left: 14, bottom: 30, right: 14))
-        let location = gesture.location(in: self)
-        let progress = min(0.999, max(0, (location.x - plot.minX) / max(plot.width, 1)))
-        selectedIndex = min(series.points.count - 1, Int(progress * CGFloat(series.points.count)))
-        setNeedsDisplay()
-        if let selectedIndex { onSelection?(series.points[selectedIndex]) }
-    }
-
-    override func accessibilityIncrement() { moveSelection(by: 1) }
-    override func accessibilityDecrement() { moveSelection(by: -1) }
-
-    private func moveSelection(by amount: Int) {
-        guard let series, !series.points.isEmpty else { return }
-        selectedIndex = min(series.points.count - 1, max(0, (selectedIndex ?? 0) + amount))
-        setNeedsDisplay()
-        guard let selectedIndex else { return }
-        let point = series.points[selectedIndex]
-        onSelection?(point)
-        accessibilityValue = "\(point.day.iso8601), \(FeatureFormatting.decimal(point.amount)) \(series.unit.symbol(languageCode: language.rawValue))"
-    }
 }
 
 @MainActor

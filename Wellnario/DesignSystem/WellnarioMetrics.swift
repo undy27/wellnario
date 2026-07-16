@@ -135,6 +135,10 @@ final class SparklineView: UIView {
         didSet { setNeedsDisplay() }
     }
 
+    var includesZeroBaseline = false {
+        didSet { setNeedsDisplay() }
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         setUp()
@@ -148,7 +152,8 @@ final class SparklineView: UIView {
     override func draw(_ rect: CGRect) {
         guard values.count > 1 else { return }
 
-        let minimum = values.min() ?? 0
+        let valueMinimum = values.min() ?? 0
+        let minimum = includesZeroBaseline ? min(0, valueMinimum) : valueMinimum
         let maximum = values.max() ?? 1
         let range = max(maximum - minimum, 0.0001)
         let inset = rect.insetBy(dx: 4, dy: 7)

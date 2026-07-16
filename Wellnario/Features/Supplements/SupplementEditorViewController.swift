@@ -43,14 +43,9 @@ final class SupplementEditorViewController: EditorViewController {
     override func performSave() {
         clearErrors()
         let name = normalized(nameField.textField.text)
-        let brand = normalized(brandField.textField.text)
+        let brand = normalized(brandField.textField.text) ?? ""
         guard let name else {
             nameField.setError(L10n.Error.required)
-            saveButton.isLoading = false
-            return
-        }
-        guard let brand else {
-            brandField.setError(L10n.Error.required)
             saveButton.isLoading = false
             return
         }
@@ -103,7 +98,7 @@ final class SupplementEditorViewController: EditorViewController {
             category: normalized(categoryField.textField.text),
             price: price,
             currencyCode: price == nil ? nil : "EUR",
-            imageReference: selectedPresentation?.illustrations.first?.assetKey,
+            imageReference: supplement?.imageReference ?? selectedPresentation?.illustrations.first?.assetKey,
             presentationTypeID: presentationID,
             basisQuantity: basis,
             basisUnit: basisUnit,
@@ -301,11 +296,10 @@ final class SupplementEditorViewController: EditorViewController {
 }
 
 @MainActor
-private final class ComponentEditorRow: UIView {
+final class ComponentEditorRow: UIView {
     let amountField = FormFieldView()
     let removeButton = UIButton(type: .system)
     private let activeField = SelectionFieldView(title: L10n.Form.active)
-    private let unitField = SelectionFieldView(title: L10n.Form.unit)
     private let actives: [Active]
     private let language: CatalogLanguage
 
@@ -340,6 +334,8 @@ private final class ComponentEditorRow: UIView {
 
         amountField.configure(title: L10n.Form.activeAmount, placeholder: "0", keyboardType: .decimalPad)
         amountField.textField.accessibilityIdentifier = "supplement.component.amount"
+        amountField.unitButton.accessibilityIdentifier = "supplement.component.unit"
+        amountField.unitButton.showsMenuAsPrimaryAction = true
         removeButton.setImage(UIImage(systemName: "minus.circle.fill"), for: .normal)
         removeButton.tintColor = WellnarioPalette.danger
         removeButton.accessibilityLabel = L10n.Common.delete
@@ -347,38 +343,48 @@ private final class ComponentEditorRow: UIView {
         removeButton.widthAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.minimumTouchTarget).isActive = true
 
         let top = UIStackView(arrangedSubviews: [activeField, removeButton], axis: .horizontal, spacing: 8, alignment: .bottom)
-        let row = UIStackView(arrangedSubviews: [amountField, unitField], axis: .horizontal, spacing: 10, alignment: .top, distribution: .fillEqually)
-        let stack = UIStackView(arrangedSubviews: [top, row], axis: .vertical, spacing: 12)
+        activeField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let stack = UIStackView(arrangedSubviews: [top, amountField], axis: .vertical, spacing: 12)
         addForAutoLayout(stack)
         stack.pinEdges(to: self, insets: .all(12))
     }
 
     private func rebuildMenus() {
         activeField.value = active?.localizedName(language: language) ?? L10n.Common.required
+        activeField.leadingImage = activeIcon(for: active)
         activeField.menu = UIMenu(children: actives.map { active in
             UIAction(
                 title: active.localizedName(language: language),
+                image: activeIcon(for: active),
                 state: active.id == selectedActiveID ? .on : .off
             ) { [weak self] _ in
                 self?.selectedActiveID = active.id
                 self?.selectedUnit = active.baseUnit
                 self?.rebuildMenus()
+                UISelectionFeedbackGenerator().selectionChanged()
             }
         })
 
         let allowed = DoseUnit.allCases.filter { $0.isCompatible(with: active?.baseUnit ?? selectedUnit) }
         if !allowed.contains(selectedUnit), let first = allowed.first { selectedUnit = first }
-        unitField.value = selectedUnit.symbol(languageCode: language.rawValue)
         amountField.unitTitle = selectedUnit.symbol(languageCode: language.rawValue)
-        unitField.menu = UIMenu(children: allowed.map { unit in
+        amountField.unitButton.menu = UIMenu(children: allowed.map { unit in
             UIAction(
                 title: unit.symbol(languageCode: language.rawValue),
                 state: unit == selectedUnit ? .on : .off
             ) { [weak self] _ in
                 self?.selectedUnit = unit
                 self?.rebuildMenus()
+                UISelectionFeedbackGenerator().selectionChanged()
             }
         })
+    }
+
+    private func activeIcon(for active: Active?) -> UIImage? {
+        if let imageKey = active?.imageKey, let image = UIImage(named: imageKey) {
+            return image
+        }
+        return UIImage(systemName: "leaf.fill")
     }
 
     @objc private func removeTapped() { onRemove?() }

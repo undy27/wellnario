@@ -71,6 +71,35 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertTrue(decoded.stageIntervals.isEmpty)
     }
 
+    func testLegacySleepDayCacheDecodesWithoutQualityInputs() throws {
+        let day = AppleHealthSleepDay(
+            date: try utcDate(2026, 7, 10, hour: 0),
+            hours: 7.5,
+            qualityScore: nil,
+            remHours: 1.5,
+            deepHours: 1.2,
+            lightHours: 4.8,
+            sleepStartDate: try utcDate(2026, 7, 9, hour: 23),
+            awakeHours: 0.25,
+            sleepPeriodHours: 7.75
+        )
+        let encoded = try JSONEncoder().encode(day)
+        var legacyObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        legacyObject.removeValue(forKey: "sleepStartDate")
+        legacyObject.removeValue(forKey: "awakeHours")
+        legacyObject.removeValue(forKey: "sleepPeriodHours")
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+
+        let decoded = try JSONDecoder().decode(AppleHealthSleepDay.self, from: legacyData)
+
+        XCTAssertEqual(decoded.hours, 7.5)
+        XCTAssertNil(decoded.sleepStartDate)
+        XCTAssertNil(decoded.awakeHours)
+        XCTAssertNil(decoded.sleepPeriodHours)
+    }
+
     func testSleepAggregationSeparatesSessionsAfterThreeHourGapAndBuildsSevenDayTrend() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
@@ -92,6 +121,32 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertEqual(trend.count, 7)
         XCTAssertEqual(try XCTUnwrap(trend[5].hours), 7.5, accuracy: 0.001)
         XCTAssertNil(trend[6].hours)
+    }
+
+    func testSleepQualityInputsExcludeAwakeTimeBeforeAndAfterActualSleep() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let start = try utcDate(2026, 7, 9, hour: 22)
+        let segments = [
+            segment(start, hours: 8, kind: .inBed),
+            segment(start, minutes: 30, kind: .awake),
+            segment(start.addingTimeInterval(30 * 60), hours: 3, kind: .core),
+            segment(start.addingTimeInterval(3.5 * 3_600), minutes: 30, kind: .awake),
+            segment(start.addingTimeInterval(4 * 3_600), hours: 3, kind: .core),
+            segment(start.addingTimeInterval(7 * 3_600), minutes: 30, kind: .awake)
+        ]
+        let session = try XCTUnwrap(AppleHealthSleepAggregator.sessions(from: segments).first)
+
+        let trend = AppleHealthSleepAggregator.sevenDayTrend(
+            sessions: [session],
+            endingAt: try utcDate(2026, 7, 10, hour: 12),
+            calendar: calendar
+        )
+        let day = try XCTUnwrap(trend.last)
+
+        XCTAssertEqual(day.sleepStartDate, start.addingTimeInterval(30 * 60))
+        XCTAssertEqual(try XCTUnwrap(day.awakeHours), 0.5, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(day.sleepPeriodHours), 6.5, accuracy: 0.001)
     }
 
     func testAllTimeSleepTrendCanBeFilteredByPeriod() throws {
@@ -316,6 +371,281 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertEqual(cache.load(), snapshot)
     }
 
+    func testSnapshotCacheIgnoresPreviouslyStoredBiologicalSexField() throws {
+        let suiteName = "AppleHealthLegacyProfileCacheTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let snapshot = AppleHealthSnapshot.empty
+        let encoded = try JSONEncoder().encode(snapshot)
+        var legacyObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        legacyObject["biologicalSex"] = "female"
+        defaults.set(
+            try JSONSerialization.data(withJSONObject: legacyObject),
+            forKey: "appleHealth.snapshot.v1"
+        )
+
+        XCTAssertEqual(AppleHealthSnapshotCache(defaults: defaults).load(), snapshot)
+    }
+
+    func testManualSleepOverridePersistsAndReplacesOnlySelectedFields() throws {
+        let suiteName = "SleepManualOverrideTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = SleepManualOverrideStore(defaults: defaults)
+        let day = try LocalDay(year: 2026, month: 7, day: 15)
+        let date = try day.startDate(in: TimeZone(secondsFromGMT: 0)!)
+        let healthEntry = AppleHealthSleepDay(
+            date: date,
+            hours: 7,
+            qualityScore: 72,
+            remHours: 1.5,
+            deepHours: 1.2,
+            lightHours: 4.3
+        )
+
+        XCTAssertTrue(store.save(day: day, qualityScore: 91, durationHours: nil))
+        let restored = SleepManualOverrideStore(defaults: defaults)
+        XCTAssertEqual(restored.override(for: day)?.qualityScore, 91)
+        XCTAssertNil(restored.override(for: day)?.durationHours)
+
+        let effective = try XCTUnwrap(restored.applying(to: [healthEntry]).first)
+        XCTAssertEqual(effective.qualityScore, 91)
+        XCTAssertEqual(effective.hours, 7)
+        XCTAssertEqual(effective.remHours, 1.5)
+        XCTAssertEqual(effective.deepHours, 1.2)
+        XCTAssertEqual(effective.lightHours, 4.3)
+
+        restored.remove(day: day)
+        XCTAssertNil(restored.override(for: day))
+        let restoredHealth = try XCTUnwrap(restored.applying(to: [healthEntry]).first)
+        XCTAssertEqual(restoredHealth.hours, healthEntry.hours)
+        XCTAssertEqual(restoredHealth.remHours, healthEntry.remHours)
+        XCTAssertEqual(restoredHealth.deepHours, healthEntry.deepHours)
+        XCTAssertEqual(restoredHealth.lightHours, healthEntry.lightHours)
+    }
+
+    func testManualSleepDurationOverridesEffectiveSnapshotWithoutMutatingHealthSnapshot() throws {
+        let suiteName = "SleepManualSnapshotTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let end = try XCTUnwrap(calendar.date(from: DateComponents(
+            year: 2026,
+            month: 7,
+            day: 15,
+            hour: 8
+        )))
+        let start = end.addingTimeInterval(-7 * 3_600)
+        let session = AppleHealthSleepSession(
+            startDate: start,
+            endDate: end,
+            asleepSeconds: 7 * 3_600,
+            inBedSeconds: 7.5 * 3_600,
+            awakeSeconds: 0.5 * 3_600,
+            coreSeconds: 4 * 3_600,
+            deepSeconds: 1.2 * 3_600,
+            remSeconds: 1.8 * 3_600,
+            sourceNames: ["Apple Watch"]
+        )
+        var snapshot = AppleHealthSnapshot.empty
+        snapshot.latestSleepSession = session
+        snapshot.sleepTrend = [AppleHealthSleepDay(date: end, hours: 7, qualityScore: 75)]
+        let store = SleepManualOverrideStore(defaults: defaults)
+        let day = LocalDay(containing: end, in: calendar.timeZone)
+
+        XCTAssertTrue(store.save(day: day, qualityScore: 88, durationHours: 8.5))
+        let effective = store.applying(to: snapshot, calendar: calendar)
+
+        XCTAssertEqual(snapshot.latestSleepSession?.asleepSeconds, 7 * 3_600)
+        XCTAssertEqual(snapshot.sleepTrend.first?.hours, 7)
+        XCTAssertEqual(effective.latestSleepSession?.asleepSeconds, 8.5 * 3_600)
+        XCTAssertEqual(effective.sleepTrend.first?.hours, 8.5)
+        XCTAssertEqual(effective.sleepTrend.first?.qualityScore, 88)
+    }
+
+    func testSleepQualityUsesDefaultWeightedLinearScores() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let firstDay = try utcDate(2026, 7, 1, hour: 8)
+        let history = try (0..<7).map { offset -> AppleHealthSleepDay in
+            let day = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: firstDay))
+            let bedtime = try XCTUnwrap(calendar.date(
+                byAdding: .hour,
+                value: -9,
+                to: day
+            ))
+            return AppleHealthSleepDay(
+                date: day,
+                hours: 4,
+                sleepStartDate: bedtime,
+                awakeHours: 0.75,
+                sleepPeriodHours: 10
+            )
+        }
+        let configuration = SleepQualityConfiguration(
+            targetHours: 8,
+            weights: .default
+        )
+
+        let breakdown = try XCTUnwrap(SleepQualityCalculator.breakdown(
+            for: try XCTUnwrap(history.last),
+            in: history,
+            configuration: configuration,
+            calendar: calendar
+        ))
+
+        XCTAssertEqual(breakdown.durationScore, 50, accuracy: 0.001)
+        XCTAssertEqual(breakdown.regularityScore, 100, accuracy: 0.001)
+        XCTAssertEqual(breakdown.interruptionScore, 50, accuracy: 0.001)
+        XCTAssertEqual(breakdown.compliantDays, 7)
+        XCTAssertEqual(breakdown.awakePercentage, 7.5, accuracy: 0.001)
+        XCTAssertEqual(breakdown.totalScore, 55, accuracy: 0.001)
+    }
+
+    func testSleepQualityDurationAndInterruptionsAreClampedAtTheirLimits() throws {
+        let day = try utcDate(2026, 7, 15, hour: 8)
+        let perfect = AppleHealthSleepDay(
+            date: day,
+            hours: 9,
+            awakeHours: 0,
+            sleepPeriodHours: 9
+        )
+        let interrupted = AppleHealthSleepDay(
+            date: day,
+            hours: 8.5,
+            awakeHours: 1.5,
+            sleepPeriodHours: 10
+        )
+        let unknownInterruptions = AppleHealthSleepDay(date: day, hours: 8)
+        let durationOnly = SleepQualityConfiguration(
+            targetHours: 8,
+            weights: SleepQualityWeights(duration: 100, regularity: 0, interruptions: 0)
+        )
+        let interruptionOnly = SleepQualityConfiguration(
+            targetHours: 8,
+            weights: SleepQualityWeights(duration: 0, regularity: 0, interruptions: 100)
+        )
+
+        let duration = try XCTUnwrap(SleepQualityCalculator.breakdown(
+            for: perfect,
+            in: [perfect],
+            configuration: durationOnly
+        ))
+        let noInterruptions = try XCTUnwrap(SleepQualityCalculator.breakdown(
+            for: perfect,
+            in: [perfect],
+            configuration: interruptionOnly
+        ))
+        let fifteenPercent = try XCTUnwrap(SleepQualityCalculator.breakdown(
+            for: interrupted,
+            in: [interrupted],
+            configuration: interruptionOnly
+        ))
+        let unknown = try XCTUnwrap(SleepQualityCalculator.breakdown(
+            for: unknownInterruptions,
+            in: [unknownInterruptions],
+            configuration: interruptionOnly
+        ))
+
+        XCTAssertEqual(duration.durationScore, 100, accuracy: 0.001)
+        XCTAssertEqual(duration.totalScore, 100, accuracy: 0.001)
+        XCTAssertEqual(noInterruptions.interruptionScore, 100, accuracy: 0.001)
+        XCTAssertEqual(fifteenPercent.interruptionScore, 0, accuracy: 0.001)
+        XCTAssertEqual(fifteenPercent.totalScore, 0, accuracy: 0.001)
+        XCTAssertEqual(unknown.interruptionScore, 0, accuracy: 0.001)
+    }
+
+    func testSleepQualityRegularityUsesCircularBedtimeMeanAcrossMidnight() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let firstDay = try utcDate(2026, 7, 1, hour: 8)
+        let history = try (0..<7).map { offset -> AppleHealthSleepDay in
+            let day = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: firstDay))
+            let previousDay = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: day))
+            let bedtime = try XCTUnwrap(calendar.date(
+                bySettingHour: offset.isMultiple(of: 2) ? 23 : 0,
+                minute: offset.isMultiple(of: 2) ? 50 : 10,
+                second: 0,
+                of: offset.isMultiple(of: 2) ? previousDay : day
+            ))
+            return AppleHealthSleepDay(
+                date: day,
+                hours: 8,
+                sleepStartDate: bedtime,
+                awakeHours: 0,
+                sleepPeriodHours: 8
+            )
+        }
+        let configuration = SleepQualityConfiguration(
+            targetHours: 8,
+            weights: SleepQualityWeights(duration: 0, regularity: 100, interruptions: 0)
+        )
+
+        let breakdown = try XCTUnwrap(SleepQualityCalculator.breakdown(
+            for: try XCTUnwrap(history.last),
+            in: history,
+            configuration: configuration,
+            calendar: calendar
+        ))
+
+        XCTAssertEqual(breakdown.compliantDays, 7)
+        XCTAssertEqual(breakdown.regularityScore, 100, accuracy: 0.001)
+    }
+
+    func testSleepQualityPreferencesUseAgeRecommendationUntilUserSetsCustomTarget() throws {
+        let suiteName = "SleepQualityPreferencesTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = SleepQualityPreferences(defaults: defaults)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let referenceDate = try utcDate(2026, 7, 15, hour: 12)
+        let birthDate = DateComponents(year: 1950, month: 1, day: 1)
+
+        XCTAssertEqual(
+            preferences.configuration(
+                dateOfBirthComponents: birthDate,
+                at: referenceDate,
+                calendar: calendar
+            ).targetHours,
+            7.5,
+            accuracy: 0.001
+        )
+        XCTAssertTrue(preferences.setCustomTargetHours(8.25))
+        XCTAssertEqual(
+            preferences.configuration(
+                dateOfBirthComponents: birthDate,
+                at: referenceDate,
+                calendar: calendar
+            ).targetHours,
+            8.25,
+            accuracy: 0.001
+        )
+        XCTAssertTrue(preferences.setWeights(SleepQualityWeights(
+            duration: 60,
+            regularity: 15,
+            interruptions: 25
+        )))
+        XCTAssertEqual(preferences.weights.duration, 60)
+        XCTAssertEqual(preferences.weights.regularity, 15)
+        XCTAssertEqual(preferences.weights.interruptions, 25)
+
+        preferences.useRecommendedTarget()
+        XCTAssertNil(preferences.customTargetHours)
+        XCTAssertEqual(
+            preferences.configuration(
+                dateOfBirthComponents: birthDate,
+                at: referenceDate,
+                calendar: calendar
+            ).targetHours,
+            7.5,
+            accuracy: 0.001
+        )
+    }
+
     func testSourcePreferencesPersistCatalogAndDisabledSources() throws {
         let suiteName = "AppleHealthSourcePreferencesTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -534,6 +864,184 @@ final class AppleHealthSyncTests: XCTestCase {
             in: restoredController.view
         ))
         XCTAssertEqual(restoredSelector.selectedSegmentIndex, WellnessTrendReferenceLine.average.rawValue)
+    }
+
+    @MainActor
+    func testSleepTrendKeepsCalculatedQualityWhenMetricOrPeriodChanges() throws {
+        let suiteName = "SleepTrendCalculatedQualityTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = SleepManualOverrideStore(defaults: defaults)
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        let calendar = Calendar.autoupdatingCurrent
+        let today = calendar.startOfDay(for: Date())
+        service.snapshot.sleepTrend = (0..<7).compactMap { offset in
+            guard let day = calendar.date(byAdding: .day, value: offset - 6, to: today),
+                  let sleepStart = calendar.date(byAdding: .hour, value: -8, to: day) else {
+                return nil
+            }
+            return AppleHealthSleepDay(
+                date: day,
+                hours: 8,
+                sleepStartDate: sleepStart,
+                awakeHours: 0,
+                sleepPeriodHours: 8
+            )
+        }
+        let controller = SleepViewController(
+            appleHealthService: service,
+            defaults: defaults,
+            sleepManualOverrideStore: store
+        )
+        controller.loadViewIfNeeded()
+
+        let metricSelector = try XCTUnwrap(descendant(
+            of: UISegmentedControl.self,
+            identifier: "sleep.trend.metric.selector",
+            in: controller.view
+        ))
+        let periodSelector = try XCTUnwrap(descendant(
+            of: UISegmentedControl.self,
+            identifier: "sleep.trend.period.selector",
+            in: controller.view
+        ))
+        let chart = try XCTUnwrap(descendant(
+            of: WellnessTrendChartView.self,
+            identifier: "sleep.trend.chart",
+            in: controller.view
+        ))
+
+        metricSelector.selectedSegmentIndex = 0
+        metricSelector.sendActions(for: .valueChanged)
+        XCTAssertEqual(chart.values.compactMap { $0 }.count, 7)
+
+        periodSelector.selectedSegmentIndex = AppleHealthSleepTrendPeriod.thirtyDays.rawValue
+        periodSelector.sendActions(for: .valueChanged)
+        XCTAssertEqual(chart.values.compactMap { $0 }.count, 7)
+    }
+
+    @MainActor
+    func testManualSleepEditorLoadsCalculatedQualityForSelectedHealthDay() throws {
+        let suiteName = "ManualSleepCalculatedQualityTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = SleepManualOverrideStore(defaults: defaults)
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        let now = Date()
+        service.snapshot.sleepTrend = [AppleHealthSleepDay(
+            date: now,
+            hours: 4,
+            sleepStartDate: now.addingTimeInterval(-4 * 3_600),
+            awakeHours: 0,
+            sleepPeriodHours: 4
+        )]
+        let expectedQuality = try XCTUnwrap(
+            store.applying(to: service.snapshot).sleepTrend.last?.qualityScore
+        )
+        let settings = SettingsViewController(
+            appleHealthService: service,
+            activeTargetMarginPreferences: ActiveTargetMarginPreferences(defaults: defaults),
+            sleepManualOverrideStore: store
+        )
+        let navigation = UINavigationController(rootViewController: settings)
+        navigation.loadViewIfNeeded()
+        settings.loadViewIfNeeded()
+
+        let sleepOptionsButton = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "settings.advanced.sleep.card",
+            in: settings.view
+        ))
+        sleepOptionsButton.sendActions(for: .touchUpInside)
+        let sleepOptions = try XCTUnwrap(navigation.topViewController)
+        sleepOptions.loadViewIfNeeded()
+
+        let manualCard = try XCTUnwrap(descendant(
+            of: PremiumCardView.self,
+            identifier: "settings.advanced.sleep.manual.card",
+            in: sleepOptions.view
+        ))
+        manualCard.sendActions(for: .touchUpInside)
+        let editor = try XCTUnwrap(navigation.topViewController)
+        editor.loadViewIfNeeded()
+
+        let qualitySlider = try XCTUnwrap(descendant(
+            of: UISlider.self,
+            identifier: "settings.advanced.sleep.manual.quality.slider",
+            in: editor.view
+        ))
+        XCTAssertEqual(Double(qualitySlider.value), expectedQuality, accuracy: 0.01)
+        XCTAssertNotEqual(Int(qualitySlider.value.rounded()), 80)
+    }
+
+    @MainActor
+    func testSleepRecommendationTableUsesOnlyAgeAndDuration() throws {
+        let suiteName = "SleepRecommendationTableTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = SleepManualOverrideStore(defaults: defaults)
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        service.snapshot.dateOfBirthComponents = DateComponents(year: 1990, month: 1, day: 1)
+        let settings = SettingsViewController(
+            appleHealthService: service,
+            activeTargetMarginPreferences: ActiveTargetMarginPreferences(defaults: defaults),
+            sleepManualOverrideStore: store
+        )
+        let navigation = UINavigationController(rootViewController: settings)
+        navigation.loadViewIfNeeded()
+        settings.loadViewIfNeeded()
+
+        let sleepOptionsButton = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "settings.advanced.sleep.card",
+            in: settings.view
+        ))
+        sleepOptionsButton.sendActions(for: .touchUpInside)
+        let sleepOptions = try XCTUnwrap(navigation.topViewController)
+        sleepOptions.loadViewIfNeeded()
+
+        let qualityCard = try XCTUnwrap(descendant(
+            of: PremiumCardView.self,
+            identifier: "settings.advanced.sleep.quality.card",
+            in: sleepOptions.view
+        ))
+        qualityCard.sendActions(for: .touchUpInside)
+        let qualityOptions = try XCTUnwrap(navigation.topViewController)
+        qualityOptions.loadViewIfNeeded()
+
+        let tableHeader = try XCTUnwrap(descendant(
+            of: UIStackView.self,
+            identifier: "settings.advanced.sleep.quality.table.header",
+            in: qualityOptions.view
+        ))
+        let headerLabels = tableHeader.arrangedSubviews.compactMap { $0 as? UILabel }
+        XCTAssertEqual(headerLabels.count, 2)
+        XCTAssertEqual(headerLabels[0].text, L10n.text("settings.advanced.sleep.quality.table.age"))
+        XCTAssertEqual(
+            headerLabels[1].text,
+            L10n.text("settings.advanced.sleep.quality.table.duration")
+        )
+
+        let profile = try XCTUnwrap(descendant(
+            of: UILabel.self,
+            identifier: "settings.advanced.sleep.quality.profile",
+            in: qualityOptions.view
+        ))
+        let recommendation = store.qualityPreferences.recommendation(
+            dateOfBirthComponents: service.snapshot.dateOfBirthComponents
+        )
+        let ageGroup = L10n.text(
+            "settings.advanced.sleep.quality.age.\(recommendation.ageGroup.rawValue)"
+        )
+        let range = L10n.text(
+            "settings.advanced.sleep.quality.table.range",
+            Int(recommendation.minimumHours),
+            Int(recommendation.maximumHours)
+        )
+        XCTAssertEqual(
+            profile.text,
+            L10n.text("settings.advanced.sleep.quality.profile.available", ageGroup, range)
+        )
     }
 
     @MainActor
@@ -1647,6 +2155,17 @@ final class AppleHealthSyncTests: XCTestCase {
         chart.smoothingWindow = 7
         chart.averageTitle = "Media"
         chart.lineColor = WellnarioPalette.violet
+        chart.lineColors = [
+            WellnarioPalette.yellow,
+            WellnarioPalette.success,
+            WellnarioPalette.danger,
+            WellnarioPalette.success,
+            WellnarioPalette.yellow,
+            WellnarioPalette.danger,
+            WellnarioPalette.success
+        ]
+        chart.targetRanges = Array(repeating: 7.0...8.0, count: 7)
+        chart.targetBandColor = WellnarioPalette.fuchsia
         chart.averageColor = WellnarioPalette.cyan
         chart.linearTrend = WellnessLinearTrend(
             startPosition: 0,
@@ -1663,6 +2182,9 @@ final class AppleHealthSyncTests: XCTestCase {
         }
 
         XCTAssertEqual(chart.selectedIndex, 3)
+        XCTAssertEqual(chart.lineColors.count, chart.values.count)
+        XCTAssertEqual(chart.targetRanges.compactMap { $0 }.count, chart.values.count)
+        XCTAssertTrue(chart.targetBandColor.isEqual(WellnarioPalette.fuchsia))
         XCTAssertTrue(chart.averageColor.isEqual(WellnarioPalette.cyan))
         XCTAssertTrue(chart.linearTrendColor.isEqual(WellnarioPalette.success))
         XCTAssertFalse(chart.averageColor.isEqual(chart.lineColor))

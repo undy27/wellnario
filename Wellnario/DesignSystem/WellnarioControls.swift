@@ -325,6 +325,10 @@ final class FormFieldView: UIView {
         unitButton.backgroundColor = WellnarioPalette.cyan.withAlphaComponent(0.10)
         unitButton.applyContinuousCorners(10)
         unitButton.isHidden = true
+        unitButton.setContentHuggingPriority(.required, for: .horizontal)
+        unitButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        textField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         unitButton.addTarget(self, action: #selector(unitTapped), for: .touchUpInside)
 
         supportingLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)

@@ -26,21 +26,21 @@ final class TodayViewController: FeatureViewController {
     private let labAction = QuickActionControl()
     private let factorAction = QuickActionControl()
 
-    private let recentCard = PremiumCardView()
-    private let recentContent = UIStackView()
-
     private var summary: DashboardSummary?
     private var selectedDate = Date()
     private let appleHealthService: AppleHealthSyncing
     private let medicalReviewStore: MedicalReviewStore
+    private let sleepManualOverrideStore: SleepManualOverrideStore
 
     init(
         repository: WellnarioRepositoryProtocol,
         appleHealthService: AppleHealthSyncing,
-        medicalReviewStore: MedicalReviewStore = MedicalReviewStore()
+        medicalReviewStore: MedicalReviewStore = MedicalReviewStore(),
+        sleepManualOverrideStore: SleepManualOverrideStore = SleepManualOverrideStore()
     ) {
         self.appleHealthService = appleHealthService
         self.medicalReviewStore = medicalReviewStore
+        self.sleepManualOverrideStore = sleepManualOverrideStore
         super.init(repository: repository)
     }
 
@@ -55,6 +55,18 @@ final class TodayViewController: FeatureViewController {
             selector: #selector(appleHealthDidChange),
             name: .appleHealthSyncDidChange,
             object: appleHealthService
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sleepManualOverridesDidChange),
+            name: .sleepManualOverridesDidChange,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sleepQualityPreferencesDidChange),
+            name: .sleepQualityPreferencesDidChange,
+            object: nil
         )
         applyLocalizedCopy()
         reloadContent()
@@ -138,11 +150,6 @@ final class TodayViewController: FeatureViewController {
         contentStack.addArrangedSubview(makeSectionTitle(L10n.text("today.quick_actions")))
         setUpQuickActions()
         contentStack.addArrangedSubview(makeQuickActionsGrid())
-
-        let actionsGrid = contentStack.arrangedSubviews.last!
-        contentStack.setCustomSpacing(WellnarioSpacing.large, after: actionsGrid)
-        setUpRecentCard()
-        contentStack.addArrangedSubview(recentCard)
     }
 
     private func makeHeader() -> UIView {
@@ -205,17 +212,53 @@ final class TodayViewController: FeatureViewController {
 
     private func configureStaticCards() {
         let noData = L10n.text("wellness.no_data")
-        let snapshot = appleHealthService.snapshot
+        let snapshot = sleepManualOverrideStore.applying(to: appleHealthService.snapshot)
         let isToday = Calendar.autoupdatingCurrent.isDateInToday(selectedDate)
+        let selectedDay = LocalDay(containing: selectedDate, in: .current)
+        let manualOverride = sleepManualOverrideStore.override(for: selectedDay)
+        let selectedSleepDay = snapshot.sleepTrend.last {
+            LocalDay(containing: $0.date, in: .current) == selectedDay
+        }
 
         let sleepValue: String
         let sleepDetail: String
-        if isToday, let session = snapshot.latestSleepSession {
+        if let hours = selectedSleepDay?.hours {
+            sleepValue = AppleHealthUIFormatting.duration(hours * 3_600)
+            if manualOverride != nil {
+                var details = [L10n.text("sleep.manual.source")]
+                if let quality = selectedSleepDay?.qualityScore {
+                    details.append(L10n.text("sleep.manual.quality", Int(quality.rounded())))
+                }
+                sleepDetail = details.joined(separator: " · ")
+            } else if isToday, let session = snapshot.latestSleepSession {
+                var details = [AppleHealthUIFormatting.sleepRange(session)]
+                if let quality = selectedSleepDay?.qualityScore {
+                    details.append(L10n.text("sleep.manual.quality", Int(quality.rounded())))
+                }
+                sleepDetail = details.joined(separator: " · ")
+            } else if let quality = selectedSleepDay?.qualityScore {
+                sleepDetail = L10n.text("sleep.manual.quality", Int(quality.rounded()))
+            } else {
+                sleepDetail = noData
+            }
+        } else if isToday, let session = snapshot.latestSleepSession {
             sleepValue = AppleHealthUIFormatting.duration(session.asleepSeconds)
-            sleepDetail = AppleHealthUIFormatting.sleepRange(session)
+            if manualOverride != nil {
+                var details = [L10n.text("sleep.manual.source")]
+                if let quality = selectedSleepDay?.qualityScore {
+                    details.append(L10n.text("sleep.manual.quality", Int(quality.rounded())))
+                }
+                sleepDetail = details.joined(separator: " · ")
+            } else {
+                sleepDetail = AppleHealthUIFormatting.sleepRange(session)
+            }
         } else {
             sleepValue = "—"
-            sleepDetail = WellnessLocalStore.lastSleepFactor ?? noData
+            if let quality = selectedSleepDay?.qualityScore {
+                sleepDetail = L10n.text("sleep.manual.quality", Int(quality.rounded()))
+            } else {
+                sleepDetail = WellnessLocalStore.lastSleepFactor ?? noData
+            }
         }
         sleepCard.configure(
             title: L10n.text("wellness.sleep"),
@@ -334,14 +377,6 @@ final class TodayViewController: FeatureViewController {
         return row
     }
 
-    private func setUpRecentCard() {
-        recentContent.axis = .vertical
-        recentContent.spacing = WellnarioSpacing.xSmall
-        recentCard.contentView.addForAutoLayout(recentContent)
-        recentContent.pinEdges(to: recentCard.contentView, insets: .all(WellnarioSpacing.cardPadding))
-        recentCard.accessibilityIdentifier = "today.recent_supplements"
-    }
-
     private func render(_ summary: DashboardSummary) {
         supplementsCard.configure(
             title: L10n.text("wellness.supplements"),
@@ -351,63 +386,6 @@ final class TodayViewController: FeatureViewController {
                 ? L10n.text("today.intake.singular")
                 : L10n.text("today.intake.plural"),
             tone: summary.consumptionCount == 0 ? WellnarioPalette.textSecondary : WellnarioPalette.cyan
-        )
-        rebuildRecentCard(summary)
-    }
-
-    private func rebuildRecentCard(_ summary: DashboardSummary) {
-        recentContent.arrangedSubviews.forEach { $0.removeFromSuperview() }
-
-        let title = UILabel()
-        title.applyWellnarioStyle(.cardTitle, color: WellnarioPalette.textPrimary)
-        title.text = L10n.text("today.supplements.title")
-        let icon = UIImageView(image: UIImage(systemName: "pills.fill"))
-        icon.tintColor = WellnarioPalette.cyan
-        let heading = UIStackView(
-            arrangedSubviews: [title, UIView(), icon],
-            axis: .horizontal,
-            spacing: WellnarioSpacing.xxSmall,
-            alignment: .center
-        )
-        recentContent.addArrangedSubview(heading)
-
-        if summary.recentConsumptions.isEmpty {
-            let label = UILabel()
-            label.applyWellnarioStyle(.body, color: WellnarioPalette.textSecondary)
-            label.text = L10n.text("today.supplements.empty")
-            label.numberOfLines = 0
-            recentContent.addArrangedSubview(label)
-        } else {
-            summary.recentConsumptions.prefix(3).forEach { recentContent.addArrangedSubview(consumptionRow($0)) }
-        }
-
-        let button = PrimaryButton(title: L10n.text("quick.intake.title"), style: .secondary)
-        button.addTarget(self, action: #selector(logIntake), for: .touchUpInside)
-        recentContent.addArrangedSubview(button)
-    }
-
-    private func consumptionRow(_ consumption: Consumption) -> UIView {
-        let artwork = PresentationArtworkView(kind: .capsule)
-        artwork.showsBackground = true
-        NSLayoutConstraint.activate([
-            artwork.widthAnchor.constraint(equalToConstant: 44),
-            artwork.heightAnchor.constraint(equalTo: artwork.widthAnchor)
-        ])
-
-        let title = UILabel()
-        title.applyWellnarioStyle(.secondary, color: WellnarioPalette.textPrimary)
-        title.text = consumption.supplementNameSnapshot
-        title.numberOfLines = 1
-        let detail = UILabel()
-        detail.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
-        detail.text = "\(FeatureFormatting.decimal(consumption.quantity)) \(consumption.unit.symbol(languageCode: catalogLanguage.rawValue)) · \(WellnarioFormatters.time(consumption.consumedAt, timeZoneID: consumption.timeZoneID))"
-        detail.numberOfLines = 1
-        let labels = UIStackView(arrangedSubviews: [title, detail], axis: .vertical, spacing: 2)
-        return UIStackView(
-            arrangedSubviews: [artwork, labels],
-            axis: .horizontal,
-            spacing: WellnarioSpacing.xSmall,
-            alignment: .center
         )
     }
 
@@ -495,6 +473,8 @@ final class TodayViewController: FeatureViewController {
     @objc private func openHealth() { onShowHealth?() }
     @objc private func openFitness() { onShowFitness?() }
     @objc private func appleHealthDidChange() { reloadContent() }
+    @objc private func sleepManualOverridesDidChange() { reloadContent() }
+    @objc private func sleepQualityPreferencesDidChange() { reloadContent() }
 }
 
 @MainActor
