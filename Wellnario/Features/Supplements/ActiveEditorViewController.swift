@@ -159,13 +159,11 @@ final class ActiveEditorViewController: EditorViewController {
     }
 
     private func buildForm() {
-        let artwork = PresentationArtworkView(kind: .other)
-        artwork.primaryColor = WellnarioPalette.violet
-        artwork.secondaryColor = WellnarioPalette.magenta
-        NSLayoutConstraint.activate([
-            artwork.widthAnchor.constraint(equalToConstant: 112),
-            artwork.heightAnchor.constraint(equalTo: artwork.widthAnchor)
-        ])
+        let artwork = makeActiveArtwork(
+            imageKey: active?.imageKey,
+            size: 112,
+            accessibilityIdentifier: "active.editor.artwork"
+        )
         let artworkContainer = UIView()
         artworkContainer.addForAutoLayout(artwork)
         NSLayoutConstraint.activate([
@@ -322,13 +320,11 @@ final class ActiveDetailViewController: FeatureViewController {
         stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
         let hero = PremiumCardView()
-        let artwork = PresentationArtworkView(kind: .other)
-        artwork.primaryColor = WellnarioPalette.violet
-        artwork.secondaryColor = WellnarioPalette.cyan
-        NSLayoutConstraint.activate([
-            artwork.widthAnchor.constraint(equalToConstant: 112),
-            artwork.heightAnchor.constraint(equalTo: artwork.widthAnchor)
-        ])
+        let artwork = makeActiveArtwork(
+            imageKey: active.imageKey,
+            size: 112,
+            accessibilityIdentifier: "active.detail.artwork"
+        )
         let name = UILabel()
         name.applyWellnarioStyle(.pageTitle, color: WellnarioPalette.textPrimary)
         name.text = active.localizedName(language: catalogLanguage)
@@ -393,4 +389,34 @@ final class ActiveDetailViewController: FeatureViewController {
             navigationController.pushViewController(trends, animated: false)
         }
     }
+}
+
+@MainActor
+private func makeActiveArtwork(
+    imageKey: String?,
+    size: CGFloat,
+    accessibilityIdentifier: String
+) -> UIView {
+    if let imageKey, let image = UIImage(named: imageKey) {
+        let imageView = UIImageView(image: image)
+        imageView.contentMode = .scaleAspectFit
+        imageView.accessibilityIdentifier = accessibilityIdentifier
+        imageView.isAccessibilityElement = false
+        NSLayoutConstraint.activate([
+            imageView.widthAnchor.constraint(equalToConstant: size),
+            imageView.heightAnchor.constraint(equalTo: imageView.widthAnchor)
+        ])
+        return imageView
+    }
+
+    let artwork = PresentationArtworkView(kind: .other)
+    artwork.primaryColor = WellnarioPalette.violet
+    artwork.secondaryColor = WellnarioPalette.cyan
+    artwork.accessibilityIdentifier = accessibilityIdentifier
+    artwork.isAccessibilityElement = false
+    NSLayoutConstraint.activate([
+        artwork.widthAnchor.constraint(equalToConstant: size),
+        artwork.heightAnchor.constraint(equalTo: artwork.widthAnchor)
+    ])
+    return artwork
 }

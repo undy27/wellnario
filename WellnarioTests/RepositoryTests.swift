@@ -368,4 +368,5 @@ final class RepositoryTests: XCTestCase {
     private func decimal(_ value: String) -> Decimal {
         Decimal(string: value, locale: Locale(identifier: "en_US_POSIX"))!
     }
+
 }

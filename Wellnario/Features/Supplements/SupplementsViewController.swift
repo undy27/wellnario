@@ -324,6 +324,7 @@ final class SupplementsViewController: FeatureViewController {
         cell.configure(
             kind: .other,
             imageKey: active.imageKey,
+            compact: true,
             title: active.localizedName(language: catalogLanguage),
             subtitle: L10n.text("actives.today", consumed),
             detail: L10n.text("actives.target.value", target),
@@ -416,6 +417,10 @@ final class SupplementsViewController: FeatureViewController {
         guard selectedCategory != category else { return }
         selectedCategory = category
         updateCategoryButtonSelection()
+        tableView.setContentOffset(
+            CGPoint(x: 0, y: -tableView.adjustedContentInset.top),
+            animated: false
+        )
         tableView.reloadData()
         updateEmptyState()
         let visibleRect = button.convert(button.bounds, to: categoryFilterScrollView)
@@ -507,7 +512,9 @@ extension SupplementsViewController: UITableViewDataSource, UITableViewDelegate 
         return cell
     }
 
-    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat { 132 }
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        mode == .actives ? 108 : 132
+    }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
@@ -572,6 +579,8 @@ private final class CatalogListCell: UITableViewCell {
     private let subtitleLabel = UILabel()
     private let detailLabel = UILabel()
     private let badgeLabel = UILabel()
+    private var artworkSizeConstraint: NSLayoutConstraint!
+    private var rowEdgeConstraints: [NSLayoutConstraint] = []
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -584,6 +593,7 @@ private final class CatalogListCell: UITableViewCell {
     func configure(
         kind: PresentationKind,
         imageKey: String? = nil,
+        compact: Bool = false,
         title: String,
         subtitle: String,
         detail: String,
@@ -591,6 +601,9 @@ private final class CatalogListCell: UITableViewCell {
         tone: WellnarioTone
     ) {
         artwork.kind = kind
+        artworkSizeConstraint.constant = compact ? 62 : 78
+        let contentInset: CGFloat = compact ? 10 : 14
+        rowEdgeConstraints.forEach { $0.constant = contentInset }
         let activeIcon = imageKey.flatMap { UIImage(named: $0) }
         activeIconView.image = activeIcon
         activeIconView.isHidden = activeIcon == nil
@@ -620,8 +633,9 @@ private final class CatalogListCell: UITableViewCell {
         activeIconView.isHidden = true
         activeIconView.isAccessibilityElement = false
 
+        artworkSizeConstraint = artworkContainer.widthAnchor.constraint(equalToConstant: 78)
         NSLayoutConstraint.activate([
-            artworkContainer.widthAnchor.constraint(equalToConstant: 78),
+            artworkSizeConstraint,
             artworkContainer.heightAnchor.constraint(equalTo: artworkContainer.widthAnchor)
         ])
 
@@ -644,6 +658,12 @@ private final class CatalogListCell: UITableViewCell {
         let labels = UIStackView(arrangedSubviews: [titleRow, subtitleLabel, detailLabel], axis: .vertical, spacing: 4)
         let row = UIStackView(arrangedSubviews: [artworkContainer, labels], axis: .horizontal, spacing: 14, alignment: .center)
         card.contentView.addForAutoLayout(row)
-        row.pinEdges(to: card.contentView, insets: NSDirectionalEdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14))
+        rowEdgeConstraints = [
+            row.topAnchor.constraint(equalTo: card.contentView.topAnchor, constant: 14),
+            row.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 14),
+            card.contentView.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: 14),
+            card.contentView.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: 14)
+        ]
+        NSLayoutConstraint.activate(rowEdgeConstraints)
     }
 }
