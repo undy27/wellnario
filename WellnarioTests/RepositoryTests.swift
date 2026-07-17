@@ -161,16 +161,625 @@ final class RepositoryTests: XCTestCase {
         ))
 
         XCTAssertEqual(supplement.brand, "")
+        XCTAssertEqual(instance.label, "")
         XCTAssertEqual(instance.totalQuantity, 500)
         XCTAssertEqual(instance.totalUnit, .gram)
+        XCTAssertEqual(instance.initialQuantity, 500)
+        XCTAssertEqual(instance.initialUnit, .gram)
 
         let reopened = try WellnarioRepository(databaseURL: url)
         let persistedSupplement = try XCTUnwrap(try reopened.supplement(id: supplement.id))
         let persistedInstance = try XCTUnwrap(try reopened.instance(id: instance.id))
         XCTAssertEqual(persistedSupplement.brand, "")
+        XCTAssertEqual(persistedInstance.label, "")
         XCTAssertEqual(persistedInstance.expirationDay, expiry)
         XCTAssertEqual(persistedInstance.totalQuantity, 500)
         XCTAssertEqual(persistedInstance.totalUnit, .gram)
+        XCTAssertEqual(persistedInstance.initialQuantity, 500)
+        XCTAssertEqual(persistedInstance.initialUnit, .gram)
+    }
+
+    func testConsumptionCreateUpdateAndDeleteKeepInventoryInSync() throws {
+        let (repository, _) = try makeRepository()
+        let presentation = try presentation(repository, key: "presentation.capsule.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Magnesio",
+            brand: "",
+            presentationTypeID: presentation.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        let instance = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 30,
+            totalUnit: .capsule
+        ))
+
+        let consumption = try repository.createConsumption(ConsumptionDraft(
+            instanceID: instance.id,
+            quantity: 1,
+            unit: .capsule,
+            consumedAt: try utcDate(2026, 7, 17, hour: 9),
+            timeZoneID: "UTC"
+        ))
+        var updatedInstance = try XCTUnwrap(repository.instance(id: instance.id))
+        XCTAssertEqual(updatedInstance.totalQuantity, 29)
+        XCTAssertEqual(updatedInstance.initialQuantity, 30)
+
+        _ = try repository.updateConsumption(
+            id: consumption.id,
+            with: ConsumptionDraft(
+                instanceID: instance.id,
+                quantity: 3,
+                unit: .capsule,
+                consumedAt: consumption.consumedAt,
+                timeZoneID: "UTC"
+            )
+        )
+        updatedInstance = try XCTUnwrap(repository.instance(id: instance.id))
+        XCTAssertEqual(updatedInstance.totalQuantity, 27)
+        XCTAssertEqual(updatedInstance.initialQuantity, 30)
+
+        try repository.deleteConsumption(id: consumption.id)
+        updatedInstance = try XCTUnwrap(repository.instance(id: instance.id))
+        XCTAssertEqual(updatedInstance.totalQuantity, 30)
+        XCTAssertEqual(updatedInstance.initialQuantity, 30)
+    }
+
+    @MainActor
+    func testReconciliationAddsMissingContinuousConsumptionAcrossEveryDay() throws {
+        let (repository, _) = try makeRepository()
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.creatine.name" }
+        )
+        let powder = try presentation(repository, key: "presentation.powder.name")
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Creatina continua",
+            brand: "",
+            presentationTypeID: powder.id,
+            basisQuantity: 5,
+            basisUnit: .gram,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 5, unit: .gram)
+            ]
+        ))
+        let instance = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 100,
+            totalUnit: .gram
+        ))
+        _ = try repository.createConsumption(ConsumptionDraft(
+            instanceID: instance.id,
+            quantity: 10,
+            unit: .gram,
+            consumedAt: try utcDate(2026, 7, 1, hour: 9),
+            timeZoneID: "UTC"
+        ))
+
+        let result = try InventoryReconciliationService(repository: repository).reconcile(
+            instanceID: instance.id,
+            actualQuantity: 80,
+            correctionNote: "Correction",
+            now: try utcDate(2026, 7, 4, hour: 18),
+            timeZone: try XCTUnwrap(TimeZone(identifier: "UTC"))
+        )
+
+        XCTAssertEqual(result.direction, .addedConsumption)
+        XCTAssertEqual(result.adjustedConsumptionCount, 4)
+        XCTAssertEqual(try repository.instance(id: instance.id)?.totalQuantity, 80)
+        let corrected = try repository.fetchConsumptions(from: nil, through: nil, limit: nil)
+            .filter { $0.instanceID == instance.id && $0.notes == "Correction" }
+        XCTAssertEqual(corrected.count, 4)
+        XCTAssertEqual(corrected.reduce(Decimal.zero) { $0 + $1.quantity }, 10)
+        XCTAssertEqual(Set(corrected.map(\.localDay)).count, 4)
+
+        let beforeReduction = Dictionary(
+            grouping: try repository.fetchConsumptions(from: nil, through: nil, limit: nil)
+                .filter { $0.instanceID == instance.id },
+            by: \.localDay
+        ).mapValues { $0.reduce(Decimal.zero) { $0 + $1.quantity } }
+        let reduction = try InventoryReconciliationService(repository: repository).reconcile(
+            instanceID: instance.id,
+            actualQuantity: 85,
+            now: try utcDate(2026, 7, 4, hour: 18),
+            timeZone: try XCTUnwrap(TimeZone(identifier: "UTC"))
+        )
+        let afterReduction = Dictionary(
+            grouping: try repository.fetchConsumptions(from: nil, through: nil, limit: nil)
+                .filter { $0.instanceID == instance.id },
+            by: \.localDay
+        ).mapValues { $0.reduce(Decimal.zero) { $0 + $1.quantity } }
+        XCTAssertEqual(reduction.direction, .removedConsumption)
+        XCTAssertEqual(try repository.instance(id: instance.id)?.totalQuantity, 85)
+        for (day, amountBefore) in beforeReduction {
+            XCTAssertEqual(amountBefore - (afterReduction[day] ?? 0), Decimal(string: "1.25"))
+        }
+    }
+
+    @MainActor
+    func testReconciliationRemovesDiscreteConsumptionAtSpacedPoints() throws {
+        let (repository, _) = try makeRepository()
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        let capsule = try presentation(repository, key: "presentation.capsule.name")
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Magnesio discreto",
+            brand: "",
+            presentationTypeID: capsule.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        let instance = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 10,
+            totalUnit: .capsule
+        ))
+        for day in [1, 3, 5] {
+            _ = try repository.createConsumption(ConsumptionDraft(
+                instanceID: instance.id,
+                quantity: 1,
+                unit: .capsule,
+                consumedAt: try utcDate(2026, 7, day, hour: 9),
+                timeZoneID: "UTC"
+            ))
+        }
+
+        let result = try InventoryReconciliationService(repository: repository).reconcile(
+            instanceID: instance.id,
+            actualQuantity: 9,
+            now: try utcDate(2026, 7, 5, hour: 18),
+            timeZone: try XCTUnwrap(TimeZone(identifier: "UTC"))
+        )
+
+        XCTAssertEqual(result.direction, .removedConsumption)
+        XCTAssertEqual(result.adjustedConsumptionCount, 2)
+        XCTAssertEqual(try repository.instance(id: instance.id)?.totalQuantity, 9)
+        let remaining = try repository.fetchConsumptions(from: nil, through: nil, limit: nil)
+            .filter { $0.instanceID == instance.id }
+        XCTAssertEqual(remaining.count, 1)
+        XCTAssertEqual(remaining.first?.quantity, 1)
+
+        let addition = try InventoryReconciliationService(repository: repository).reconcile(
+            instanceID: instance.id,
+            actualQuantity: 6,
+            correctionNote: "Correction",
+            now: try utcDate(2026, 7, 5, hour: 18),
+            timeZone: try XCTUnwrap(TimeZone(identifier: "UTC"))
+        )
+        let spacedCorrections = try repository.fetchConsumptions(from: nil, through: nil, limit: nil)
+            .filter { $0.instanceID == instance.id && $0.notes == "Correction" }
+        XCTAssertEqual(addition.direction, .addedConsumption)
+        XCTAssertEqual(addition.adjustedConsumptionCount, 3)
+        XCTAssertEqual(spacedCorrections.count, 3)
+        XCTAssertEqual(Set(spacedCorrections.map(\.localDay)).count, 3)
+        XCTAssertTrue(spacedCorrections.allSatisfy { $0.quantity == 1 })
+        XCTAssertEqual(try repository.instance(id: instance.id)?.totalQuantity, 6)
+    }
+
+    @MainActor
+    func testContinuousProductCardDoesNotShowCompositionReferenceAmounts() throws {
+        let (repository, _) = try makeRepository()
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.creatine.name" }
+        )
+        let powder = try XCTUnwrap(
+            repository.fetchPresentationTypes().first { $0.nameKey == "presentation.powder.name" }
+        )
+        _ = try repository.createSupplement(SupplementDraft(
+            name: "Creatina en polvo",
+            brand: "",
+            presentationTypeID: powder.id,
+            basisQuantity: 5,
+            basisUnit: .gram,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 3, unit: .gram)
+            ]
+        ))
+
+        let controller = SupplementsViewController(repository: repository)
+        controller.loadViewIfNeeded()
+        let table = try XCTUnwrap(descendant(of: UITableView.self, identifier: nil, in: controller.view))
+        let cell = try XCTUnwrap(
+            table.dataSource?.tableView(table, cellForRowAt: IndexPath(row: 0, section: 0))
+        )
+
+        XCTAssertTrue(cell.accessibilityLabel?.contains("Creatina en polvo") == true)
+        XCTAssertFalse(cell.accessibilityLabel?.contains("3 g") == true)
+        XCTAssertFalse(cell.accessibilityLabel?.contains("5 g") == true)
+    }
+
+    @MainActor
+    func testTrendsShowsFavoriteConsumptionSummaryWithTargetColor() throws {
+        let (repository, _) = try makeRepository()
+        let today = LocalDay(containing: Date(), in: .current)
+        let capsule = try presentation(repository, key: "presentation.capsule.name")
+
+        func favorite(named name: String, capsules: Decimal) throws -> Active {
+            let active = try repository.createActive(ActiveDraft(name: name, baseUnit: .milligram))
+            _ = try repository.setActiveFavorite(id: active.id, isFavorite: true)
+            _ = try repository.setTarget(
+                activeID: active.id,
+                lowerBound: 100,
+                upperBound: 100,
+                unit: .milligram,
+                effectiveFrom: try today.adding(days: -29)
+            )
+            let supplement = try repository.createSupplement(SupplementDraft(
+                name: "Producto \(name)",
+                brand: "",
+                presentationTypeID: capsule.id,
+                basisQuantity: 1,
+                basisUnit: .capsule,
+                components: [
+                    SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+                ]
+            ))
+            let instance = try repository.createInstance(SupplementInstanceDraft(
+                supplementID: supplement.id,
+                totalQuantity: 30,
+                totalUnit: .capsule
+            ))
+            _ = try repository.createConsumption(ConsumptionDraft(
+                instanceID: instance.id,
+                quantity: capsules,
+                unit: .capsule,
+                consumedAt: Date(),
+                timeZoneID: TimeZone.current.identifier
+            ))
+            return active
+        }
+
+        let below = try favorite(named: "Por debajo", capsules: 1)
+        let within = try favorite(named: "En rango", capsules: 7)
+        let above = try favorite(named: "Por encima", capsules: 9)
+
+        let controller = TrendsViewController(repository: repository, activeID: below.id)
+        controller.loadViewIfNeeded()
+        let card = try XCTUnwrap(descendant(
+            of: PremiumCardView.self,
+            identifier: "trends.favorites.card",
+            in: controller.view
+        ))
+        XCTAssertFalse(card.isHidden)
+
+        func assertSevenDayColor(_ active: Active, _ color: UIColor) throws {
+            let value = try XCTUnwrap(descendant(
+                of: UILabel.self,
+                identifier: "trends.favorites.\(active.id.uuidString).7d",
+                in: controller.view
+            ))
+            XCTAssertEqual(
+                value.textColor.resolvedColor(with: controller.traitCollection),
+                color.resolvedColor(with: controller.traitCollection)
+            )
+        }
+
+        try assertSevenDayColor(below, WellnarioPalette.yellow)
+        try assertSevenDayColor(within, WellnarioPalette.success)
+        try assertSevenDayColor(above, WellnarioPalette.danger)
+    }
+
+    func testEditingLegacyConsumptionAppliesMissingInventoryDeduction() throws {
+        let (repository, _) = try makeRepository()
+        let presentation = try presentation(repository, key: "presentation.capsule.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Magnesio heredado",
+            brand: "",
+            presentationTypeID: presentation.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        let instance = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 30,
+            totalUnit: .capsule
+        ))
+        let consumption = try repository.createConsumption(ConsumptionDraft(
+            instanceID: instance.id,
+            quantity: 1,
+            unit: .capsule,
+            consumedAt: try utcDate(2026, 7, 17, hour: 9),
+            timeZoneID: "UTC"
+        ))
+
+        // Simulates a take created by the version that stored the history but
+        // did not yet touch inventory.
+        try repository.database.execute(
+            """
+            UPDATE consumptions SET inventory_applied = 0 WHERE id = ?;
+            """,
+            bindings: [.text(consumption.id.uuidString)]
+        )
+        try repository.database.execute(
+            """
+            UPDATE supplement_instances SET total_quantity = ? WHERE id = ?;
+            """,
+            bindings: [.text("30"), .text(instance.id.uuidString)]
+        )
+
+        _ = try repository.updateConsumption(
+            id: consumption.id,
+            with: ConsumptionDraft(
+                instanceID: instance.id,
+                quantity: 1,
+                unit: .capsule,
+                consumedAt: consumption.consumedAt,
+                timeZoneID: "UTC",
+                notes: "Conciliada"
+            )
+        )
+        XCTAssertEqual(try repository.instance(id: instance.id)?.totalQuantity, 29)
+
+        try repository.deleteConsumption(id: consumption.id)
+        XCTAssertEqual(try repository.instance(id: instance.id)?.totalQuantity, 30)
+    }
+
+    func testUntrackedInventoryIsNotMarkedAsDeductedAndCanBeReconciledLater() throws {
+        let (repository, _) = try makeRepository()
+        let presentation = try presentation(repository, key: "presentation.capsule.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Magnesio sin cantidad",
+            brand: "",
+            presentationTypeID: presentation.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        let instance = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id
+        ))
+        let consumption = try repository.createConsumption(ConsumptionDraft(
+            instanceID: instance.id,
+            quantity: 1,
+            unit: .capsule,
+            consumedAt: try utcDate(2026, 7, 17, hour: 9),
+            timeZoneID: "UTC"
+        ))
+
+        let unappliedRow = try XCTUnwrap(repository.database.query(
+            "SELECT inventory_applied FROM consumptions WHERE id = ?;",
+            bindings: [.text(consumption.id.uuidString)]
+        ).first)
+        XCTAssertEqual(try unappliedRow.integer("inventory_applied"), 0)
+
+        _ = try repository.updateInstance(
+            id: instance.id,
+            with: SupplementInstanceDraft(
+                supplementID: supplement.id,
+                totalQuantity: 10,
+                totalUnit: .capsule
+            )
+        )
+        _ = try repository.updateConsumption(
+            id: consumption.id,
+            with: ConsumptionDraft(
+                instanceID: instance.id,
+                quantity: 1,
+                unit: .capsule,
+                consumedAt: consumption.consumedAt,
+                timeZoneID: consumption.timeZoneID
+            )
+        )
+
+        XCTAssertEqual(try repository.instance(id: instance.id)?.totalQuantity, 9)
+        let appliedRow = try XCTUnwrap(repository.database.query(
+            "SELECT inventory_applied FROM consumptions WHERE id = ?;",
+            bindings: [.text(consumption.id.uuidString)]
+        ).first)
+        XCTAssertEqual(try appliedRow.integer("inventory_applied"), 1)
+    }
+
+    @MainActor
+    func testOpenInstanceEditorRefreshesRemainingContentAfterIntake() throws {
+        let (repository, _) = try makeRepository()
+        let presentation = try presentation(repository, key: "presentation.capsule.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Magnesio visible",
+            brand: "",
+            presentationTypeID: presentation.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        let instance = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 10,
+            totalUnit: .capsule
+        ))
+        let controller = InstanceEditorViewController(repository: repository, instance: instance)
+        controller.loadViewIfNeeded()
+        let remainingField = try XCTUnwrap(descendant(
+            of: UITextField.self,
+            identifier: "instance.remaining_quantity",
+            in: controller.view
+        ))
+        XCTAssertEqual(remainingField.text, "10")
+
+        _ = try repository.createConsumption(ConsumptionDraft(
+            instanceID: instance.id,
+            quantity: 1,
+            unit: .capsule,
+            consumedAt: Date(),
+            timeZoneID: TimeZone.current.identifier
+        ))
+
+        XCTAssertEqual(try repository.instance(id: instance.id)?.totalQuantity, 9)
+        XCTAssertEqual(remainingField.text, "9")
+
+        controller.performSave()
+        XCTAssertEqual(try repository.instance(id: instance.id)?.totalQuantity, 9)
+    }
+
+    @MainActor
+    func testFinishingIntakeDismissesPresentedNavigationSheet() async throws {
+        let (repository, _) = try makeRepository()
+        let presenter = UIViewController()
+        let editor = IntakeEditorViewController(repository: repository)
+        let navigationController = UINavigationController(rootViewController: editor)
+        let window = UIWindow(frame: UIScreen.main.bounds)
+        window.rootViewController = presenter
+        window.makeKeyAndVisible()
+        presenter.present(navigationController, animated: false)
+        XCTAssertTrue(presenter.presentedViewController === navigationController)
+
+        UIView.setAnimationsEnabled(false)
+        defer { UIView.setAnimationsEnabled(true) }
+        editor.finishSaving(message: "Guardada")
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertNil(presenter.presentedViewController)
+        window.isHidden = true
+        window.rootViewController = nil
+    }
+
+    @MainActor
+    func testSavingActiveTargetReturnsToPreviousScreen() throws {
+        let (repository, _) = try makeRepository()
+        let active = try repository.createActive(
+            ActiveDraft(name: "Objetivo navegable", baseUnit: .milligram)
+        )
+        let root = UIViewController()
+        let navigationController = UINavigationController(rootViewController: root)
+        let detail = ActiveDetailViewController(repository: repository, activeID: active.id)
+        navigationController.pushViewController(detail, animated: false)
+        detail.loadViewIfNeeded()
+
+        let amountField = try XCTUnwrap(descendant(
+            of: UITextField.self,
+            identifier: "active.detail.target.amount",
+            in: detail.view
+        ))
+        let saveButton = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "active.detail.target.save",
+            in: detail.view
+        ))
+        amountField.text = "26"
+
+        UIView.setAnimationsEnabled(false)
+        defer { UIView.setAnimationsEnabled(true) }
+        saveButton.sendActions(for: .touchUpInside)
+
+        XCTAssertTrue(navigationController.topViewController === root)
+        let target = try XCTUnwrap(repository.active(id: active.id)?.currentTarget)
+        XCTAssertEqual(target.lowerBound, 26)
+        XCTAssertEqual(target.upperBound, 26)
+        XCTAssertEqual(target.unit, .milligram)
+    }
+
+    @MainActor
+    func testInstanceEditorCorrectsRemainingContentWithoutChangingConsumptionHistory() throws {
+        let (repository, _) = try makeRepository()
+        let presentation = try presentation(repository, key: "presentation.capsule.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Magnesio",
+            brand: "Wellnario",
+            presentationTypeID: presentation.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        let instance = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            label: "Envase abierto",
+            totalQuantity: 60,
+            totalUnit: .capsule
+        ))
+        let consumption = try repository.createConsumption(ConsumptionDraft(
+            instanceID: instance.id,
+            quantity: 2,
+            unit: .capsule,
+            consumedAt: Date(),
+            timeZoneID: TimeZone.current.identifier
+        ))
+
+        let controller = InstanceEditorViewController(repository: repository, instance: instance)
+        controller.loadViewIfNeeded()
+        let remainingField = try XCTUnwrap(descendant(
+            of: UITextField.self,
+            identifier: "instance.remaining_quantity",
+            in: controller.view
+        ))
+        let labelField = try XCTUnwrap(descendant(
+            of: UITextField.self,
+            identifier: "instance.label",
+            in: controller.view
+        ))
+        XCTAssertEqual(remainingField.text, "60")
+        XCTAssertNotNil(descendant(
+            of: UIButton.self,
+            identifier: "instance.remaining_unit",
+            in: controller.view
+        ))
+
+        remainingField.text = "0"
+        labelField.text = ""
+        controller.performSave()
+
+        let corrected = try XCTUnwrap(repository.instance(id: instance.id))
+        XCTAssertEqual(corrected.label, "")
+        XCTAssertEqual(corrected.totalQuantity, 0)
+        XCTAssertEqual(corrected.totalUnit, .capsule)
+        XCTAssertEqual(corrected.initialQuantity, 60)
+        XCTAssertEqual(corrected.initialUnit, .capsule)
+        XCTAssertNotNil(try repository.consumption(id: consumption.id))
+    }
+
+    @MainActor
+    func testContinuousMarqueeDetectsOverflowAndKeepsFullAccessibilityText() {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 200, height: 100))
+        let marquee = ContinuousMarqueeLabel()
+        marquee.frame = CGRect(x: 0, y: 0, width: 90, height: 24)
+        window.addSubview(marquee)
+        marquee.text = "Etiqueta identificativa especialmente larga para este envase"
+        marquee.isMarqueeEnabled = true
+        marquee.layoutIfNeeded()
+
+        XCTAssertTrue(marquee.isOverflowing)
+        XCTAssertEqual(
+            marquee.accessibilityLabel,
+            "Etiqueta identificativa especialmente larga para este envase"
+        )
+        if WellnarioMotion.animationsEnabled {
+            let visibleLabels = marquee.subviews.compactMap { $0 as? UILabel }.filter { !$0.isHidden }
+            XCTAssertEqual(visibleLabels.count, 2)
+            XCTAssertTrue(visibleLabels.allSatisfy { !($0.layer.animationKeys() ?? []).isEmpty })
+        }
+
+        marquee.text = "Abierto"
+        marquee.layoutIfNeeded()
+        XCTAssertFalse(marquee.isOverflowing)
     }
 
     @MainActor
@@ -187,6 +796,143 @@ final class RepositoryTests: XCTestCase {
 
         SupplementPhotoStore.remove(reference: reference, databaseURL: repository.databaseURL)
         XCTAssertNil(SupplementPhotoStore.image(reference: reference, databaseURL: repository.databaseURL))
+    }
+
+    @MainActor
+    func testInstanceEditorShowsProductPhotoWhenAvailable() throws {
+        let (repository, _) = try makeRepository()
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 24)).image { context in
+            UIColor.systemPink.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 32, height: 24))
+        }
+        let photoReference = try SupplementPhotoStore.save(image, databaseURL: repository.databaseURL)
+        let capsule = try presentation(repository, key: "presentation.capsule.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Producto fotografiado",
+            brand: "",
+            imageReference: photoReference,
+            presentationTypeID: capsule.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        let instance = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 30,
+            totalUnit: .capsule
+        ))
+
+        let controller = InstanceEditorViewController(repository: repository, instance: instance)
+        controller.loadViewIfNeeded()
+
+        let photoView = try XCTUnwrap(descendant(
+            of: UIImageView.self,
+            identifier: "instance.product_photo",
+            in: controller.view
+        ))
+        let genericArtwork = try XCTUnwrap(descendant(
+            of: PresentationArtworkView.self,
+            identifier: "instance.presentation_artwork",
+            in: controller.view
+        ))
+        XCTAssertNotNil(photoView.image)
+        XCTAssertFalse(photoView.isHidden)
+        XCTAssertTrue(genericArtwork.isHidden)
+    }
+
+    @MainActor
+    func testIntakeInstanceMenuShowsProductPhotoThumbnail() throws {
+        let (repository, _) = try makeRepository()
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 24)).image { context in
+            UIColor.systemPink.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 32, height: 24))
+        }
+        let photoReference = try SupplementPhotoStore.save(image, databaseURL: repository.databaseURL)
+        let capsule = try presentation(repository, key: "presentation.capsule.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Producto fotografiado",
+            brand: "",
+            imageReference: photoReference,
+            presentationTypeID: capsule.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        _ = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 30,
+            totalUnit: .capsule
+        ))
+
+        let controller = IntakeEditorViewController(repository: repository)
+        controller.loadViewIfNeeded()
+
+        let selector = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "intake.instance.selector",
+            in: controller.view
+        ))
+        let action = try XCTUnwrap(selector.menu?.children.first as? UIAction)
+        XCTAssertNotNil(action.image)
+    }
+
+    @MainActor
+    func testManagedIntakesShowProductPhotoWhenAvailable() throws {
+        let (repository, _) = try makeRepository()
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 24)).image { context in
+            UIColor.systemPink.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 32, height: 24))
+        }
+        let photoReference = try SupplementPhotoStore.save(image, databaseURL: repository.databaseURL)
+        let capsule = try presentation(repository, key: "presentation.capsule.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Producto fotografiado",
+            brand: "",
+            imageReference: photoReference,
+            presentationTypeID: capsule.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        let instance = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 30,
+            totalUnit: .capsule
+        ))
+        _ = try repository.createConsumption(ConsumptionDraft(
+            instanceID: instance.id,
+            quantity: 1,
+            unit: .capsule,
+            consumedAt: Date(),
+            timeZoneID: TimeZone.current.identifier
+        ))
+
+        let controller = DiaryViewController(repository: repository, presentationMode: .manage)
+        controller.loadViewIfNeeded()
+        let table = try XCTUnwrap(descendant(of: UITableView.self, identifier: nil, in: controller.view))
+        let cell = try XCTUnwrap(table.dataSource?.tableView(table, cellForRowAt: IndexPath(row: 0, section: 0)))
+        let photoView = try XCTUnwrap(descendant(
+            of: UIImageView.self,
+            identifier: "diary.product_photo",
+            in: cell
+        ))
+        XCTAssertNotNil(photoView.image)
+        XCTAssertFalse(photoView.isHidden)
     }
 
     func testFormulaPersistenceAndHistoryRemainInvariantAfterFormulaChange() throws {
@@ -342,6 +1088,57 @@ final class RepositoryTests: XCTestCase {
         let dashboard = try repository.dashboard(on: from, expiringWithinDays: 30)
         XCTAssertEqual(dashboard.consumptionCount, 1)
         XCTAssertEqual(dashboard.activeProgress.first(where: { $0.id == active.id })?.consumedAmount, 100)
+    }
+
+    func testDailyConsumptionIgnoresLeadingDaysBeforeFirstRecordedIntake() throws {
+        let (repository, _) = try makeRepository()
+        let active = try repository.createActive(
+            ActiveDraft(name: "Leading zero active", baseUnit: .milligram)
+        )
+        let presentation = try presentation(repository, key: "presentation.capsule.name")
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Leading zero product",
+            brand: "",
+            presentationTypeID: presentation.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        let instance = try repository.createInstance(
+            SupplementInstanceDraft(supplementID: supplement.id)
+        )
+        let from = try LocalDay(year: 2026, month: 7, day: 1)
+        let firstRecordedDay = try LocalDay(year: 2026, month: 7, day: 3)
+        let through = try LocalDay(year: 2026, month: 7, day: 6)
+        _ = try repository.createConsumption(ConsumptionDraft(
+            instanceID: instance.id,
+            quantity: 1,
+            unit: .capsule,
+            consumedAt: try utcDate(2026, 7, 3, hour: 9),
+            timeZoneID: "UTC"
+        ))
+        _ = try repository.createConsumption(ConsumptionDraft(
+            instanceID: instance.id,
+            quantity: 2,
+            unit: .capsule,
+            consumedAt: try utcDate(2026, 7, 5, hour: 9),
+            timeZoneID: "UTC"
+        ))
+
+        let series = try repository.dailyConsumption(
+            activeID: active.id,
+            from: from,
+            through: through
+        )
+
+        XCTAssertEqual(series.points.map(\.amount), [0, 0, 100, 0, 200, 0])
+        XCTAssertEqual(series.amountsFromFirstRecordedDay, [nil, nil, 100, 0, 200, 0])
+        XCTAssertEqual(series.firstRecordedDay, firstRecordedDay)
+        XCTAssertEqual(series.recordedDayCount, 4)
+        XCTAssertEqual(series.total, 300)
+        XCTAssertEqual(series.average, 75)
     }
 
     func testSingleValueTargetUsesConfiguredMarginWhileExplicitRangeRemainsUnchanged() throws {
@@ -568,6 +1365,24 @@ final class RepositoryTests: XCTestCase {
 
     private func decimal(_ value: String) -> Decimal {
         Decimal(string: value, locale: Locale(identifier: "en_US_POSIX"))!
+    }
+
+    @MainActor
+    private func descendant<View: UIView>(
+        of type: View.Type,
+        identifier: String?,
+        in root: UIView
+    ) -> View? {
+        if let root = root as? View,
+           identifier == nil || root.accessibilityIdentifier == identifier {
+            return root
+        }
+        for subview in root.subviews {
+            if let result = descendant(of: type, identifier: identifier, in: subview) {
+                return result
+            }
+        }
+        return nil
     }
 
 }

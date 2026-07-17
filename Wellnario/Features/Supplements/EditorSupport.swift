@@ -5,6 +5,7 @@ class EditorViewController: FeatureViewController, UIGestureRecognizerDelegate {
     let scrollView = UIScrollView()
     let contentStack = UIStackView()
     let saveButton = PrimaryButton()
+    var minimumBottomContentInset: CGFloat { 0 }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -21,7 +22,7 @@ class EditorViewController: FeatureViewController, UIGestureRecognizerDelegate {
     func finishSaving(message: String = L10n.text("feedback.saved")) {
         saveButton.isLoading = false
         UIImpactFeedbackGenerator.wellnarioSuccess()
-        dismiss(animated: true)
+        closeEditor(animated: true)
     }
 
     private func setUpEditor() {
@@ -36,6 +37,8 @@ class EditorViewController: FeatureViewController, UIGestureRecognizerDelegate {
         scrollView.alwaysBounceVertical = true
         scrollView.keyboardDismissMode = .interactive
         scrollView.showsVerticalScrollIndicator = false
+        scrollView.contentInset.bottom = minimumBottomContentInset
+        scrollView.verticalScrollIndicatorInsets.bottom = minimumBottomContentInset
         view.addForAutoLayout(scrollView)
         scrollView.pinEdges(to: view)
 
@@ -94,7 +97,23 @@ class EditorViewController: FeatureViewController, UIGestureRecognizerDelegate {
     }
 
     @objc private func cancelTapped() {
-        dismiss(animated: true)
+        closeEditor(animated: true)
+    }
+
+    private func closeEditor(animated: Bool) {
+        if let navigationController, navigationController.presentingViewController != nil {
+            navigationController.dismiss(animated: animated)
+            return
+        }
+        if presentingViewController != nil {
+            dismiss(animated: animated)
+            return
+        }
+        if let navigationController,
+           navigationController.topViewController === self,
+           navigationController.viewControllers.count > 1 {
+            navigationController.popViewController(animated: animated)
+        }
     }
 
     @objc private func endEditing() {
@@ -113,13 +132,16 @@ class EditorViewController: FeatureViewController, UIGestureRecognizerDelegate {
     @objc private func keyboardFrameChanged(_ notification: Notification) {
         guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
         let converted = view.convert(frame, from: nil)
-        scrollView.contentInset.bottom = max(0, view.bounds.maxY - converted.minY) + WellnarioSpacing.small
+        scrollView.contentInset.bottom = max(
+            minimumBottomContentInset,
+            max(0, view.bounds.maxY - converted.minY) + WellnarioSpacing.small
+        )
         scrollView.verticalScrollIndicatorInsets.bottom = scrollView.contentInset.bottom
     }
 
     @objc private func keyboardHidden(_ notification: Notification) {
-        scrollView.contentInset.bottom = 0
-        scrollView.verticalScrollIndicatorInsets.bottom = 0
+        scrollView.contentInset.bottom = minimumBottomContentInset
+        scrollView.verticalScrollIndicatorInsets.bottom = minimumBottomContentInset
     }
 }
 
@@ -158,6 +180,7 @@ final class SelectionFieldView: UIView {
     var value: String = "" { didSet { updateValue() } }
     var leadingImage: UIImage? { didSet { updateValue() } }
     var menu: UIMenu? { didSet { button.menu = menu } }
+    var usesCompactHorizontalPadding = false { didSet { updateValue() } }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -211,11 +234,17 @@ final class SelectionFieldView: UIView {
         var configuration = UIButton.Configuration.plain()
         configuration.title = value
         configuration.baseForegroundColor = WellnarioPalette.textPrimary
+        let leadingInset: CGFloat
+        if leadingImage == nil {
+            leadingInset = usesCompactHorizontalPadding ? 10 : 16
+        } else {
+            leadingInset = usesCompactHorizontalPadding ? 48 : 56
+        }
         configuration.contentInsets = NSDirectionalEdgeInsets(
             top: 10,
-            leading: leadingImage == nil ? 16 : 56,
+            leading: leadingInset,
             bottom: 10,
-            trailing: 44
+            trailing: usesCompactHorizontalPadding ? 30 : 44
         )
         configuration.cornerStyle = .fixed
         configuration.background.backgroundColor = WellnarioPalette.fieldBackground

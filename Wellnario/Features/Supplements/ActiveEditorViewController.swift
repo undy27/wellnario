@@ -523,10 +523,26 @@ final class ActiveDetailViewController: FeatureViewController, UIGestureRecogniz
             )
             targetSaveButton.isLoading = false
             UIImpactFeedbackGenerator.wellnarioSuccess()
-            reloadContent()
+            returnAfterSavingTarget()
         } catch {
             targetSaveButton.isLoading = false
             showError(error)
+        }
+    }
+
+    private func returnAfterSavingTarget() {
+        if let navigationController,
+           navigationController.topViewController === self,
+           navigationController.viewControllers.count > 1 {
+            navigationController.popViewController(animated: true)
+            return
+        }
+        if let navigationController, navigationController.presentingViewController != nil {
+            navigationController.dismiss(animated: true)
+            return
+        }
+        if presentingViewController != nil {
+            dismiss(animated: true)
         }
     }
 

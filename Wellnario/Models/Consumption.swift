@@ -105,6 +105,34 @@ public struct ConsumptionDraft: Hashable, Sendable {
     }
 }
 
+public struct InventoryReconciliationResult: Hashable, Sendable {
+    public enum Direction: Hashable, Sendable {
+        case unchanged
+        case addedConsumption
+        case removedConsumption
+    }
+
+    public let previousQuantity: Decimal
+    public let correctedQuantity: Decimal
+    public let unit: DoseUnit
+    public let direction: Direction
+    public let adjustedConsumptionCount: Int
+
+    public init(
+        previousQuantity: Decimal,
+        correctedQuantity: Decimal,
+        unit: DoseUnit,
+        direction: Direction,
+        adjustedConsumptionCount: Int
+    ) {
+        self.previousQuantity = previousQuantity
+        self.correctedQuantity = correctedQuantity
+        self.unit = unit
+        self.direction = direction
+        self.adjustedConsumptionCount = adjustedConsumptionCount
+    }
+}
+
 public struct DiaryDay: Identifiable, Hashable, Sendable {
     public var id: LocalDay { day }
     public let day: LocalDay
@@ -209,10 +237,28 @@ public struct ConsumptionSeries: Hashable, Sendable {
     public let through: LocalDay
     public let unit: DoseUnit
     public let points: [DailyConsumptionPoint]
+    /// First day on which this active has a recorded intake, including days
+    /// before the requested range.
+    public let firstRecordedDay: LocalDay?
     public let total: Decimal
-    /// Arithmetic mean over every calendar day, including zero-consumption days.
+    /// Arithmetic mean from the first recorded day onward. Zero-consumption
+    /// days after that date are included.
     public let average: Decimal
     public let daysWithinTarget: Int
+
+    public var recordedDayCount: Int {
+        guard let firstRecordedDay else { return 0 }
+        return points.lazy.filter { $0.day >= firstRecordedDay }.count
+    }
+
+    /// Preserves the requested calendar range while representing days before
+    /// tracking began as missing data rather than zero consumption.
+    public var amountsFromFirstRecordedDay: [Decimal?] {
+        points.map { point in
+            guard let firstRecordedDay, point.day >= firstRecordedDay else { return nil }
+            return point.amount
+        }
+    }
 
     public init(
         active: Active,
@@ -220,6 +266,7 @@ public struct ConsumptionSeries: Hashable, Sendable {
         through: LocalDay,
         unit: DoseUnit,
         points: [DailyConsumptionPoint],
+        firstRecordedDay: LocalDay?,
         total: Decimal,
         average: Decimal,
         daysWithinTarget: Int
@@ -229,6 +276,7 @@ public struct ConsumptionSeries: Hashable, Sendable {
         self.through = through
         self.unit = unit
         self.points = points
+        self.firstRecordedDay = firstRecordedDay
         self.total = total
         self.average = average
         self.daysWithinTarget = daysWithinTarget

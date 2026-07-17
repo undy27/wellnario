@@ -2355,6 +2355,133 @@ final class AppleHealthSyncTests: XCTestCase {
     }
 
     @MainActor
+    func testSupplementAdvancedOptionsOpenIntakeManager() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WellnarioIntakeManagerTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let repository = try WellnarioRepository(
+            databaseURL: directory.appendingPathComponent("test.sqlite")
+        )
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        let settings = SettingsViewController(
+            appleHealthService: service,
+            repository: repository
+        )
+        let navigation = UINavigationController(rootViewController: settings)
+        navigation.loadViewIfNeeded()
+        settings.loadViewIfNeeded()
+
+        let supplementsButton = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "settings.advanced.supplements.card",
+            in: settings.view
+        ))
+        supplementsButton.sendActions(for: .touchUpInside)
+        let supplementOptions = try XCTUnwrap(navigation.topViewController)
+        supplementOptions.loadViewIfNeeded()
+
+        let intakeManagerCard = try XCTUnwrap(descendant(
+            of: PremiumCardView.self,
+            identifier: "settings.advanced.intakes.card",
+            in: supplementOptions.view
+        ))
+        intakeManagerCard.sendActions(for: .touchUpInside)
+
+        let intakeManager = try XCTUnwrap(navigation.topViewController as? DiaryViewController)
+        intakeManager.loadViewIfNeeded()
+        XCTAssertEqual(intakeManager.title, L10n.text("settings.advanced.intakes.title"))
+        XCTAssertNil(intakeManager.navigationItem.rightBarButtonItem)
+    }
+
+    @MainActor
+    func testSupplementAdvancedOptionsOpenDeviationCorrection() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WellnarioDeviationCorrectionTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let repository = try WellnarioRepository(
+            databaseURL: directory.appendingPathComponent("test.sqlite")
+        )
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        let settings = SettingsViewController(
+            appleHealthService: service,
+            repository: repository
+        )
+        let navigation = UINavigationController(rootViewController: settings)
+        navigation.loadViewIfNeeded()
+        settings.loadViewIfNeeded()
+
+        let supplementsButton = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "settings.advanced.supplements.card",
+            in: settings.view
+        ))
+        supplementsButton.sendActions(for: .touchUpInside)
+        let supplementOptions = try XCTUnwrap(navigation.topViewController)
+        supplementOptions.loadViewIfNeeded()
+
+        let correctionCard = try XCTUnwrap(descendant(
+            of: PremiumCardView.self,
+            identifier: "settings.advanced.deviations.card",
+            in: supplementOptions.view
+        ))
+        correctionCard.sendActions(for: .touchUpInside)
+
+        let correction = try XCTUnwrap(navigation.topViewController)
+        correction.loadViewIfNeeded()
+        XCTAssertEqual(correction.title, L10n.text("settings.advanced.deviations.title"))
+        XCTAssertEqual(
+            correction.view.accessibilityIdentifier,
+            "settings.advanced.deviations.root"
+        )
+        let formCard = try XCTUnwrap(descendant(
+            of: FormSectionView.self,
+            identifier: "deviations.form.card",
+            in: correction.view
+        ))
+        XCTAssertNotNil(descendant(
+            of: UIButton.self,
+            identifier: "deviations.instance.selector",
+            in: formCard
+        ))
+        XCTAssertNotNil(descendant(
+            of: UITextField.self,
+            identifier: "deviations.actual",
+            in: formCard
+        ))
+        let correctionScroll = try XCTUnwrap(descendant(
+            of: UIScrollView.self,
+            identifier: "deviations.scroll",
+            in: correction.view
+        ))
+        XCTAssertEqual(
+            correctionScroll.contentInset.bottom,
+            WellnarioSpacing.bottomNavigationInset,
+            accuracy: 0.01
+        )
+    }
+
+    @MainActor
+    func testSettingsPreservesScrollPositionWhenRevealedAgain() throws {
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        let settings = SettingsViewController(appleHealthService: service)
+        settings.loadViewIfNeeded()
+        settings.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        settings.view.layoutIfNeeded()
+        let scrollView = try XCTUnwrap(descendant(
+            of: UIScrollView.self,
+            identifier: "settings.scroll",
+            in: settings.view
+        ))
+        scrollView.contentOffset.y = 320
+
+        WellnarioScrollPosition.reset(in: settings)
+
+        XCTAssertEqual(scrollView.contentOffset.y, 320, accuracy: 0.01)
+    }
+
+    @MainActor
     func testTabSelectionResetsDestinationScrollPosition() {
         let first = ScrollPositionTestViewController()
         let second = ScrollPositionTestViewController()

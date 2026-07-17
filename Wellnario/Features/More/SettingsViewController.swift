@@ -1,7 +1,7 @@
 import UIKit
 
 @MainActor
-final class SettingsViewController: UIViewController {
+final class SettingsViewController: UIViewController, WellnarioPreservesScrollPositionWhenRevealed {
     private let spanishButton = LanguageChoiceControl(language: .spanish)
     private let englishButton = LanguageChoiceControl(language: .english)
     private let darkAppearanceButton = AppearanceChoiceControl(mode: .dark)
@@ -12,17 +12,20 @@ final class SettingsViewController: UIViewController {
     private let appearanceManager: WellnarioAppearanceManager
     private let activeTargetMarginPreferences: ActiveTargetMarginPreferences
     private let sleepManualOverrideStore: SleepManualOverrideStore
+    private let repository: WellnarioRepositoryProtocol?
 
     init(
         appleHealthService: AppleHealthSyncing,
         appearanceManager: WellnarioAppearanceManager = .shared,
         activeTargetMarginPreferences: ActiveTargetMarginPreferences = ActiveTargetMarginPreferences(),
-        sleepManualOverrideStore: SleepManualOverrideStore = SleepManualOverrideStore()
+        sleepManualOverrideStore: SleepManualOverrideStore = SleepManualOverrideStore(),
+        repository: WellnarioRepositoryProtocol? = nil
     ) {
         self.appleHealthService = appleHealthService
         self.appearanceManager = appearanceManager
         self.activeTargetMarginPreferences = activeTargetMarginPreferences
         self.sleepManualOverrideStore = sleepManualOverrideStore
+        self.repository = repository
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -64,6 +67,7 @@ final class SettingsViewController: UIViewController {
         navigationItem.leftBarButtonItem = backButton
 
         let scrollView = UIScrollView()
+        scrollView.accessibilityIdentifier = "settings.scroll"
         scrollView.alwaysBounceVertical = true
         scrollView.showsVerticalScrollIndicator = false
         view.addForAutoLayout(scrollView)
@@ -155,7 +159,8 @@ final class SettingsViewController: UIViewController {
             guard let self else { return }
             self.navigationController?.pushViewController(
                 SupplementAdvancedOptionsViewController(
-                    preferences: self.activeTargetMarginPreferences
+                    preferences: self.activeTargetMarginPreferences,
+                    repository: self.repository
                 ),
                 animated: true
             )
@@ -1584,14 +1589,19 @@ private final class AdvancedOptionsPlaceholderViewController: UIViewController {
 @MainActor
 private final class SupplementAdvancedOptionsViewController: UIViewController {
     private let preferences: ActiveTargetMarginPreferences
+    private let repository: WellnarioRepositoryProtocol?
     private let valueLabel = UILabel()
     private let slider = UISlider()
     private let exampleLabel = UILabel()
     private let selectionFeedback = UISelectionFeedbackGenerator()
     private var displayedPercentage: Int
 
-    init(preferences: ActiveTargetMarginPreferences) {
+    init(
+        preferences: ActiveTargetMarginPreferences,
+        repository: WellnarioRepositoryProtocol?
+    ) {
         self.preferences = preferences
+        self.repository = repository
         displayedPercentage = preferences.percentage
         super.init(nibName: nil, bundle: nil)
     }
@@ -1709,29 +1719,154 @@ private final class SupplementAdvancedOptionsViewController: UIViewController {
         card.contentView.addForAutoLayout(content)
         content.pinEdges(to: card.contentView, insets: .all(WellnarioSpacing.cardPadding))
 
-        scrollView.addForAutoLayout(card)
+        var cards: [UIView] = [card]
+        if let repository {
+            cards.append(makeIntakeManagementCard(repository: repository))
+            cards.append(makeDeviationCorrectionCard(repository: repository))
+        }
+        let cardsStack = UIStackView(
+            arrangedSubviews: cards,
+            axis: .vertical,
+            spacing: WellnarioSpacing.cardGap
+        )
+        scrollView.addForAutoLayout(cardsStack)
         NSLayoutConstraint.activate([
-            card.leadingAnchor.constraint(
+            cardsStack.leadingAnchor.constraint(
                 equalTo: scrollView.contentLayoutGuide.leadingAnchor,
                 constant: WellnarioSpacing.screenHorizontal
             ),
-            card.trailingAnchor.constraint(
+            cardsStack.trailingAnchor.constraint(
                 equalTo: scrollView.contentLayoutGuide.trailingAnchor,
                 constant: -WellnarioSpacing.screenHorizontal
             ),
-            card.topAnchor.constraint(
+            cardsStack.topAnchor.constraint(
                 equalTo: scrollView.contentLayoutGuide.topAnchor,
                 constant: WellnarioSpacing.medium
             ),
-            card.bottomAnchor.constraint(
+            cardsStack.bottomAnchor.constraint(
                 equalTo: scrollView.contentLayoutGuide.bottomAnchor,
                 constant: -WellnarioSpacing.bottomNavigationInset
             ),
-            card.widthAnchor.constraint(
+            cardsStack.widthAnchor.constraint(
                 equalTo: scrollView.frameLayoutGuide.widthAnchor,
                 constant: -(WellnarioSpacing.screenHorizontal * 2)
             )
         ])
+    }
+
+    private func makeIntakeManagementCard(
+        repository: WellnarioRepositoryProtocol
+    ) -> PremiumCardView {
+        let card = PremiumCardView()
+        card.isPressable = true
+        card.accessibilityIdentifier = "settings.advanced.intakes.card"
+        card.accessibilityLabel = L10n.text("settings.advanced.intakes.title")
+        card.accessibilityHint = L10n.text("settings.advanced.intakes.body")
+
+        let icon = UIImageView(image: UIImage(systemName: "list.bullet.clipboard.fill"))
+        icon.tintColor = WellnarioPalette.fuchsia
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 22,
+            weight: .semibold
+        )
+        icon.setContentHuggingPriority(.required, for: .horizontal)
+
+        let titleLabel = UILabel()
+        titleLabel.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textPrimary)
+        titleLabel.text = L10n.text("settings.advanced.intakes.title")
+        titleLabel.numberOfLines = 0
+
+        let bodyLabel = UILabel()
+        bodyLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
+        bodyLabel.text = L10n.text("settings.advanced.intakes.body")
+        bodyLabel.numberOfLines = 0
+
+        let labels = UIStackView(
+            arrangedSubviews: [titleLabel, bodyLabel],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxxSmall
+        )
+
+        let chevron = UIImageView(image: UIImage(systemName: "chevron.forward"))
+        chevron.tintColor = WellnarioPalette.textTertiary
+        chevron.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 14,
+            weight: .semibold
+        )
+        chevron.setContentHuggingPriority(.required, for: .horizontal)
+
+        let row = UIStackView(
+            arrangedSubviews: [icon, labels, chevron],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.small,
+            alignment: .center
+        )
+        card.contentView.addForAutoLayout(row)
+        row.pinEdges(to: card.contentView, insets: .all(WellnarioSpacing.cardPadding))
+        card.addAction(UIAction { [weak self] _ in
+            self?.navigationController?.pushViewController(
+                DiaryViewController(repository: repository, presentationMode: .manage),
+                animated: true
+            )
+        }, for: .touchUpInside)
+        return card
+    }
+
+    private func makeDeviationCorrectionCard(
+        repository: WellnarioRepositoryProtocol
+    ) -> PremiumCardView {
+        let card = PremiumCardView()
+        card.isPressable = true
+        card.accessibilityIdentifier = "settings.advanced.deviations.card"
+        card.accessibilityLabel = L10n.text("settings.advanced.deviations.title")
+        card.accessibilityHint = L10n.text("settings.advanced.deviations.body")
+
+        let icon = UIImageView(image: UIImage(systemName: "arrow.triangle.2.circlepath.circle.fill"))
+        icon.tintColor = WellnarioPalette.fuchsia
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 22,
+            weight: .semibold
+        )
+        icon.setContentHuggingPriority(.required, for: .horizontal)
+
+        let titleLabel = UILabel()
+        titleLabel.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textPrimary)
+        titleLabel.text = L10n.text("settings.advanced.deviations.title")
+        titleLabel.numberOfLines = 0
+
+        let bodyLabel = UILabel()
+        bodyLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
+        bodyLabel.text = L10n.text("settings.advanced.deviations.body")
+        bodyLabel.numberOfLines = 0
+
+        let labels = UIStackView(
+            arrangedSubviews: [titleLabel, bodyLabel],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxxSmall
+        )
+        let chevron = UIImageView(image: UIImage(systemName: "chevron.forward"))
+        chevron.tintColor = WellnarioPalette.textTertiary
+        chevron.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 14,
+            weight: .semibold
+        )
+        chevron.setContentHuggingPriority(.required, for: .horizontal)
+
+        let row = UIStackView(
+            arrangedSubviews: [icon, labels, chevron],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.small,
+            alignment: .center
+        )
+        card.contentView.addForAutoLayout(row)
+        row.pinEdges(to: card.contentView, insets: .all(WellnarioSpacing.cardPadding))
+        card.addAction(UIAction { [weak self] _ in
+            self?.navigationController?.pushViewController(
+                InventoryDeviationCorrectionViewController(repository: repository),
+                animated: true
+            )
+        }, for: .touchUpInside)
+        return card
     }
 
     private func endpointLabel(percentage: Int) -> UILabel {
@@ -1770,6 +1905,202 @@ private final class SupplementAdvancedOptionsViewController: UIViewController {
         selectionFeedback.selectionChanged()
         selectionFeedback.prepare()
         updateDisplayedValue()
+    }
+}
+
+@MainActor
+private final class InventoryDeviationCorrectionViewController: EditorViewController {
+    override var minimumBottomContentInset: CGFloat {
+        WellnarioSpacing.bottomNavigationInset
+    }
+
+    private let instanceField = SelectionFieldView(
+        title: L10n.text("settings.advanced.deviations.instance")
+    )
+    private let currentValueLabel = UILabel()
+    private let actualQuantityField = FormFieldView()
+    private var instances: [SupplementInstance] = []
+    private var supplements: [UUID: Supplement] = [:]
+    private var selectedInstanceID: UUID?
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = L10n.text("settings.advanced.deviations.title")
+        navigationItem.largeTitleDisplayMode = .never
+        view.accessibilityIdentifier = "settings.advanced.deviations.root"
+        scrollView.accessibilityIdentifier = "deviations.scroll"
+        loadOptions()
+        configureFields()
+        buildForm()
+    }
+
+    override func performSave() {
+        actualQuantityField.setError(nil)
+        guard let instance = selectedInstance,
+              let currentQuantity = instance.totalQuantity,
+              let unit = instance.totalUnit else {
+            saveButton.isLoading = false
+            showError(RepositoryError.validation(
+                L10n.text("settings.advanced.deviations.error.untracked")
+            ))
+            return
+        }
+        guard let actualQuantity = FeatureFormatting.parseDecimal(
+            actualQuantityField.textField.text
+        ), actualQuantity >= 0 else {
+            actualQuantityField.setError(
+                L10n.text("settings.advanced.deviations.error.nonnegative")
+            )
+            saveButton.isLoading = false
+            return
+        }
+        guard actualQuantity != currentQuantity else {
+            actualQuantityField.setError(
+                L10n.text("settings.advanced.deviations.error.no_change")
+            )
+            saveButton.isLoading = false
+            return
+        }
+
+        do {
+            try InventoryReconciliationService(repository: repository).reconcile(
+                instanceID: instance.id,
+                actualQuantity: actualQuantity,
+                correctionNote: L10n.text("settings.advanced.deviations.correction_note")
+            )
+            finishSaving(message: L10n.text("settings.advanced.deviations.success"))
+        } catch {
+            saveButton.isLoading = false
+            showError(error)
+        }
+        actualQuantityField.unitTitle = unit.symbol(languageCode: catalogLanguage.rawValue)
+    }
+
+    private var selectedInstance: SupplementInstance? {
+        instances.first { $0.id == selectedInstanceID }
+    }
+
+    private func loadOptions() {
+        do {
+            instances = try repository
+                .fetchInstances(supplementID: nil, includeArchived: false)
+                .filter { $0.totalQuantity != nil && $0.totalUnit != nil }
+            supplements = Dictionary(
+                uniqueKeysWithValues: try repository
+                    .fetchSupplements(includeArchived: false)
+                    .map { ($0.id, $0) }
+            )
+            selectedInstanceID = instances.first?.id
+        } catch {
+            showError(error)
+        }
+    }
+
+    private func configureFields() {
+        instanceField.button.accessibilityIdentifier = "deviations.instance.selector"
+        rebuildInstanceMenu()
+
+        currentValueLabel.applyWellnarioStyle(.cardTitle, color: WellnarioPalette.fuchsia)
+        currentValueLabel.numberOfLines = 0
+        currentValueLabel.accessibilityIdentifier = "deviations.current"
+
+        actualQuantityField.configure(
+            title: L10n.text("settings.advanced.deviations.actual"),
+            placeholder: "0",
+            keyboardType: .decimalPad
+        )
+        actualQuantityField.textField.accessibilityIdentifier = "deviations.actual"
+        actualQuantityField.helperText = L10n.text("settings.advanced.deviations.actual.helper")
+        updateSelectedInstance()
+    }
+
+    private func buildForm() {
+        let explanation = UILabel()
+        explanation.applyWellnarioStyle(.body, color: WellnarioPalette.textSecondary)
+        explanation.text = L10n.text("settings.advanced.deviations.procedure")
+        explanation.numberOfLines = 0
+
+        let explanationSection = addSection(
+            title: L10n.text("settings.advanced.deviations.title"),
+            views: [explanation]
+        )
+        explanationSection.accessibilityIdentifier = "deviations.explanation.card"
+        let correctionSection = addSection(
+            title: L10n.text("settings.advanced.deviations.correction"),
+            views: [instanceField, currentValueLabel, actualQuantityField]
+        )
+        correctionSection.accessibilityIdentifier = "deviations.form.card"
+        saveButton.setTitle(
+            L10n.text("settings.advanced.deviations.confirm"),
+            for: .normal
+        )
+        saveButton.accessibilityIdentifier = "deviations.confirm"
+        saveButton.isEnabled = selectedInstance != nil
+        addSaveButton()
+
+        if instances.isEmpty {
+            currentValueLabel.text = L10n.text("settings.advanced.deviations.empty")
+            instanceField.button.isEnabled = false
+        }
+    }
+
+    private func rebuildInstanceMenu() {
+        if let instance = selectedInstance,
+           let supplement = supplements[instance.supplementID] {
+            instanceField.value = instanceTitle(instance, supplement: supplement)
+            instanceField.leadingImage = SupplementPhotoStore.image(
+                reference: supplement.imageReference,
+                databaseURL: repository.databaseURL
+            )
+        } else {
+            instanceField.value = L10n.Common.required
+            instanceField.leadingImage = nil
+        }
+
+        instanceField.menu = UIMenu(children: instances.compactMap { instance in
+            guard let supplement = supplements[instance.supplementID] else { return nil }
+            return UIAction(
+                title: instanceTitle(instance, supplement: supplement),
+                image: SupplementPhotoStore.image(
+                    reference: supplement.imageReference,
+                    databaseURL: repository.databaseURL
+                )?.withRenderingMode(.alwaysOriginal),
+                state: instance.id == selectedInstanceID ? .on : .off
+            ) { [weak self] _ in
+                self?.selectedInstanceID = instance.id
+                self?.actualQuantityField.textField.text = nil
+                self?.rebuildInstanceMenu()
+                self?.updateSelectedInstance()
+            }
+        })
+    }
+
+    private func updateSelectedInstance() {
+        guard let instance = selectedInstance,
+              let quantity = instance.totalQuantity,
+              let unit = instance.totalUnit else {
+            currentValueLabel.text = L10n.text("settings.advanced.deviations.empty")
+            actualQuantityField.unitTitle = nil
+            return
+        }
+        let formatted = "\(FeatureFormatting.decimal(quantity)) \(unit.symbol(languageCode: catalogLanguage.rawValue))"
+        currentValueLabel.text = L10n.text(
+            "settings.advanced.deviations.recorded_value",
+            formatted
+        )
+        actualQuantityField.unitTitle = unit.symbol(languageCode: catalogLanguage.rawValue)
+    }
+
+    private func instanceTitle(
+        _ instance: SupplementInstance,
+        supplement: Supplement
+    ) -> String {
+        let product = [supplement.brand, supplement.name]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+        return [product, instance.label]
+            .filter { !$0.isEmpty }
+            .joined(separator: " — ")
     }
 }
 

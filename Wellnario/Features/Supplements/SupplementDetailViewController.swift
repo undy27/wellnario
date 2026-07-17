@@ -186,13 +186,16 @@ final class SupplementDetailViewController: FeatureViewController {
             for instance in instances {
                 let button = UIButton(type: .system)
                 var config = UIButton.Configuration.plain()
-                config.title = instance.label
-                let total = instance.totalQuantity.flatMap { quantity in
+                config.title = instance.label.isEmpty ? nil : instance.label
+                let remainingContent = instance.totalQuantity.flatMap { quantity in
                     instance.totalUnit.map {
-                        "\(FeatureFormatting.decimal(quantity)) \($0.symbol(languageCode: catalogLanguage.rawValue))"
+                        L10n.text(
+                            "inventory.remaining_content.value",
+                            "\(FeatureFormatting.decimal(quantity)) \($0.symbol(languageCode: catalogLanguage.rawValue))"
+                        )
                     }
                 }
-                config.subtitle = [total, FeatureFormatting.expirationText(instance.expirationDay)]
+                config.subtitle = [remainingContent, FeatureFormatting.expirationText(instance.expirationDay)]
                     .compactMap { $0 }
                     .joined(separator: " · ")
                 config.image = UIImage(systemName: "shippingbox")

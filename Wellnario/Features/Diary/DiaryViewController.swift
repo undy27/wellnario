@@ -2,9 +2,27 @@ import UIKit
 
 @MainActor
 final class DiaryViewController: FeatureViewController {
+    enum PresentationMode {
+        case diary
+        case manage
+    }
+
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let emptyState = EmptyStateView()
+    private let presentationMode: PresentationMode
     private var days: [DiaryDay] = []
+    private var productPhotos: [UUID: UIImage] = [:]
+
+    init(
+        repository: WellnarioRepositoryProtocol,
+        presentationMode: PresentationMode = .diary
+    ) {
+        self.presentationMode = presentationMode
+        super.init(repository: repository)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -15,12 +33,25 @@ final class DiaryViewController: FeatureViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        navigationController?.setNavigationBarHidden(false, animated: animated)
         reloadContent()
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: false)
+        if presentationMode == .manage {
+            navigationController?.navigationBar.prefersLargeTitles = false
+            navigationItem.largeTitleDisplayMode = .never
+        } else {
+            navigationController?.navigationBar.prefersLargeTitles = true
+            navigationItem.largeTitleDisplayMode = .always
+        }
+    }
+
     override func applyLocalizedCopy() {
-        title = L10n.Diary.title
+        title = presentationMode == .manage
+            ? L10n.text("settings.advanced.intakes.title")
+            : L10n.Diary.title
         navigationItem.rightBarButtonItem?.accessibilityLabel = L10n.Today.logIntake
         tableView.reloadData()
         updateEmptyState()
@@ -29,6 +60,19 @@ final class DiaryViewController: FeatureViewController {
     override func reloadContent() {
         do {
             let consumptions = try repository.fetchConsumptions(from: nil, through: nil, limit: nil)
+            let instances = try repository.fetchInstances(supplementID: nil, includeArchived: true)
+            let supplements = try repository.fetchSupplements(includeArchived: true)
+            let supplementsByID = Dictionary(uniqueKeysWithValues: supplements.map { ($0.id, $0) })
+            productPhotos = Dictionary(uniqueKeysWithValues: instances.compactMap { instance in
+                guard let supplement = supplementsByID[instance.supplementID],
+                      let photo = SupplementPhotoStore.image(
+                        reference: supplement.imageReference,
+                        databaseURL: repository.databaseURL
+                      ) else {
+                    return nil
+                }
+                return (instance.id, photo)
+            })
             let grouped = Dictionary(grouping: consumptions, by: \.localDay)
             days = grouped.keys.sorted(by: >).map { day in
                 DiaryDay(
@@ -42,16 +86,16 @@ final class DiaryViewController: FeatureViewController {
     }
 
     private func setUpView() {
-        navigationController?.navigationBar.prefersLargeTitles = true
-        navigationItem.largeTitleDisplayMode = .always
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "plus"),
-            style: .plain,
-            target: self,
-            action: #selector(addTapped)
-        )
-        navigationItem.rightBarButtonItem?.tintColor = WellnarioPalette.cyan
-        navigationItem.rightBarButtonItem?.accessibilityIdentifier = "diary.add"
+        if presentationMode == .diary {
+            navigationItem.rightBarButtonItem = UIBarButtonItem(
+                image: UIImage(systemName: "plus"),
+                style: .plain,
+                target: self,
+                action: #selector(addTapped)
+            )
+            navigationItem.rightBarButtonItem?.tintColor = WellnarioPalette.cyan
+            navigationItem.rightBarButtonItem?.accessibilityIdentifier = "diary.add"
+        }
 
         tableView.backgroundColor = .clear
         tableView.separatorStyle = .none
@@ -80,9 +124,13 @@ final class DiaryViewController: FeatureViewController {
         if empty {
             emptyState.configure(
                 kind: .capsule,
-                title: L10n.Diary.noEntriesTitle,
-                message: L10n.Diary.noEntriesMessage,
-                actionTitle: L10n.Today.logIntake
+                title: presentationMode == .manage
+                    ? L10n.text("settings.advanced.intakes.empty.title")
+                    : L10n.Diary.noEntriesTitle,
+                message: presentationMode == .manage
+                    ? L10n.text("settings.advanced.intakes.empty.body")
+                    : L10n.Diary.noEntriesMessage,
+                actionTitle: presentationMode == .diary ? L10n.Today.logIntake : nil
             )
         }
     }
@@ -159,7 +207,12 @@ extension DiaryViewController: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: DiaryCell.reuseIdentifier, for: indexPath) as! DiaryCell
-        cell.configure(consumption(at: indexPath), language: catalogLanguage)
+        let consumption = consumption(at: indexPath)
+        cell.configure(
+            consumption,
+            language: catalogLanguage,
+            productPhoto: productPhotos[consumption.instanceID]
+        )
         return cell
     }
 
@@ -204,7 +257,9 @@ extension DiaryViewController: UITableViewDataSource, UITableViewDelegate {
 private final class DiaryCell: UITableViewCell {
     static let reuseIdentifier = "DiaryCell"
     private let card = PremiumCardView()
+    private let artworkContainer = UIView()
     private let artwork = PresentationArtworkView(kind: .capsule)
+    private let productPhotoView = UIImageView()
     private let titleLabel = UILabel()
     private let detailLabel = UILabel()
     private let activeLabel = UILabel()
@@ -218,9 +273,15 @@ private final class DiaryCell: UITableViewCell {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func configure(_ consumption: Consumption, language: CatalogLanguage) {
+    func configure(_ consumption: Consumption, language: CatalogLanguage, productPhoto: UIImage?) {
         titleLabel.text = consumption.supplementNameSnapshot
-        detailLabel.text = "\(FeatureFormatting.decimal(consumption.quantity)) \(consumption.unit.symbol(languageCode: language.rawValue)) · \(consumption.instanceLabelSnapshot)"
+        productPhotoView.image = productPhoto
+        productPhotoView.isHidden = productPhoto == nil
+        artwork.isHidden = productPhoto != nil
+        let quantity = "\(FeatureFormatting.decimal(consumption.quantity)) \(consumption.unit.symbol(languageCode: language.rawValue))"
+        detailLabel.text = [quantity, consumption.instanceLabelSnapshot]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
         activeLabel.text = consumption.activeSnapshots.prefix(2).map {
             "\($0.localizedActiveName(language: language)) \(FeatureFormatting.decimal($0.amount)) \($0.unit.symbol(languageCode: language.rawValue))"
         }.joined(separator: " · ")
@@ -238,10 +299,18 @@ private final class DiaryCell: UITableViewCell {
         card.pinEdges(to: contentView, insets: NSDirectionalEdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
         card.isUserInteractionEnabled = false
 
+        productPhotoView.accessibilityIdentifier = "diary.product_photo"
+        productPhotoView.contentMode = .scaleAspectFit
+        productPhotoView.clipsToBounds = true
+        productPhotoView.applyContinuousCorners(WellnarioRadius.control)
+        artworkContainer.addForAutoLayout(artwork)
+        artworkContainer.addForAutoLayout(productPhotoView)
         NSLayoutConstraint.activate([
-            artwork.widthAnchor.constraint(equalToConstant: 64),
-            artwork.heightAnchor.constraint(equalTo: artwork.widthAnchor)
+            artworkContainer.widthAnchor.constraint(equalToConstant: 64),
+            artworkContainer.heightAnchor.constraint(equalTo: artworkContainer.widthAnchor)
         ])
+        artwork.pinEdges(to: artworkContainer)
+        productPhotoView.pinEdges(to: artworkContainer)
         titleLabel.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textPrimary)
         titleLabel.numberOfLines = 1
         detailLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
@@ -252,7 +321,7 @@ private final class DiaryCell: UITableViewCell {
 
         let titleRow = UIStackView(arrangedSubviews: [titleLabel, timeLabel], axis: .horizontal, spacing: 8, alignment: .firstBaseline)
         let labels = UIStackView(arrangedSubviews: [titleRow, detailLabel, activeLabel], axis: .vertical, spacing: 3)
-        let row = UIStackView(arrangedSubviews: [artwork, labels], axis: .horizontal, spacing: 12, alignment: .center)
+        let row = UIStackView(arrangedSubviews: [artworkContainer, labels], axis: .horizontal, spacing: 12, alignment: .center)
         card.contentView.addForAutoLayout(row)
         row.pinEdges(to: card.contentView, insets: .all(12))
     }

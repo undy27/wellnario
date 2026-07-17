@@ -250,18 +250,14 @@ final class ArchivedItemsViewController: FeatureViewController {
 
     private func configureInstance(_ cell: ArchivedItemCell, instance: SupplementInstance) {
         let product = supplement(for: instance)
-        let subtitle = [product?.brand, product?.name]
-            .compactMap { $0 }
-            .filter { !$0.isEmpty }
-            .joined(separator: " · ")
         let details = [
             L10n.text("archive.inventory.expiry", FeatureFormatting.expirationText(instance.expirationDay)),
             archivedDateText(instance.archivedAt)
         ].joined(separator: " · ")
         cell.configure(
             kind: product.map(presentationKind(for:)) ?? .other,
-            title: instance.label,
-            subtitle: subtitle,
+            title: product?.name ?? instance.label,
+            subtitle: instance.label,
             detail: details,
             restoreTitle: L10n.text("archive.restore"),
             identifier: "archive.restore.instance.\(instance.id.uuidString)"
@@ -334,7 +330,10 @@ final class ArchivedItemsViewController: FeatureViewController {
         }
 
         confirmRestore(
-            title: L10n.text("archive.restore.inventory.title", instance.label),
+            title: L10n.text(
+                "archive.restore.inventory.title",
+                instance.label.isEmpty ? (supplement(for: instance)?.name ?? "") : instance.label
+            ),
             message: L10n.text("archive.restore.inventory.message")
         ) { [weak self] in
             guard let self else { return }

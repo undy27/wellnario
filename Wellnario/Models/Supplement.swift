@@ -193,9 +193,12 @@ public struct SupplementInstance: Identifiable, Hashable, Sendable {
     public let label: String
     public let expirationDay: LocalDay?
     public let notes: String?
-    /// Total amount originally contained in this package or batch.
+    /// Current amount remaining in this package or batch.
     public let totalQuantity: Decimal?
     public let totalUnit: DoseUnit?
+    /// Amount initially contained in this package or batch.
+    public let initialQuantity: Decimal?
+    public let initialUnit: DoseUnit?
     public let createdAt: Date
     public let updatedAt: Date
     public let archivedAt: Date?
@@ -208,6 +211,8 @@ public struct SupplementInstance: Identifiable, Hashable, Sendable {
         notes: String?,
         totalQuantity: Decimal? = nil,
         totalUnit: DoseUnit? = nil,
+        initialQuantity: Decimal? = nil,
+        initialUnit: DoseUnit? = nil,
         createdAt: Date,
         updatedAt: Date,
         archivedAt: Date?
@@ -219,6 +224,8 @@ public struct SupplementInstance: Identifiable, Hashable, Sendable {
         self.notes = notes
         self.totalQuantity = totalQuantity
         self.totalUnit = totalUnit
+        self.initialQuantity = initialQuantity
+        self.initialUnit = initialUnit
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.archivedAt = archivedAt
@@ -234,6 +241,8 @@ public struct SupplementInstanceDraft: Hashable, Sendable {
     public var notes: String?
     public var totalQuantity: Decimal?
     public var totalUnit: DoseUnit?
+    public var initialQuantity: Decimal?
+    public var initialUnit: DoseUnit?
 
     public init(
         supplementID: UUID,
@@ -241,7 +250,9 @@ public struct SupplementInstanceDraft: Hashable, Sendable {
         expirationDay: LocalDay? = nil,
         notes: String? = nil,
         totalQuantity: Decimal? = nil,
-        totalUnit: DoseUnit? = nil
+        totalUnit: DoseUnit? = nil,
+        initialQuantity: Decimal? = nil,
+        initialUnit: DoseUnit? = nil
     ) {
         self.supplementID = supplementID
         self.label = label
@@ -249,5 +260,7 @@ public struct SupplementInstanceDraft: Hashable, Sendable {
         self.notes = notes
         self.totalQuantity = totalQuantity
         self.totalUnit = totalUnit
+        self.initialQuantity = initialQuantity
+        self.initialUnit = initialUnit
     }
 }

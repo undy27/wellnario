@@ -212,14 +212,16 @@ final class WellnarioSupplementFlowUITests: XCTestCase {
         let saveTarget = app.buttons["active.detail.target.save"]
         reveal(saveTarget, in: app)
         saveTarget.tap()
-        let currentTarget = app.staticTexts["active.detail.target.current"]
-        XCTAssertTrue(currentTarget.waitForExistence(timeout: 5))
+        XCTAssertTrue(magnesium.waitForExistence(timeout: 5))
+        let updatedMagnesiumCard = app.cells
+            .containing(.staticText, identifier: "Magnesio")
+            .firstMatch
+        XCTAssertTrue(updatedMagnesiumCard.waitForExistence(timeout: 3))
         XCTAssertTrue(
-            currentTarget.label.contains("1 g"),
-            "Unexpected target summary: \(currentTarget.label)"
+            updatedMagnesiumCard.label.contains("Objetivo: 1 g"),
+            "Unexpected target summary: \(updatedMagnesiumCard.label)"
         )
 
-        app.navigationBars.buttons.element(boundBy: 0).tap()
         favoritesFilter.tap()
         XCTAssertTrue(app.staticTexts["Magnesio"].firstMatch.waitForExistence(timeout: 5))
         let favoriteMagnesiumCard = app.cells

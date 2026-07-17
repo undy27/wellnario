@@ -341,9 +341,13 @@ final class SupplementsViewController: FeatureViewController {
     private func configureProduct(_ cell: CatalogListCell, supplement: Supplement) {
         let presentation = presentation(for: supplement)
         let count = instances.filter { $0.supplementID == supplement.id }.count
+        let showsComponentAmounts = supplement.basisUnit.family == .discrete
         let componentSummary = supplement.components.prefix(2).compactMap { component in
             actives.first(where: { $0.id == component.activeID }).map {
-                "\($0.localizedName(language: catalogLanguage)) \(FeatureFormatting.decimal(component.amount)) \(component.unit.symbol(languageCode: catalogLanguage.rawValue))"
+                if showsComponentAmounts {
+                    return "\($0.localizedName(language: catalogLanguage)) \(FeatureFormatting.decimal(component.amount)) \(component.unit.symbol(languageCode: catalogLanguage.rawValue))"
+                }
+                return $0.localizedName(language: catalogLanguage)
             }
         }.joined(separator: " · ")
         let subtitle = [supplement.brand, presentation?.localizedName(language: catalogLanguage)]
@@ -366,9 +370,13 @@ final class SupplementsViewController: FeatureViewController {
 
     private func configureInstance(_ cell: CatalogListCell, instance: SupplementInstance) {
         let supplement = supplement(for: instance)
-        let packageTotal = instance.totalQuantity.flatMap { quantity in
+        let remainingLevel = inventoryLevel(for: instance)
+        let remainingContent = instance.totalQuantity.flatMap { quantity in
             instance.totalUnit.map {
-                "\(FeatureFormatting.decimal(quantity)) \($0.symbol(languageCode: catalogLanguage.rawValue))"
+                L10n.text(
+                    "inventory.remaining_content.value",
+                    "\(FeatureFormatting.decimal(quantity)) \($0.symbol(languageCode: catalogLanguage.rawValue))"
+                )
             }
         }
         let expirationText = FeatureFormatting.expirationText(instance.expirationDay)
@@ -377,15 +385,31 @@ final class SupplementsViewController: FeatureViewController {
             image: supplement.flatMap {
                 SupplementPhotoStore.image(reference: $0.imageReference, databaseURL: repository.databaseURL)
             },
-            title: instance.label,
-            subtitle: [supplement?.brand, supplement?.name].compactMap { $0 }.joined(separator: " · "),
-            detail: [packageTotal, expirationText]
+            title: supplement?.name ?? instance.label,
+            subtitle: instance.label,
+            scrollsSubtitle: true,
+            detail: [remainingContent, expirationText]
                 .compactMap { $0 }
                 .joined(separator: " · "),
             highlightedDetail: instance.expirationDay.map { (expirationText, expirationTone($0)) },
+            inventoryLevel: remainingLevel,
             badge: nil,
             tone: .neutral
         )
+    }
+
+    private func inventoryLevel(for instance: SupplementInstance) -> Double? {
+        guard let remainingQuantity = instance.totalQuantity,
+              let remainingUnit = instance.totalUnit,
+              let initialQuantity = instance.initialQuantity,
+              let initialUnit = instance.initialUnit,
+              initialQuantity > 0,
+              remainingUnit.isCompatible(with: initialUnit),
+              let normalizedRemaining = try? remainingUnit.convert(remainingQuantity, to: initialUnit),
+              let quotient = try? DecimalMath.divide(normalizedRemaining, initialQuantity) else {
+            return nil
+        }
+        return min(1, max(0, NSDecimalNumber(decimal: quotient).doubleValue))
     }
 
     private func configureActive(_ cell: CatalogListCell, active: Active) {
@@ -748,16 +772,67 @@ enum WeeklyConsumptionAggregator {
 }
 
 @MainActor
+private final class InventoryLevelBar: UIView {
+    private let trackLayer = CALayer()
+    private let fillLayer = CALayer()
+    private var normalizedLevel: CGFloat?
+
+    var level: Double? {
+        didSet {
+            normalizedLevel = level.map { min(1, max(0, CGFloat($0))) }
+            isHidden = normalizedLevel == nil
+            setNeedsLayout()
+            updateAccessibility()
+        }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isAccessibilityElement = true
+        accessibilityIdentifier = "inventory.level.bar"
+        layer.addSublayer(trackLayer)
+        layer.addSublayer(fillLayer)
+        trackLayer.backgroundColor = WellnarioPalette.textPrimary.withAlphaComponent(0.14).cgColor
+        fillLayer.backgroundColor = WellnarioPalette.fuchsia.cgColor
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let cornerRadius = bounds.height / 2
+        trackLayer.frame = bounds
+        trackLayer.cornerRadius = cornerRadius
+        let width = bounds.width * (normalizedLevel ?? 0)
+        fillLayer.frame = CGRect(x: 0, y: 0, width: width, height: bounds.height)
+        fillLayer.cornerRadius = cornerRadius
+    }
+
+    private func updateAccessibility() {
+        guard let normalizedLevel else {
+            accessibilityLabel = nil
+            accessibilityValue = nil
+            return
+        }
+        let percentage = Int((normalizedLevel * 100).rounded())
+        accessibilityLabel = L10n.text("inventory.remaining_progress.accessibility")
+        accessibilityValue = "\(percentage)%"
+    }
+}
+
 private final class CatalogListCell: UITableViewCell {
     static let reuseIdentifier = "CatalogListCell"
 
     private let card = PremiumCardView()
     private let artwork = PresentationArtworkView(kind: .capsule)
     private let artworkContainer = UIView()
+    private let artworkStack = UIStackView()
+    private let inventoryLevelBar = InventoryLevelBar()
     private let activeIconView = UIImageView()
     private let titleLabel = UILabel()
     private let favoriteImageView = UIImageView()
-    private let subtitleLabel = UILabel()
+    private let subtitleLabel = ContinuousMarqueeLabel()
     private let detailLabel = UILabel()
     private let badgeLabel = UILabel()
     private let weeklyChartLabel = UILabel()
@@ -781,11 +856,13 @@ private final class CatalogListCell: UITableViewCell {
         compact: Bool = false,
         title: String,
         subtitle: String,
+        scrollsSubtitle: Bool = false,
         detail: String,
         highlightedDetail: (text: String, tone: WellnarioTone)? = nil,
         favoriteStatus: Bool? = nil,
         weeklyValues: [Double]? = nil,
         weeklySummary: String? = nil,
+        inventoryLevel: Double? = nil,
         badge: String?,
         tone: WellnarioTone
     ) {
@@ -799,6 +876,9 @@ private final class CatalogListCell: UITableViewCell {
         artwork.isHidden = activeIcon != nil
         titleLabel.text = title
         subtitleLabel.text = subtitle
+        subtitleLabel.isHidden = subtitle.isEmpty
+        subtitleLabel.isMarqueeEnabled = scrollsSubtitle
+        inventoryLevelBar.level = inventoryLevel
         let attributedDetail = NSMutableAttributedString(
             string: detail,
             attributes: [.foregroundColor: WellnarioPalette.textTertiary]
@@ -851,6 +931,7 @@ private final class CatalogListCell: UITableViewCell {
         }
         accessibilityLabel = [title, favoriteDescription, subtitle, detail, weeklySummary, badge]
             .compactMap { $0 }
+            .filter { !$0.isEmpty }
             .joined(separator: ", ")
     }
 
@@ -876,6 +957,17 @@ private final class CatalogListCell: UITableViewCell {
             artworkContainer.heightAnchor.constraint(equalTo: artworkContainer.widthAnchor)
         ])
 
+        artworkStack.axis = .vertical
+        artworkStack.spacing = 6
+        artworkStack.alignment = .fill
+        artworkStack.addArrangedSubview(artworkContainer)
+        artworkStack.addArrangedSubview(inventoryLevelBar)
+        inventoryLevelBar.isHidden = true
+        NSLayoutConstraint.activate([
+            artworkStack.widthAnchor.constraint(equalTo: artworkContainer.widthAnchor),
+            inventoryLevelBar.heightAnchor.constraint(equalToConstant: 5)
+        ])
+
         titleLabel.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textPrimary)
         titleLabel.numberOfLines = 2
         titleLabel.lineBreakMode = .byWordWrapping
@@ -888,8 +980,6 @@ private final class CatalogListCell: UITableViewCell {
             favoriteImageView.widthAnchor.constraint(equalToConstant: 19),
             favoriteImageView.heightAnchor.constraint(equalToConstant: 19)
         ])
-        subtitleLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
-        subtitleLabel.numberOfLines = 1
         detailLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)
         detailLabel.numberOfLines = 2
 
@@ -929,12 +1019,12 @@ private final class CatalogListCell: UITableViewCell {
         let labels = UIStackView(arrangedSubviews: [titleRow, subtitleLabel, detailLabel], axis: .vertical, spacing: 4)
         labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let row = UIStackView(
-            arrangedSubviews: [artworkContainer, labels, weeklyChartStack],
+            arrangedSubviews: [artworkStack, labels, weeklyChartStack],
             axis: .horizontal,
             spacing: 8,
             alignment: .center
         )
-        row.setCustomSpacing(14, after: artworkContainer)
+        row.setCustomSpacing(14, after: artworkStack)
         card.contentView.addForAutoLayout(row)
         rowEdgeConstraints = [
             row.topAnchor.constraint(equalTo: card.contentView.topAnchor, constant: 14),

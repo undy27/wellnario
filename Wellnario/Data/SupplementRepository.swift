@@ -182,21 +182,29 @@ extension WellnarioRepository {
             guard let supplement = try loadSupplement(id: draft.supplementID), !supplement.isArchived else {
                 throw RepositoryError.notFound(entity: "Supplement", id: draft.supplementID)
             }
-            let label = try instanceLabel(draft.label, supplementID: draft.supplementID, existing: nil)
+            let label = try instanceLabel(draft.label)
             let notes = try optionalTrimmed(draft.notes, field: "Instance notes")
-            try validateInstanceTotal(quantity: draft.totalQuantity, unit: draft.totalUnit)
+            let initialQuantity = draft.initialQuantity ?? draft.totalQuantity
+            let initialUnit = draft.initialUnit ?? draft.totalUnit
+            try validateInstanceAmounts(
+                remainingQuantity: draft.totalQuantity,
+                remainingUnit: draft.totalUnit,
+                initialQuantity: initialQuantity,
+                initialUnit: initialUnit
+            )
             let now = Date().timeIntervalSince1970
             try database.execute(
                 """
                 INSERT INTO supplement_instances (
                     id, supplement_id, user_id, label, expiration_day, notes, total_quantity, total_unit,
-                    created_at, updated_at, archived_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL);
+                    initial_quantity, initial_unit, created_at, updated_at, archived_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL);
                 """,
                 bindings: [
                     .text(id.uuidString), .text(draft.supplementID.uuidString), .text(userID.uuidString),
                     .text(label), draft.expirationDay.map { .text($0.iso8601) } ?? .null,
                     binding(notes), try decimalBinding(draft.totalQuantity), binding(draft.totalUnit?.rawValue),
+                    try decimalBinding(initialQuantity), binding(initialUnit?.rawValue),
                     .real(now), .real(now)
                 ]
             )
@@ -229,19 +237,29 @@ extension WellnarioRepository {
                     throw RepositoryError.validation("An instance with consumption history cannot change product.")
                 }
             }
-            let label = try instanceLabel(draft.label, supplementID: draft.supplementID, existing: existing)
+            let label = try instanceLabel(draft.label)
             let notes = try optionalTrimmed(draft.notes, field: "Instance notes")
-            try validateInstanceTotal(quantity: draft.totalQuantity, unit: draft.totalUnit)
+            // The initial content is a historical reference set when the package is
+            // created. Editing the remaining content must never redefine it.
+            let initialQuantity = existing.initialQuantity
+            let initialUnit = existing.initialUnit
+            try validateInstanceAmounts(
+                remainingQuantity: draft.totalQuantity,
+                remainingUnit: draft.totalUnit,
+                initialQuantity: initialQuantity,
+                initialUnit: initialUnit
+            )
             try database.execute(
                 """
                 UPDATE supplement_instances SET supplement_id = ?, label = ?, expiration_day = ?,
-                    notes = ?, total_quantity = ?, total_unit = ?, updated_at = ?
+                    notes = ?, total_quantity = ?, total_unit = ?, initial_quantity = ?, initial_unit = ?, updated_at = ?
                 WHERE id = ? AND user_id = ?;
                 """,
                 bindings: [
                     .text(draft.supplementID.uuidString), .text(label),
                     draft.expirationDay.map { .text($0.iso8601) } ?? .null,
                     binding(notes), try decimalBinding(draft.totalQuantity), binding(draft.totalUnit?.rawValue),
+                    try decimalBinding(initialQuantity), binding(initialUnit?.rawValue),
                     .real(Date().timeIntervalSince1970),
                     .text(id.uuidString), .text(userID.uuidString)
                 ]
@@ -397,26 +415,28 @@ extension WellnarioRepository {
         }
     }
 
-    private func instanceLabel(
-        _ proposed: String?,
-        supplementID: UUID,
-        existing: SupplementInstance?
-    ) throws -> String {
-        if let proposed = try optionalTrimmed(proposed, field: "Instance label", maximum: 120) {
-            return proposed
-        }
-        if let existing { return existing.label }
-        let count = try database.scalarInteger(
-            "SELECT COUNT(*) AS count FROM supplement_instances WHERE supplement_id = ?;",
-            bindings: [.text(supplementID.uuidString)]
-        )
-        return "#\(count + 1)"
+    private func instanceLabel(_ proposed: String?) throws -> String {
+        try optionalTrimmed(proposed, field: "Instance label", maximum: 120) ?? ""
     }
 
-    private func validateInstanceTotal(quantity: Decimal?, unit: DoseUnit?) throws {
-        guard (quantity == nil) == (unit == nil) else {
-            throw RepositoryError.validation("Package total requires both an amount and a unit.")
+    private func validateInstanceAmounts(
+        remainingQuantity: Decimal?,
+        remainingUnit: DoseUnit?,
+        initialQuantity: Decimal?,
+        initialUnit: DoseUnit?
+    ) throws {
+        guard (remainingQuantity == nil) == (remainingUnit == nil),
+              (initialQuantity == nil) == (initialUnit == nil) else {
+            throw RepositoryError.validation("Package content requires both an amount and a unit.")
         }
-        if let quantity { try requirePositive(quantity, field: "Package total") }
+        if let remainingQuantity {
+            try requireNonnegative(remainingQuantity, field: "Remaining package content")
+        }
+        if let initialQuantity {
+            try requireNonnegative(initialQuantity, field: "Initial package content")
+        }
+        if let remainingUnit, let initialUnit, !remainingUnit.isCompatible(with: initialUnit) {
+            throw RepositoryError.validation("Initial and remaining package content must use compatible units.")
+        }
     }
 }

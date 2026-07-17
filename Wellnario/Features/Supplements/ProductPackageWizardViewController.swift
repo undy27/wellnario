@@ -61,7 +61,6 @@ private final class ProductPackageWizardState {
     var name = ""
     var price: Decimal?
     var currencyCode = Locale.autoupdatingCurrent.currency?.identifier ?? "EUR"
-    var expirationDay: LocalDay?
     var photo: UIImage?
     var doseStyle: DoseStyle = .discrete
     var totalQuantity: Decimal = 1
@@ -74,6 +73,8 @@ private final class ProductPackageWizardState {
     var components: [SupplementComponentDraft] = []
     var presentationImageReference: String?
     var initialInventoryCount = 1
+    var initialInventoryLabels: [String] = []
+    var initialInventoryExpirations: [LocalDay?] = []
 }
 
 @MainActor
@@ -82,8 +83,6 @@ final class ProductPackageWizardViewController: EditorViewController, PHPickerVi
     private let brandField = FormFieldView()
     private let nameField = FormFieldView()
     private let priceField = FormFieldView()
-    private let expirySwitch = UISwitch()
-    private let expiryPicker = UIDatePicker()
     private let photoContainer = UIView()
     private let photoPreview = UIImageView()
     private let photoButton = UIButton(type: .custom)
@@ -123,9 +122,6 @@ final class ProductPackageWizardViewController: EditorViewController, PHPickerVi
         state.brand = normalized(brandField.textField.text) ?? ""
         state.name = name
         state.price = price
-        state.expirationDay = expirySwitch.isOn
-            ? LocalDay(containing: expiryPicker.date, in: .current)
-            : nil
 
         saveButton.isLoading = false
         navigationController?.pushViewController(
@@ -157,15 +153,6 @@ final class ProductPackageWizardViewController: EditorViewController, PHPickerVi
         priceField.unitButton.accessibilityIdentifier = "supplement.package.currency"
         priceField.unitButton.showsMenuAsPrimaryAction = true
         rebuildCurrencyMenu()
-
-        expirySwitch.onTintColor = WellnarioPalette.fuchsia
-        expirySwitch.addTarget(self, action: #selector(expiryChanged), for: .valueChanged)
-        expiryPicker.datePickerMode = .date
-        expiryPicker.preferredDatePickerStyle = .compact
-        expiryPicker.minimumDate = Calendar.current.date(byAdding: .year, value: -10, to: Date())
-        expiryPicker.maximumDate = Calendar.current.date(byAdding: .year, value: 20, to: Date())
-        expiryPicker.tintColor = WellnarioPalette.fuchsia
-        expiryPicker.isHidden = true
 
         photoContainer.backgroundColor = WellnarioPalette.fieldBackground
         photoContainer.applyContinuousCorners(WellnarioRadius.control)
@@ -232,31 +219,15 @@ final class ProductPackageWizardViewController: EditorViewController, PHPickerVi
     private func buildForm() {
         contentStack.addArrangedSubview(stepLabel(number: 1))
 
-        let expiryLabel = UILabel()
-        expiryLabel.applyWellnarioStyle(.body, color: WellnarioPalette.textPrimary)
-        expiryLabel.text = L10n.text("supplements.wizard.expiry_optional")
-        let expiryRow = UIStackView(
-            arrangedSubviews: [expiryLabel, UIView(), expirySwitch],
-            axis: .horizontal,
-            spacing: 8,
-            alignment: .center
-        )
         addSection(
             title: L10n.text("supplements.wizard.step1.title"),
-            views: [brandField, nameField, priceField, expiryRow, expiryPicker]
+            views: [brandField, nameField, priceField]
         )
         addSection(
             title: L10n.text("supplements.wizard.photo_optional"),
             views: [photoContainer]
         )
         addSaveButton()
-    }
-
-    @objc private func expiryChanged() {
-        WellnarioMotion.animate {
-            self.expiryPicker.isHidden = !self.expirySwitch.isOn
-            self.view.layoutIfNeeded()
-        }
     }
 
     @objc private func choosePhoto() {
@@ -723,11 +694,22 @@ private final class ProductPackageCompositionStepViewController: EditorViewContr
 
 @MainActor
 private final class ProductPackageInventoryStepViewController: EditorViewController {
+    private struct InventoryInput {
+        let labelField: FormFieldView?
+        let expirySwitch: UISwitch
+        let expiryPicker: UIDatePicker
+        let container: UIView
+    }
+
     private let state: ProductPackageWizardState
     private let countLabel = UILabel()
     private let helperLabel = UILabel()
+    private let startedPackageAdviceLabel = UILabel()
+    private let identificationAdviceLabel = UILabel()
+    private let identificationStack = UIStackView()
     private let decrementButton = UIButton(type: .system)
     private let incrementButton = UIButton(type: .system)
+    private var inventoryInputs: [InventoryInput] = []
 
     init(repository: WellnarioRepositoryProtocol, state: ProductPackageWizardState) {
         self.state = state
@@ -754,6 +736,7 @@ private final class ProductPackageInventoryStepViewController: EditorViewControl
             showError(RepositoryError.validation(L10n.text("error.component_required")))
             return
         }
+        persistInventoryInputs()
 
         var storedPhotoReference: String?
         var createdSupplement: Supplement?
@@ -778,9 +761,11 @@ private final class ProductPackageInventoryStepViewController: EditorViewControl
                 _ = try repository.createInstance(SupplementInstanceDraft(
                     supplementID: supplement.id,
                     label: instanceLabel(at: index),
-                    expirationDay: state.expirationDay,
+                    expirationDay: instanceExpiration(at: index),
                     totalQuantity: state.totalQuantity,
-                    totalUnit: state.totalUnit
+                    totalUnit: state.totalUnit,
+                    initialQuantity: state.totalQuantity,
+                    initialUnit: state.totalUnit
                 ))
             }
 
@@ -821,7 +806,25 @@ private final class ProductPackageInventoryStepViewController: EditorViewControl
         helperLabel.text = L10n.text("supplements.wizard.inventory.help")
         helperLabel.textAlignment = .center
         helperLabel.numberOfLines = 0
-        updateCount()
+
+        startedPackageAdviceLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
+        startedPackageAdviceLabel.text = L10n.text("supplements.wizard.inventory.started.advice")
+        startedPackageAdviceLabel.numberOfLines = 0
+        startedPackageAdviceLabel.accessibilityIdentifier = "supplement.package.inventory.started.advice"
+
+        identificationAdviceLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
+        identificationAdviceLabel.text = L10n.text("supplements.wizard.inventory.labels.advice")
+        identificationAdviceLabel.numberOfLines = 0
+        identificationAdviceLabel.accessibilityIdentifier = "supplement.package.inventory.labels.advice"
+
+        identificationStack.axis = .vertical
+        identificationStack.spacing = WellnarioSpacing.small
+        identificationStack.accessibilityIdentifier = "supplement.package.inventory.details"
+        identificationStack.addArrangedSubview(identificationAdviceLabel)
+        identificationStack.setCustomSpacing(WellnarioSpacing.medium, after: identificationAdviceLabel)
+        identificationStack.isHidden = true
+
+        updateCount(animated: false)
     }
 
     private func buildForm() {
@@ -835,7 +838,7 @@ private final class ProductPackageInventoryStepViewController: EditorViewControl
         counter.distribution = .equalCentering
         addSection(
             title: L10n.text("supplements.wizard.step4.title"),
-            views: [counter, helperLabel]
+            views: [counter, helperLabel, startedPackageAdviceLabel, identificationStack]
         )
         addSaveButton()
     }
@@ -862,6 +865,7 @@ private final class ProductPackageInventoryStepViewController: EditorViewControl
 
     @objc private func decrementCount() {
         guard state.initialInventoryCount > 0 else { return }
+        persistInventoryInputs()
         state.initialInventoryCount -= 1
         updateCount()
         UISelectionFeedbackGenerator().selectionChanged()
@@ -869,20 +873,153 @@ private final class ProductPackageInventoryStepViewController: EditorViewControl
 
     @objc private func incrementCount() {
         guard state.initialInventoryCount < Int.max else { return }
+        persistInventoryInputs()
         state.initialInventoryCount += 1
         updateCount()
         UISelectionFeedbackGenerator().selectionChanged()
     }
 
-    private func updateCount() {
+    private func updateCount(animated: Bool = true) {
         countLabel.text = "\(state.initialInventoryCount)"
         countLabel.accessibilityValue = "\(state.initialInventoryCount)"
         decrementButton.isEnabled = state.initialInventoryCount > 0
+        rebuildInventoryInputs()
+
+        let updates = {
+            self.identificationStack.isHidden = self.state.initialInventoryCount == 0
+            self.view.layoutIfNeeded()
+        }
+        if animated {
+            WellnarioMotion.animate(animations: updates)
+        } else {
+            updates()
+        }
     }
 
-    private func instanceLabel(at index: Int) -> String {
-        guard state.initialInventoryCount > 1 else { return state.name }
-        return "\(state.name) \(index + 1)"
+    private func rebuildInventoryInputs() {
+        inventoryInputs.forEach {
+            identificationStack.removeArrangedSubview($0.container)
+            $0.container.removeFromSuperview()
+        }
+        inventoryInputs.removeAll()
+
+        guard state.initialInventoryCount > 0 else { return }
+        if state.initialInventoryLabels.count < state.initialInventoryCount {
+            state.initialInventoryLabels.append(
+                contentsOf: repeatElement(
+                    "",
+                    count: state.initialInventoryCount - state.initialInventoryLabels.count
+                )
+            )
+        }
+        if state.initialInventoryExpirations.count < state.initialInventoryCount {
+            state.initialInventoryExpirations.append(
+                contentsOf: repeatElement(
+                    nil,
+                    count: state.initialInventoryCount - state.initialInventoryExpirations.count
+                )
+            )
+        }
+        identificationAdviceLabel.isHidden = state.initialInventoryCount <= 1
+
+        for index in 0..<state.initialInventoryCount {
+            let labelField: FormFieldView?
+            if state.initialInventoryCount > 1 {
+                let field = FormFieldView()
+                field.configure(
+                    title: L10n.text("supplements.wizard.inventory.label", index + 1),
+                    placeholder: L10n.text("supplements.wizard.inventory.label.placeholder"),
+                    text: state.initialInventoryLabels[index]
+                )
+                field.textField.accessibilityIdentifier = "supplement.package.inventory.label.\(index + 1)"
+                labelField = field
+            } else {
+                labelField = nil
+            }
+
+            let expirySwitch = UISwitch()
+            expirySwitch.onTintColor = WellnarioPalette.fuchsia
+            expirySwitch.isOn = state.initialInventoryExpirations[index] != nil
+            expirySwitch.accessibilityIdentifier = "supplement.package.inventory.expiry.toggle.\(index + 1)"
+
+            let expiryPicker = UIDatePicker()
+            expiryPicker.datePickerMode = .date
+            expiryPicker.preferredDatePickerStyle = .compact
+            expiryPicker.minimumDate = Calendar.current.date(byAdding: .year, value: -10, to: Date())
+            expiryPicker.maximumDate = Calendar.current.date(byAdding: .year, value: 20, to: Date())
+            expiryPicker.tintColor = WellnarioPalette.fuchsia
+            expiryPicker.isHidden = !expirySwitch.isOn
+            expiryPicker.accessibilityIdentifier = "supplement.package.inventory.expiry.date.\(index + 1)"
+            if let day = state.initialInventoryExpirations[index],
+               let date = try? day.startDate(in: .current) {
+                expiryPicker.date = date
+            }
+
+            let expiryLabel = UILabel()
+            expiryLabel.applyWellnarioStyle(.body, color: WellnarioPalette.textPrimary)
+            expiryLabel.text = L10n.text("supplements.wizard.expiry_optional")
+            let expiryRow = UIStackView(
+                arrangedSubviews: [expiryLabel, UIView(), expirySwitch],
+                axis: .horizontal,
+                spacing: 8,
+                alignment: .center
+            )
+
+            let itemViews = [labelField, expiryRow, expiryPicker].compactMap { $0 }
+            let itemStack = UIStackView(
+                arrangedSubviews: itemViews,
+                axis: .vertical,
+                spacing: WellnarioSpacing.small
+            )
+            if index > 0 {
+                let separator = UIView()
+                separator.backgroundColor = WellnarioPalette.hairline
+                separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
+                itemStack.insertArrangedSubview(separator, at: 0)
+                itemStack.setCustomSpacing(WellnarioSpacing.medium, after: separator)
+            }
+            expirySwitch.addAction(UIAction { [weak self, weak expirySwitch, weak expiryPicker] _ in
+                guard let self, let expirySwitch, let expiryPicker else { return }
+                WellnarioMotion.animate {
+                    expiryPicker.isHidden = !expirySwitch.isOn
+                    self.view.layoutIfNeeded()
+                }
+            }, for: .valueChanged)
+
+            let input = InventoryInput(
+                labelField: labelField,
+                expirySwitch: expirySwitch,
+                expiryPicker: expiryPicker,
+                container: itemStack
+            )
+            inventoryInputs.append(input)
+            identificationStack.addArrangedSubview(itemStack)
+        }
+    }
+
+    private func persistInventoryInputs() {
+        for (index, input) in inventoryInputs.enumerated() {
+            if state.initialInventoryLabels.indices.contains(index), let labelField = input.labelField {
+                state.initialInventoryLabels[index] = labelField.textField.text ?? ""
+            }
+            if state.initialInventoryExpirations.indices.contains(index) {
+                state.initialInventoryExpirations[index] = input.expirySwitch.isOn
+                    ? LocalDay(containing: input.expiryPicker.date, in: .current)
+                    : nil
+            }
+        }
+    }
+
+    private func instanceLabel(at index: Int) -> String? {
+        guard state.initialInventoryLabels.indices.contains(index) else { return nil }
+        let label = state.initialInventoryLabels[index]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return label.isEmpty ? nil : label
+    }
+
+    private func instanceExpiration(at index: Int) -> LocalDay? {
+        guard state.initialInventoryExpirations.indices.contains(index) else { return nil }
+        return state.initialInventoryExpirations[index]
     }
 
     private func configureBackButton() {
@@ -894,7 +1031,10 @@ private final class ProductPackageInventoryStepViewController: EditorViewControl
         )
     }
 
-    @objc private func backTapped() { navigationController?.popViewController(animated: true) }
+    @objc private func backTapped() {
+        persistInventoryInputs()
+        navigationController?.popViewController(animated: true)
+    }
 }
 
 @MainActor

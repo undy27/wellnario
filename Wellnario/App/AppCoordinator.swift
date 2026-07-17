@@ -171,7 +171,10 @@ final class AppCoordinator: NSObject {
 
         if restoringSettings {
             navigationControllers[safeSelectedIndex].pushViewController(
-                SettingsViewController(appleHealthService: environment.appleHealthService),
+                SettingsViewController(
+                    appleHealthService: environment.appleHealthService,
+                    repository: environment.repository
+                ),
                 animated: false
             )
         }
@@ -252,7 +255,10 @@ final class AppCoordinator: NSObject {
         }
         guard !(selectedNavigation.topViewController is SettingsViewController) else { return }
         selectedNavigation.pushViewController(
-            SettingsViewController(appleHealthService: environment.appleHealthService),
+            SettingsViewController(
+                appleHealthService: environment.appleHealthService,
+                repository: environment.repository
+            ),
             animated: true
         )
     }

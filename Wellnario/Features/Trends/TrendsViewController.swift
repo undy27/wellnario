@@ -6,12 +6,24 @@ final class TrendsViewController: FeatureViewController {
 
     private enum Period: Int, CaseIterable { case sevenDays, thirtyDays, year, custom }
 
+    private struct FavoritePeriodSummary {
+        let total: Decimal
+        let status: TargetProgressStatus
+    }
+
+    private struct FavoriteConsumptionSummary {
+        let active: Active
+        let lastSevenDays: FavoritePeriodSummary
+        let lastThirtyDays: FavoritePeriodSummary
+    }
+
     private let initialActiveID: UUID?
     private let returnsToActiveDetail: Bool
     private let defaults: UserDefaults
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
     private let activeField = SelectionFieldView(title: L10n.Form.active)
+    private let favoritesSummaryCard = PremiumCardView()
     private let chartCard = PremiumCardView()
     private let chartView = WellnessTrendChartView()
     private let summaryStack = UIStackView()
@@ -26,6 +38,7 @@ final class TrendsViewController: FeatureViewController {
     private var customFrom = LocalDay(containing: Calendar.current.date(byAdding: .day, value: -29, to: Date()) ?? Date(), in: .current)
     private var customThrough = LocalDay(containing: Date(), in: .current)
     private var series: ConsumptionSeries?
+    private var favoriteSummaries: [FavoriteConsumptionSummary] = []
 
     init(
         repository: WellnarioRepositoryProtocol,
@@ -67,6 +80,7 @@ final class TrendsViewController: FeatureViewController {
         title = L10n.Trends.title
         rebuildActiveMenu()
         updateSelectorTitles()
+        rebuildFavoritesSummaryCard()
         if let series { render(series) }
     }
 
@@ -78,6 +92,7 @@ final class TrendsViewController: FeatureViewController {
                     ?? actives.first?.id
             }
             rebuildActiveMenu()
+            try rebuildFavoriteSummaries()
             guard let selectedActiveID else {
                 showEmptyActives()
                 return
@@ -123,6 +138,8 @@ final class TrendsViewController: FeatureViewController {
             contentStack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -(WellnarioSpacing.screenHorizontal * 2))
         ])
 
+        favoritesSummaryCard.isHidden = true
+        contentStack.addArrangedSubview(favoritesSummaryCard)
         contentStack.addArrangedSubview(activeField)
         activeField.button.accessibilityIdentifier = "trends.active.selector"
 
@@ -266,6 +283,224 @@ final class TrendsViewController: FeatureViewController {
         return UIImage(systemName: "leaf.fill")
     }
 
+    private func rebuildFavoriteSummaries() throws {
+        let favorites = actives
+            .filter(\.isFavorite)
+            .sorted {
+                $0.localizedName(language: catalogLanguage)
+                    .localizedCaseInsensitiveCompare($1.localizedName(language: catalogLanguage)) == .orderedAscending
+            }
+        guard !favorites.isEmpty else {
+            favoriteSummaries = []
+            rebuildFavoritesSummaryCard()
+            return
+        }
+
+        let through = LocalDay(containing: Date(), in: .current)
+        let monthFrom = try through.adding(days: -29)
+        favoriteSummaries = try favorites.map { active in
+            let monthSeries = try repository.dailyConsumption(
+                activeID: active.id,
+                from: monthFrom,
+                through: through
+            )
+            let lastSevenDays = Array(monthSeries.points.suffix(7))
+            return FavoriteConsumptionSummary(
+                active: active,
+                lastSevenDays: try favoritePeriodSummary(for: lastSevenDays),
+                lastThirtyDays: try favoritePeriodSummary(for: monthSeries.points)
+            )
+        }
+        rebuildFavoritesSummaryCard()
+    }
+
+    private func favoritePeriodSummary(
+        for points: [DailyConsumptionPoint]
+    ) throws -> FavoritePeriodSummary {
+        var total: Decimal = 0
+        var lowerTotal: Decimal = 0
+        var upperTotal: Decimal = 0
+        var hasTargetForEveryDay = !points.isEmpty
+
+        for point in points {
+            total = try DecimalMath.add(total, point.amount)
+            guard let lower = point.targetLower, let upper = point.targetUpper else {
+                hasTargetForEveryDay = false
+                continue
+            }
+            lowerTotal = try DecimalMath.add(lowerTotal, lower)
+            upperTotal = try DecimalMath.add(upperTotal, upper)
+        }
+
+        return FavoritePeriodSummary(
+            total: total,
+            status: hasTargetForEveryDay
+                ? status(for: total, lower: lowerTotal, upper: upperTotal)
+                : .noTarget
+        )
+    }
+
+    private func status(
+        for total: Decimal,
+        lower: Decimal,
+        upper: Decimal
+    ) -> TargetProgressStatus {
+        if total < lower { return .below }
+        if total > upper { return .above }
+        return .within
+    }
+
+    private func rebuildFavoritesSummaryCard() {
+        favoritesSummaryCard.contentView.subviews.forEach { $0.removeFromSuperview() }
+        favoritesSummaryCard.isHidden = favoriteSummaries.isEmpty
+        guard !favoriteSummaries.isEmpty else { return }
+
+        let titleLabel = UILabel()
+        titleLabel.applyWellnarioStyle(.cardTitle, color: WellnarioPalette.textPrimary)
+        titleLabel.text = L10n.text("trends.favorites.title")
+
+        let icon = UIImageView(image: UIImage(systemName: "heart.fill"))
+        icon.tintColor = WellnarioPalette.fuchsia
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+        icon.setContentHuggingPriority(.required, for: .horizontal)
+        let titleRow = UIStackView(
+            arrangedSubviews: [icon, titleLabel, UIView()],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.xSmall,
+            alignment: .center
+        )
+
+        let subtitle = UILabel()
+        subtitle.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)
+        subtitle.text = L10n.text("trends.favorites.body")
+        subtitle.numberOfLines = 0
+
+        let sevenDaysHeader = periodHeader(L10n.Trends.sevenDays)
+        let thirtyDaysHeader = periodHeader(L10n.Trends.thirtyDays)
+        let headers = UIStackView(
+            arrangedSubviews: [UIView(), sevenDaysHeader, thirtyDaysHeader],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.xSmall,
+            alignment: .center
+        )
+        [sevenDaysHeader, thirtyDaysHeader].forEach {
+            $0.widthAnchor.constraint(equalToConstant: 72).isActive = true
+        }
+
+        let rows = UIStackView(
+            arrangedSubviews: favoriteSummaries.map(favoriteSummaryRow),
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxSmall
+        )
+        let content = UIStackView(
+            arrangedSubviews: [titleRow, subtitle, headers, rows],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xSmall
+        )
+        content.setCustomSpacing(WellnarioSpacing.xSmall, after: subtitle)
+        favoritesSummaryCard.accessibilityIdentifier = "trends.favorites.card"
+        favoritesSummaryCard.contentView.addForAutoLayout(content)
+        content.pinEdges(
+            to: favoritesSummaryCard.contentView,
+            insets: NSDirectionalEdgeInsets(
+                top: WellnarioSpacing.small,
+                leading: WellnarioSpacing.cardPadding,
+                bottom: WellnarioSpacing.small,
+                trailing: WellnarioSpacing.cardPadding
+            )
+        )
+    }
+
+    private func periodHeader(_ title: String) -> UILabel {
+        let label = UILabel()
+        label.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)
+        label.text = title
+        label.textAlignment = .right
+        return label
+    }
+
+    private func favoriteSummaryRow(_ summary: FavoriteConsumptionSummary) -> UIView {
+        let icon = UIImageView(image: activeIcon(for: summary.active))
+        icon.contentMode = .scaleAspectFit
+        icon.tintColor = WellnarioPalette.fuchsia
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: 26),
+            icon.heightAnchor.constraint(equalTo: icon.widthAnchor)
+        ])
+
+        let name = UILabel()
+        name.applyWellnarioStyle(.secondary, color: WellnarioPalette.textPrimary)
+        name.text = summary.active.localizedName(language: catalogLanguage)
+        name.numberOfLines = 2
+
+        let details = UIStackView(
+            arrangedSubviews: [icon, name],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.xSmall,
+            alignment: .center
+        )
+        let lastSevenDays = favoriteValue(
+            summary.lastSevenDays,
+            active: summary.active,
+            identifier: "trends.favorites.\(summary.active.id.uuidString).7d"
+        )
+        let lastThirtyDays = favoriteValue(
+            summary.lastThirtyDays,
+            active: summary.active,
+            identifier: "trends.favorites.\(summary.active.id.uuidString).30d"
+        )
+        let row = UIStackView(
+            arrangedSubviews: [details, lastSevenDays, lastThirtyDays],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.xSmall,
+            alignment: .center
+        )
+        [lastSevenDays, lastThirtyDays].forEach {
+            $0.widthAnchor.constraint(equalToConstant: 72).isActive = true
+        }
+        row.isAccessibilityElement = true
+        row.accessibilityIdentifier = "trends.favorites.\(summary.active.id.uuidString)"
+        row.accessibilityLabel = [
+            summary.active.localizedName(language: catalogLanguage),
+            L10n.Trends.sevenDays,
+            favoriteValueText(summary.lastSevenDays, active: summary.active),
+            L10n.Trends.thirtyDays,
+            favoriteValueText(summary.lastThirtyDays, active: summary.active)
+        ].joined(separator: ". ")
+        return row
+    }
+
+    private func favoriteValue(
+        _ summary: FavoritePeriodSummary,
+        active: Active,
+        identifier: String
+    ) -> UILabel {
+        let label = UILabel()
+        label.applyWellnarioStyle(.secondary, color: favoriteColor(for: summary.status))
+        label.text = favoriteValueText(summary, active: active)
+        label.textAlignment = .right
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.72
+        label.accessibilityIdentifier = identifier
+        return label
+    }
+
+    private func favoriteValueText(
+        _ summary: FavoritePeriodSummary,
+        active: Active
+    ) -> String {
+        "\(FeatureFormatting.decimal(summary.total)) \(active.baseUnit.symbol(languageCode: catalogLanguage.rawValue))"
+    }
+
+    private func favoriteColor(for status: TargetProgressStatus) -> UIColor {
+        switch status {
+        case .below: WellnarioPalette.yellow
+        case .within: WellnarioPalette.success
+        case .above: WellnarioPalette.danger
+        case .noTarget: WellnarioPalette.textSecondary
+        }
+    }
+
     private func makePeriodControl() -> UISegmentedControl {
         let control = UISegmentedControl(items: Period.allCases.map(periodTitle))
         control.selectedSegmentIndex = selectedPeriod.rawValue
@@ -374,8 +609,8 @@ final class TrendsViewController: FeatureViewController {
     }
 
     private func render(_ series: ConsumptionSeries) {
-        let values = series.points.map { point -> Double? in
-            FeatureFormatting.double(point.amount)
+        let values = series.amountsFromFirstRecordedDay.map { amount -> Double? in
+            amount.map(FeatureFormatting.double)
         }
         chartView.values = values
         chartView.labels = axisLabels(for: series)
@@ -407,7 +642,7 @@ final class TrendsViewController: FeatureViewController {
             "trends.chart.accessibility.values",
             chartView.valueFormatter(FeatureFormatting.double(series.average)),
             series.daysWithinTarget,
-            series.points.count
+            series.recordedDayCount
         )
         rebuildSummary(series)
     }
@@ -487,7 +722,7 @@ final class TrendsViewController: FeatureViewController {
         let inTarget = summaryCard(
             title: L10n.Trends.daysInTarget,
             value: "\(series.daysWithinTarget)",
-            unit: "/\(series.points.count)",
+            unit: "/\(series.recordedDayCount)",
             symbol: "scope",
             tone: series.daysWithinTarget > 0 ? .success : .neutral
         )

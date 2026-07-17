@@ -138,6 +138,139 @@ final class PrimaryButton: UIButton {
     }
 }
 
+/// A single-line secondary label that loops horizontally only when its text
+/// does not fit. Reduce Motion falls back to ordinary tail truncation.
+final class ContinuousMarqueeLabel: UIView {
+    var text: String? {
+        didSet {
+            primaryLabel.text = text
+            repeatedLabel.text = text
+            accessibilityLabel = text
+            invalidateIntrinsicContentSize()
+            setNeedsLayout()
+        }
+    }
+
+    var isMarqueeEnabled = false {
+        didSet {
+            guard oldValue != isMarqueeEnabled else { return }
+            setNeedsLayout()
+        }
+    }
+
+    private(set) var isOverflowing = false
+
+    private let primaryLabel = UILabel()
+    private let repeatedLabel = UILabel()
+    private let animationKey = "wellnario.continuousMarquee"
+    private var animatedDistance: CGFloat?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setUp()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    override var intrinsicContentSize: CGSize {
+        primaryLabel.intrinsicContentSize
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { stopAnimation() }
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layoutText()
+    }
+
+    private func setUp() {
+        clipsToBounds = true
+        isAccessibilityElement = true
+        accessibilityTraits = .staticText
+
+        [primaryLabel, repeatedLabel].forEach { label in
+            label.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
+            label.numberOfLines = 1
+            label.lineBreakMode = .byTruncatingTail
+            label.isAccessibilityElement = false
+            addSubview(label)
+        }
+        repeatedLabel.isHidden = true
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reduceMotionChanged),
+            name: UIAccessibility.reduceMotionStatusDidChangeNotification,
+            object: nil
+        )
+    }
+
+    private func layoutText() {
+        let textWidth = ceil(primaryLabel.intrinsicContentSize.width)
+        isOverflowing = bounds.width > 0 && textWidth > bounds.width + 1
+        let shouldAnimate = isMarqueeEnabled
+            && WellnarioMotion.animationsEnabled
+            && window != nil
+            && isOverflowing
+
+        guard shouldAnimate else {
+            stopAnimation()
+            repeatedLabel.isHidden = true
+            primaryLabel.lineBreakMode = .byTruncatingTail
+            primaryLabel.frame = bounds
+            return
+        }
+
+        let gap: CGFloat = 28
+        let distance = textWidth + gap
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        primaryLabel.lineBreakMode = .byClipping
+        repeatedLabel.lineBreakMode = .byClipping
+        primaryLabel.frame = CGRect(x: 0, y: 0, width: textWidth, height: bounds.height)
+        repeatedLabel.frame = CGRect(x: distance, y: 0, width: textWidth, height: bounds.height)
+        repeatedLabel.isHidden = false
+        CATransaction.commit()
+
+        guard animatedDistance != distance
+                || primaryLabel.layer.animation(forKey: animationKey) == nil else {
+            return
+        }
+        stopAnimation()
+        let duration = max(6, TimeInterval(distance / 26))
+        [primaryLabel, repeatedLabel].forEach { label in
+            let animation = CABasicAnimation(keyPath: "transform.translation.x")
+            animation.fromValue = 0
+            animation.toValue = -distance
+            animation.duration = duration
+            animation.repeatCount = .infinity
+            animation.timingFunction = CAMediaTimingFunction(name: .linear)
+            animation.isRemovedOnCompletion = false
+            label.layer.add(animation, forKey: animationKey)
+        }
+        animatedDistance = distance
+    }
+
+    private func stopAnimation() {
+        primaryLabel.layer.removeAnimation(forKey: animationKey)
+        repeatedLabel.layer.removeAnimation(forKey: animationKey)
+        animatedDistance = nil
+    }
+
+    @objc private func reduceMotionChanged() {
+        setNeedsLayout()
+    }
+}
+
 /// A compact, accessible filter or segmented-choice button.
 final class ChipButton: UIButton {
     override var isSelected: Bool {

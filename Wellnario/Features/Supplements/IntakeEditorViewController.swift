@@ -100,6 +100,7 @@ final class IntakeEditorViewController: EditorViewController {
     private func configureFields() {
         rebuildInstanceMenu()
         instanceField.button.accessibilityIdentifier = "intake.instance.selector"
+        instanceField.usesCompactHorizontalPadding = true
         instanceField.button.isEnabled = !isPreferredInstanceLocked
         fixedInstanceLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
         fixedInstanceLabel.text = L10n.text("intake.inventory.fixed")
@@ -171,14 +172,26 @@ final class IntakeEditorViewController: EditorViewController {
 
     private func rebuildInstanceMenu() {
         if let instance = selectedInstance, let supplement = supplement(for: instance) {
-            instanceField.value = "\(supplement.name) · \(instance.label)"
+            instanceField.value = [supplement.name, instance.label]
+                .filter { !$0.isEmpty }
+                .joined(separator: " · ")
         } else {
             instanceField.value = L10n.Common.required
         }
         instanceField.menu = UIMenu(children: instances.compactMap { instance in
             guard let supplement = supplement(for: instance) else { return nil }
+            let productName = [supplement.brand, supplement.name]
+                .filter { !$0.isEmpty }
+                .joined(separator: " · ")
+            let title = [productName, instance.label]
+                .filter { !$0.isEmpty }
+                .joined(separator: " — ")
             return UIAction(
-                title: "\(supplement.brand) · \(supplement.name) — \(instance.label)",
+                title: title,
+                image: SupplementPhotoStore.image(
+                    reference: supplement.imageReference,
+                    databaseURL: repository.databaseURL
+                )?.withRenderingMode(.alwaysOriginal),
                 state: instance.id == selectedInstanceID ? .on : .off
             ) { [weak self] _ in
                 self?.selectedInstanceID = instance.id

@@ -269,6 +269,13 @@ extension WellnarioRepository {
                 }
                 return unit
             },
+            initialQuantity: try optionalDecimal(row, "initial_quantity"),
+            initialUnit: try row.optionalString("initial_unit").map { rawValue in
+                guard let unit = DoseUnit(rawValue: rawValue) else {
+                    throw RepositoryError.storage("Invalid dose unit in initial_unit: \(rawValue)")
+                }
+                return unit
+            },
             createdAt: try date(row, "created_at"),
             updatedAt: try date(row, "updated_at"),
             archivedAt: try optionalDate(row, "archived_at")

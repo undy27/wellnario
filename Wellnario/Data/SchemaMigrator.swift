@@ -254,6 +254,22 @@ enum SchemaMigrator {
             CREATE INDEX IF NOT EXISTS idx_active_favorites_user
                 ON active_favorites(user_id, active_id);
             """
+        ),
+        Migration(
+            version: 8,
+            sql: """
+            ALTER TABLE supplement_instances
+                ADD COLUMN initial_quantity TEXT;
+            ALTER TABLE supplement_instances
+                ADD COLUMN initial_unit TEXT;
+            """
+        ),
+        Migration(
+            version: 9,
+            sql: """
+            ALTER TABLE consumptions
+                ADD COLUMN inventory_applied INTEGER NOT NULL DEFAULT 0;
+            """
         )
     ]
 }

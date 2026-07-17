@@ -1,6 +1,9 @@
 import UIKit
 
 @MainActor
+protocol WellnarioPreservesScrollPositionWhenRevealed {}
+
+@MainActor
 final class WellnarioNavigationController: UINavigationController, UINavigationControllerDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -62,6 +65,9 @@ enum WellnarioScrollPosition {
                 ?? navigationController
         } else {
             contentController = controller
+        }
+        guard !(contentController is WellnarioPreservesScrollPositionWhenRevealed) else {
+            return
         }
 
         contentController.loadViewIfNeeded()
