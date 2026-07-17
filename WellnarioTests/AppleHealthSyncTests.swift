@@ -2355,6 +2355,60 @@ final class AppleHealthSyncTests: XCTestCase {
     }
 
     @MainActor
+    func testSupplementReminderSchedulePreferencesPersistEachTemplate() throws {
+        let suiteName = "SupplementReminderScheduleTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let preferences = SupplementReminderSchedulePreferences(defaults: defaults)
+        XCTAssertEqual(
+            preferences.minutes(for: .fasting),
+            SupplementReminderTemplate.fasting.defaultMinutes
+        )
+
+        let calendar = Calendar(identifier: .gregorian)
+        let date = try XCTUnwrap(
+            calendar.date(
+                bySettingHour: 7,
+                minute: 45,
+                second: 0,
+                of: Date()
+            )
+        )
+        preferences.setTime(date, for: .fasting, calendar: calendar)
+
+        let restored = SupplementReminderSchedulePreferences(defaults: defaults)
+        XCTAssertEqual(restored.minutes(for: .fasting), 7 * 60 + 45)
+        XCTAssertEqual(
+            restored.minutes(for: .anytime),
+            SupplementReminderTemplate.anytime.defaultMinutes
+        )
+    }
+
+    func testSupplementProductReminderStorePersistsProductSchedulesAndCapsAtThree() throws {
+        let suiteName = "WellnarioTests.reminders.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = SupplementProductReminderStore(defaults: defaults)
+        let productID = UUID()
+        let reminders = (0..<4).map { index in
+            SupplementProductReminder(
+                supplementID: productID,
+                timeMinutes: 8 * 60 + index,
+                recurrence: index == 3 ? .everyDays : .weekdays,
+                weekdaysMask: 127,
+                intervalDays: 2
+            )
+        }
+
+        store.set(reminders, for: productID)
+
+        XCTAssertEqual(store.reminders(for: productID).count, 3)
+        XCTAssertEqual(store.reminders(for: productID).last?.recurrence, .weekdays)
+        XCTAssertEqual(store.all().filter { $0.supplementID == productID }.count, 3)
+    }
+
+    @MainActor
     func testSupplementAdvancedOptionsOpenIntakeManager() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("WellnarioIntakeManagerTests-\(UUID().uuidString)", isDirectory: true)

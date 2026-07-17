@@ -11,6 +11,7 @@ final class SettingsViewController: UIViewController, WellnarioPreservesScrollPo
     private let appleHealthService: AppleHealthSyncing
     private let appearanceManager: WellnarioAppearanceManager
     private let activeTargetMarginPreferences: ActiveTargetMarginPreferences
+    private let supplementReminderPreferences: SupplementReminderSchedulePreferences
     private let sleepManualOverrideStore: SleepManualOverrideStore
     private let repository: WellnarioRepositoryProtocol?
 
@@ -18,12 +19,14 @@ final class SettingsViewController: UIViewController, WellnarioPreservesScrollPo
         appleHealthService: AppleHealthSyncing,
         appearanceManager: WellnarioAppearanceManager = .shared,
         activeTargetMarginPreferences: ActiveTargetMarginPreferences = ActiveTargetMarginPreferences(),
+        supplementReminderPreferences: SupplementReminderSchedulePreferences = SupplementReminderSchedulePreferences(),
         sleepManualOverrideStore: SleepManualOverrideStore = SleepManualOverrideStore(),
         repository: WellnarioRepositoryProtocol? = nil
     ) {
         self.appleHealthService = appleHealthService
         self.appearanceManager = appearanceManager
         self.activeTargetMarginPreferences = activeTargetMarginPreferences
+        self.supplementReminderPreferences = supplementReminderPreferences
         self.sleepManualOverrideStore = sleepManualOverrideStore
         self.repository = repository
         super.init(nibName: nil, bundle: nil)
@@ -160,6 +163,7 @@ final class SettingsViewController: UIViewController, WellnarioPreservesScrollPo
             self.navigationController?.pushViewController(
                 SupplementAdvancedOptionsViewController(
                     preferences: self.activeTargetMarginPreferences,
+                    reminderPreferences: self.supplementReminderPreferences,
                     repository: self.repository
                 ),
                 animated: true
@@ -1589,6 +1593,7 @@ private final class AdvancedOptionsPlaceholderViewController: UIViewController {
 @MainActor
 private final class SupplementAdvancedOptionsViewController: UIViewController {
     private let preferences: ActiveTargetMarginPreferences
+    private let reminderPreferences: SupplementReminderSchedulePreferences
     private let repository: WellnarioRepositoryProtocol?
     private let valueLabel = UILabel()
     private let slider = UISlider()
@@ -1598,9 +1603,11 @@ private final class SupplementAdvancedOptionsViewController: UIViewController {
 
     init(
         preferences: ActiveTargetMarginPreferences,
+        reminderPreferences: SupplementReminderSchedulePreferences,
         repository: WellnarioRepositoryProtocol?
     ) {
         self.preferences = preferences
+        self.reminderPreferences = reminderPreferences
         self.repository = repository
         displayedPercentage = preferences.percentage
         super.init(nibName: nil, bundle: nil)
@@ -1720,6 +1727,7 @@ private final class SupplementAdvancedOptionsViewController: UIViewController {
         content.pinEdges(to: card.contentView, insets: .all(WellnarioSpacing.cardPadding))
 
         var cards: [UIView] = [card]
+        cards.append(makeReminderScheduleCard(preferences: reminderPreferences))
         if let repository {
             cards.append(makeIntakeManagementCard(repository: repository))
             cards.append(makeDeviationCorrectionCard(repository: repository))
@@ -1752,6 +1760,63 @@ private final class SupplementAdvancedOptionsViewController: UIViewController {
                 constant: -(WellnarioSpacing.screenHorizontal * 2)
             )
         ])
+    }
+
+    private func makeReminderScheduleCard(
+        preferences: SupplementReminderSchedulePreferences
+    ) -> PremiumCardView {
+        let card = PremiumCardView()
+        card.isPressable = true
+        card.accessibilityIdentifier = "settings.advanced.reminders.card"
+        card.accessibilityLabel = L10n.text("settings.advanced.reminders.title")
+        card.accessibilityHint = L10n.text("settings.advanced.reminders.body")
+
+        let icon = UIImageView(image: UIImage(systemName: "bell.badge.fill"))
+        icon.tintColor = WellnarioPalette.fuchsia
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 22,
+            weight: .semibold
+        )
+        icon.setContentHuggingPriority(.required, for: .horizontal)
+
+        let titleLabel = UILabel()
+        titleLabel.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textPrimary)
+        titleLabel.text = L10n.text("settings.advanced.reminders.title")
+        titleLabel.numberOfLines = 0
+
+        let bodyLabel = UILabel()
+        bodyLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
+        bodyLabel.text = L10n.text("settings.advanced.reminders.body")
+        bodyLabel.numberOfLines = 0
+
+        let labels = UIStackView(
+            arrangedSubviews: [titleLabel, bodyLabel],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxxSmall
+        )
+        let chevron = UIImageView(image: UIImage(systemName: "chevron.forward"))
+        chevron.tintColor = WellnarioPalette.textTertiary
+        chevron.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 14,
+            weight: .semibold
+        )
+        chevron.setContentHuggingPriority(.required, for: .horizontal)
+
+        let row = UIStackView(
+            arrangedSubviews: [icon, labels, chevron],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.small,
+            alignment: .center
+        )
+        card.contentView.addForAutoLayout(row)
+        row.pinEdges(to: card.contentView, insets: .all(WellnarioSpacing.cardPadding))
+        card.addAction(UIAction { [weak self] _ in
+            self?.navigationController?.pushViewController(
+                SupplementReminderScheduleViewController(preferences: preferences),
+                animated: true
+            )
+        }, for: .touchUpInside)
+        return card
     }
 
     private func makeIntakeManagementCard(
@@ -1905,6 +1970,141 @@ private final class SupplementAdvancedOptionsViewController: UIViewController {
         selectionFeedback.selectionChanged()
         selectionFeedback.prepare()
         updateDisplayedValue()
+    }
+}
+
+@MainActor
+private final class SupplementReminderScheduleViewController: UIViewController {
+    private let preferences: SupplementReminderSchedulePreferences
+    private let timeFormatter = DateFormatter()
+
+    init(preferences: SupplementReminderSchedulePreferences) {
+        self.preferences = preferences
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        setUpView()
+    }
+
+    private func setUpView() {
+        view.backgroundColor = WellnarioPalette.background
+        view.accessibilityIdentifier = "settings.advanced.reminders.root"
+        title = L10n.text("settings.advanced.reminders.title")
+        navigationItem.largeTitleDisplayMode = .never
+
+        timeFormatter.locale = LocalizationManager.shared.locale
+        timeFormatter.dateStyle = .none
+        timeFormatter.timeStyle = .short
+
+        let scrollView = UIScrollView()
+        scrollView.alwaysBounceVertical = true
+        scrollView.showsVerticalScrollIndicator = false
+        view.addForAutoLayout(scrollView)
+        scrollView.pinEdges(to: view)
+
+        let descriptionLabel = UILabel()
+        descriptionLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
+        descriptionLabel.text = L10n.text("settings.advanced.reminders.body")
+        descriptionLabel.numberOfLines = 0
+
+        let savedLabel = UILabel()
+        savedLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)
+        savedLabel.text = L10n.text("settings.advanced.reminders.saved")
+        savedLabel.numberOfLines = 0
+
+        let rows = UIStackView(
+            arrangedSubviews: SupplementReminderTemplate.allCases.enumerated().flatMap { index, template in
+                var views: [UIView] = [makeTemplateRow(template)]
+                if index < SupplementReminderTemplate.allCases.count - 1 {
+                    let divider = UIView()
+                    divider.backgroundColor = WellnarioPalette.hairline
+                    divider.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale).isActive = true
+                    views.append(divider)
+                }
+                return views
+            },
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxSmall
+        )
+
+        let content = UIStackView(
+            arrangedSubviews: [descriptionLabel, savedLabel, rows],
+            axis: .vertical,
+            spacing: WellnarioSpacing.small
+        )
+        let card = PremiumCardView()
+        card.accessibilityIdentifier = "settings.advanced.reminders.schedule.card"
+        card.contentView.addForAutoLayout(content)
+        content.pinEdges(to: card.contentView, insets: .all(WellnarioSpacing.cardPadding))
+
+        scrollView.addForAutoLayout(card)
+        NSLayoutConstraint.activate([
+            card.leadingAnchor.constraint(
+                equalTo: scrollView.contentLayoutGuide.leadingAnchor,
+                constant: WellnarioSpacing.screenHorizontal
+            ),
+            card.trailingAnchor.constraint(
+                equalTo: scrollView.contentLayoutGuide.trailingAnchor,
+                constant: -WellnarioSpacing.screenHorizontal
+            ),
+            card.topAnchor.constraint(
+                equalTo: scrollView.contentLayoutGuide.topAnchor,
+                constant: WellnarioSpacing.medium
+            ),
+            card.bottomAnchor.constraint(
+                equalTo: scrollView.contentLayoutGuide.bottomAnchor,
+                constant: -WellnarioSpacing.bottomNavigationInset
+            ),
+            card.widthAnchor.constraint(
+                equalTo: scrollView.frameLayoutGuide.widthAnchor,
+                constant: -(WellnarioSpacing.screenHorizontal * 2)
+            )
+        ])
+    }
+
+    private func makeTemplateRow(_ template: SupplementReminderTemplate) -> UIView {
+        let label = UILabel()
+        label.applyWellnarioStyle(.body, color: WellnarioPalette.textPrimary)
+        label.text = L10n.text("settings.advanced.reminders.template.\(template.rawValue)")
+        label.numberOfLines = 0
+
+        let picker = UIDatePicker()
+        picker.datePickerMode = .time
+        picker.preferredDatePickerStyle = .compact
+        picker.locale = LocalizationManager.shared.locale
+        picker.calendar = .autoupdatingCurrent
+        picker.date = preferences.date(for: template)
+        picker.tintColor = WellnarioPalette.fuchsia
+        picker.accessibilityIdentifier = "settings.advanced.reminders.\(template.rawValue).picker"
+        picker.accessibilityLabel = label.text
+        picker.accessibilityValue = timeFormatter.string(from: picker.date)
+        picker.addAction(UIAction { [weak self] action in
+            guard let self, let datePicker = action.sender as? UIDatePicker else { return }
+            self.preferences.setTime(datePicker.date, for: template)
+            datePicker.accessibilityValue = self.timeFormatter.string(from: datePicker.date)
+        }, for: .valueChanged)
+        picker.setContentHuggingPriority(.required, for: .horizontal)
+        picker.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let row = UIStackView(
+            arrangedSubviews: [label, picker],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.small,
+            alignment: .center
+        )
+        row.isLayoutMarginsRelativeArrangement = true
+        row.directionalLayoutMargins = NSDirectionalEdgeInsets(
+            top: WellnarioSpacing.xxSmall,
+            leading: 0,
+            bottom: WellnarioSpacing.xxSmall,
+            trailing: 0
+        )
+        return row
     }
 }
 

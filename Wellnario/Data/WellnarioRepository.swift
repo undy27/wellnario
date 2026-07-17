@@ -90,6 +90,332 @@ struct ActiveTargetMarginPreferences {
     }
 }
 
+enum SupplementReminderTemplate: String, CaseIterable, Hashable, Sendable {
+    case fasting
+    case breakfast
+    case lunch
+    case dinner
+    case bedtime
+    case anytime
+
+    var defaultMinutes: Int {
+        switch self {
+        case .fasting: 7 * 60
+        case .breakfast: 9 * 60
+        case .lunch: 14 * 60
+        case .dinner: 21 * 60
+        case .bedtime: 23 * 60
+        case .anytime: 12 * 60
+        }
+    }
+}
+
+/// Device-local schedule used by future supplement reminder notifications.
+/// Values are stored as minutes from midnight so they remain independent of
+/// any particular date or daylight-saving transition.
+struct SupplementReminderSchedulePreferences {
+    private static let storagePrefix = "wellnario.supplement.reminderSchedule."
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func minutes(for template: SupplementReminderTemplate) -> Int {
+        let key = Self.storagePrefix + template.rawValue
+        guard defaults.object(forKey: key) != nil else {
+            return template.defaultMinutes
+        }
+        return min(max(defaults.integer(forKey: key), 0), 23 * 60 + 59)
+    }
+
+    func date(
+        for template: SupplementReminderTemplate,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Date {
+        let startOfDay = calendar.startOfDay(for: Date())
+        return calendar.date(
+            byAdding: .minute,
+            value: minutes(for: template),
+            to: startOfDay
+        ) ?? startOfDay
+    }
+
+    func setTime(
+        _ date: Date,
+        for template: SupplementReminderTemplate,
+        calendar: Calendar = .autoupdatingCurrent
+    ) {
+        let components = calendar.dateComponents([.hour, .minute], from: date)
+        guard let hour = components.hour, let minute = components.minute else { return }
+        defaults.set((hour * 60) + minute, forKey: Self.storagePrefix + template.rawValue)
+    }
+}
+
+enum SupplementReminderRecurrence: String, Codable, CaseIterable, Sendable {
+    case weekdays
+    case everyDays
+}
+
+struct SupplementProductReminder: Codable, Hashable, Identifiable, Sendable {
+    let id: UUID
+    let supplementID: UUID
+    var timeMinutes: Int
+    var recurrence: SupplementReminderRecurrence
+    /// ISO weekday bit mask (1 = Sunday ... 7 = Saturday).
+    var weekdaysMask: Int
+    var intervalDays: Int
+    var anchorDay: LocalDay
+
+    init(
+        id: UUID = UUID(),
+        supplementID: UUID,
+        timeMinutes: Int = 12 * 60,
+        recurrence: SupplementReminderRecurrence = .weekdays,
+        weekdaysMask: Int = 127,
+        intervalDays: Int = 1,
+        anchorDay: LocalDay = LocalDay(containing: Date(), in: .autoupdatingCurrent)
+    ) {
+        self.id = id
+        self.supplementID = supplementID
+        self.timeMinutes = min(max(timeMinutes, 0), 1439)
+        self.recurrence = recurrence
+        self.weekdaysMask = weekdaysMask & 127
+        self.intervalDays = max(1, intervalDays)
+        self.anchorDay = anchorDay
+    }
+}
+
+/// Device-local product reminder configuration. Reminders belong to a product,
+/// so all packages of that product share the same schedule.
+struct SupplementProductReminderStore {
+    private static let storageKey = "wellnario.supplement.productReminders.v1"
+    private static let configuredProductsKey = "wellnario.supplement.productReminders.configuredProducts.v1"
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+
+    func all() -> [SupplementProductReminder] {
+        guard let data = defaults.data(forKey: Self.storageKey),
+              let values = try? JSONDecoder().decode([SupplementProductReminder].self, from: data) else {
+            return []
+        }
+        return values
+    }
+
+    func reminders(for supplementID: UUID) -> [SupplementProductReminder] {
+        all().filter { $0.supplementID == supplementID }
+    }
+
+    func hasConfiguration(for supplementID: UUID) -> Bool {
+        !reminders(for: supplementID).isEmpty || configuredProductIDs.contains(supplementID)
+    }
+
+    func hasUserConfiguration(for supplementID: UUID) -> Bool {
+        configuredProductIDs.contains(supplementID)
+    }
+
+    func set(
+        _ reminders: [SupplementProductReminder],
+        for supplementID: UUID,
+        marksUserConfiguration: Bool = true
+    ) {
+        let existing = all().filter { $0.supplementID != supplementID }
+        let sharedRecurrence = reminders.first?.recurrence ?? .weekdays
+        let sharedWeekdaysMask = reminders.first?.weekdaysMask ?? 127
+        let sharedIntervalDays = reminders.first?.intervalDays ?? 1
+        let sharedAnchorDay = reminders.first?.anchorDay ?? LocalDay(containing: Date(), in: .autoupdatingCurrent)
+        let normalized = reminders.prefix(3).map {
+            SupplementProductReminder(
+                id: $0.id,
+                supplementID: supplementID,
+                timeMinutes: $0.timeMinutes,
+                recurrence: sharedRecurrence,
+                weekdaysMask: sharedWeekdaysMask,
+                intervalDays: sharedIntervalDays,
+                anchorDay: sharedAnchorDay
+            )
+        }
+        guard let data = try? JSONEncoder().encode(existing + normalized) else { return }
+        defaults.set(data, forKey: Self.storageKey)
+        if marksUserConfiguration {
+            var identifiers = configuredProductIDs
+            identifiers.insert(supplementID)
+            defaults.set(identifiers.map(\.uuidString).sorted(), forKey: Self.configuredProductsKey)
+        }
+    }
+
+    func remove(for supplementID: UUID) {
+        let remaining = all().filter { $0.supplementID != supplementID }
+        guard let data = try? JSONEncoder().encode(remaining) else { return }
+        defaults.set(data, forKey: Self.storageKey)
+        var identifiers = configuredProductIDs
+        identifiers.remove(supplementID)
+        defaults.set(identifiers.map(\.uuidString).sorted(), forKey: Self.configuredProductsKey)
+    }
+
+    private var configuredProductIDs: Set<UUID> {
+        Set(
+            (defaults.stringArray(forKey: Self.configuredProductsKey) ?? [])
+                .compactMap(UUID.init(uuidString:))
+        )
+    }
+}
+
+/// Creates and updates conservative schedules until the user edits them.
+/// The target amount controls both the number of suggested times and, for
+/// discrete products, the interval needed to approximate the daily target.
+struct SupplementDefaultReminderPlanner {
+    private let schedulePreferences: SupplementReminderSchedulePreferences
+    private let store: SupplementProductReminderStore
+
+    init(
+        schedulePreferences: SupplementReminderSchedulePreferences = SupplementReminderSchedulePreferences(),
+        store: SupplementProductReminderStore = SupplementProductReminderStore()
+    ) {
+        self.schedulePreferences = schedulePreferences
+        self.store = store
+    }
+
+    @discardableResult
+    func seedMissing(in repository: WellnarioRepositoryProtocol) throws -> Int {
+        let actives = Dictionary(
+            uniqueKeysWithValues: try repository.fetchActives(includeArchived: false).map { ($0.id, $0) }
+        )
+        var seededCount = 0
+        for supplement in try repository.fetchSupplements(includeArchived: false) {
+            guard !store.hasUserConfiguration(for: supplement.id) else { continue }
+            let existingReminders = store.reminders(for: supplement.id)
+            let components = supplement.components.compactMap { component -> (SupplementComponent, Active)? in
+                guard let active = actives[component.activeID] else { return nil }
+                return (component, active)
+            }
+            guard components.contains(where: { $0.1.currentTarget != nil }) else {
+                if !existingReminders.isEmpty {
+                    store.set([], for: supplement.id, marksUserConfiguration: false)
+                    seededCount += 1
+                }
+                continue
+            }
+            let templates = suggestedTemplates(for: components)
+            let uniqueMinutes = templates
+                .map { schedulePreferences.minutes(for: $0) }
+                .reduce(into: [Int]()) { result, minutes in
+                    if !result.contains(minutes) { result.append(minutes) }
+                }
+                .prefix(3)
+            guard !uniqueMinutes.isEmpty else { continue }
+            let intervalDays = suggestedIntervalDays(
+                for: supplement,
+                components: components,
+                remindersPerDoseDay: uniqueMinutes.count
+            )
+            let reminders = uniqueMinutes.map {
+                SupplementProductReminder(
+                    supplementID: supplement.id,
+                    timeMinutes: $0,
+                    recurrence: intervalDays > 1 ? .everyDays : .weekdays,
+                    weekdaysMask: 127,
+                    intervalDays: intervalDays
+                )
+            }
+            guard !sameSchedule(existingReminders, reminders) else { continue }
+            store.set(reminders, for: supplement.id, marksUserConfiguration: false)
+            seededCount += 1
+        }
+        return seededCount
+    }
+
+    private func suggestedTemplates(
+        for components: [(SupplementComponent, Active)]
+    ) -> [SupplementReminderTemplate] {
+        if let calcium = components.first(where: { slug(for: $0.1) == "calcium" }),
+           targetAmount(for: calcium.1, in: .milligram) > 500 {
+            return [.breakfast, .dinner]
+        }
+        if let berberine = components.first(where: { slug(for: $0.1) == "berberine" }) {
+            let servings = estimatedServings(component: berberine.0, active: berberine.1)
+            if servings >= 3 { return [.breakfast, .lunch, .dinner] }
+            if servings == 2 { return [.breakfast, .dinner] }
+            return [.breakfast]
+        }
+
+        let slugs = Set(components.compactMap { slug(for: $0.1) })
+        if slugs.contains("caffeine") { return [.breakfast] }
+        if !slugs.isDisjoint(with: ["melatonin", "glycine"]) { return [.bedtime] }
+        if !slugs.isDisjoint(with: ["iron", "l_arginine"]) { return [.fasting] }
+        if !slugs.isDisjoint(with: ["magnesium", "ashwagandha"]) { return [.bedtime] }
+        if !slugs.isDisjoint(with: [
+            "vitamin_d", "vitamin_b12", "omega_3", "zinc", "calcium",
+            "astaxanthin", "coenzyme_q10", "spermidine", "resveratrol",
+            "nicotinamide_riboside", "quercetin", "lutein", "sulforaphane"
+        ]) {
+            return [.breakfast]
+        }
+        return [.anytime]
+    }
+
+    private func suggestedIntervalDays(
+        for supplement: Supplement,
+        components: [(SupplementComponent, Active)],
+        remindersPerDoseDay: Int
+    ) -> Int {
+        guard supplement.basisUnit.family == .discrete else { return 1 }
+        let dosesPerDay = Decimal(max(1, remindersPerDoseDay))
+        return components.reduce(into: 1) { result, item in
+            let (component, active) = item
+            guard component.amount > 0,
+                  let target = active.currentTarget,
+                  let dailyTarget = try? target.unit.convert(target.upperBound, to: component.unit),
+                  dailyTarget > 0,
+                  let amountPerDoseDay = try? DecimalMath.multiply(component.amount, dosesPerDay),
+                  let ratio = try? DecimalMath.divide(amountPerDoseDay, dailyTarget) else {
+                return
+            }
+            let ratioValue = NSDecimalNumber(decimal: ratio).doubleValue
+            guard ratioValue.isFinite, ratioValue > 1 else { return }
+            let interval = Int(ceil(min(ratioValue, 3_650)))
+            result = max(result, interval)
+        }
+    }
+
+    private func sameSchedule(
+        _ lhs: [SupplementProductReminder],
+        _ rhs: [SupplementProductReminder]
+    ) -> Bool {
+        let normalized: ([SupplementProductReminder]) -> [String] = { reminders in
+            reminders.map {
+                "\($0.timeMinutes)|\($0.recurrence.rawValue)|\($0.weekdaysMask)|\($0.intervalDays)"
+            }.sorted()
+        }
+        return normalized(lhs) == normalized(rhs)
+    }
+
+    private func slug(for active: Active) -> String? {
+        guard let nameKey = active.nameKey,
+              nameKey.hasPrefix("active."),
+              nameKey.hasSuffix(".name") else { return nil }
+        return String(nameKey.dropFirst("active.".count).dropLast(".name".count))
+    }
+
+    private func targetAmount(for active: Active, in unit: DoseUnit) -> Decimal {
+        guard let target = active.currentTarget,
+              let converted = try? target.unit.convert(target.upperBound, to: unit) else { return 0 }
+        return converted
+    }
+
+    private func estimatedServings(component: SupplementComponent, active: Active) -> Int {
+        guard component.amount > 0,
+              let target = active.currentTarget,
+              let targetAmount = try? target.unit.convert(target.upperBound, to: component.unit),
+              let quotient = try? DecimalMath.divide(targetAmount, component.amount) else {
+            return 1
+        }
+        let value = NSDecimalNumber(decimal: quotient).doubleValue
+        return min(3, max(1, Int(ceil(value))))
+    }
+}
+
 private extension ClosedRange where Bound == Int {
     func clamped(_ value: Int) -> Int {
         Swift.min(Swift.max(value, lowerBound), upperBound)

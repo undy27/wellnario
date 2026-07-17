@@ -67,7 +67,7 @@
 "today.progress.format" = "%d de %d tomas";
 "today.all_done.title" = "Todo listo por hoy";
 "today.all_done.message" = "Has registrado todas tus tomas previstas.";
-"today.suggestion.expiry" = "Tienes productos próximos a caducar. Revisa tus existencias.";
+"today.suggestion.expiry" = "Tienes productos próximos a caducar. Revisa tus envases.";
 "today.suggestion.target" = "Consulta tus activos para saber cuáles están dentro de tu objetivo.";
 "today.intakes" = "Tomas";
 "today.none_yet" = "Aún ninguna";
@@ -76,7 +76,7 @@
 "today.in_target" = "En objetivo";
 "today.available_batches" = "Disponibles";
 "today.active_progress.empty" = "Configura objetivos para ver aquí tu progreso por activo.";
-"today.suggestion.expired" = "Tienes productos caducados. Revisa tus existencias antes de registrar otra toma.";
+"today.suggestion.expired" = "Tienes productos caducados. Revisa tus envases antes de registrar otra toma.";
 "today.suggestion.first_supplement" = "Añade tu primer suplemento para empezar a registrar tu rutina.";
 "today.suggestion.in_target" = "Tus activos configurados están dentro de tu objetivo de hoy.";
 "today.suggestion.log_first" = "Registra tu primera toma de hoy para actualizar el resumen.";
@@ -311,7 +311,7 @@
 /* Supplements */
 "supplements.title" = "Suplementos";
 "supplements.segment.products" = "Productos";
-"supplements.segment.inventory" = "Existencias";
+"supplements.segment.inventory" = "Envases";
 "supplements.segment.actives" = "Activos";
 "supplements.add" = "Añadir suplemento";
 "supplements.edit" = "Editar suplemento";
@@ -334,7 +334,7 @@
 "supplements.saved" = "Suplemento guardado";
 "supplements.deleted" = "Suplemento eliminado";
 "supplements.delete.title" = "¿Eliminar este suplemento?";
-"supplements.delete.message" = "Elimina este producto si ya no te interesa. Las existencias y las tomas que ya hayas registrado se mantienen. Esta acción no se puede deshacer";
+"supplements.delete.message" = "Elimina este producto si ya no te interesa. Los envases y las tomas que ya hayas registrado se mantienen. Esta acción no se puede deshacer";
 "supplements.archive" = "Archivar suplemento";
 "supplements.archive.confirmation" = "El suplemento dejará de aparecer en la lista principal. Su historial se conservará.";
 "supplements.more.accessibility" = "Más opciones de suplementos";
@@ -370,20 +370,20 @@
 "supplements.wizard.unit.drop" = "gota";
 "supplements.wizard.unit.gummy" = "gominola";
 "supplements.wizard.unit.scoop" = "cacito";
-"supplements.wizard.step4.title" = "Número de existencias";
-"supplements.wizard.inventory.help" = "Indica cuántos envases quieres añadir ahora. Selecciona 0 para crear el producto sin existencias.";
-"supplements.wizard.inventory.started.advice" = "Si alguno de los envases ya está empezado, puedes editar su contenido en la sección Existencias";
+"supplements.wizard.step4.title" = "Número de envases";
+"supplements.wizard.inventory.help" = "Indica cuántos envases quieres añadir ahora. Selecciona 0 para crear el producto sin envases.";
+"supplements.wizard.inventory.started.advice" = "Si alguno de los envases ya está empezado, puedes editar su contenido en la sección Envases";
 "supplements.wizard.inventory.labels.advice" = "Si tienes más de un envase del mismo producto, tal vez quieras distinguirlos con un rótulo o etiqueta. En ese caso, puedes indicar una etiqueta identificativa para cada uno de ellos";
 "supplements.wizard.inventory.label" = "Etiqueta del envase %d (opcional)";
 "supplements.wizard.inventory.label.placeholder" = "Ej.: Bote abierto";
-"supplements.wizard.inventory.decrement" = "Reducir número de existencias";
-"supplements.wizard.inventory.increment" = "Aumentar número de existencias";
+"supplements.wizard.inventory.decrement" = "Reducir número de envases";
+"supplements.wizard.inventory.increment" = "Aumentar número de envases";
 "supplements.wizard.create" = "Crear producto";
 "supplements.wizard.component.add" = "Añadir otro activo";
 
 /* Archive */
 "archive.title" = "Archivados";
-"archive.description" = "Restaura productos, existencias y activos sin perder su historial.";
+"archive.description" = "Restaura productos, envases y activos sin perder su historial.";
 "archive.search.placeholder" = "Buscar en archivados";
 "archive.restore" = "Restaurar";
 "archive.item.date" = "Archivado el %@";
@@ -392,27 +392,27 @@
 "archive.active.unit" = "Unidad base: %@";
 "archive.empty.products.title" = "No hay productos archivados";
 "archive.empty.products.message" = "Los suplementos que archives y tengan historial aparecerán aquí.";
-"archive.empty.inventory.title" = "No hay existencias archivadas";
+"archive.empty.inventory.title" = "No hay envases archivados";
 "archive.empty.inventory.message" = "Los envases y lotes archivados que conserven tomas aparecerán aquí.";
 "archive.empty.actives.title" = "No hay activos archivados";
 "archive.empty.actives.message" = "Los activos archivados seguirán disponibles aquí para recuperar su seguimiento.";
 "archive.restore.product.title" = "¿Restaurar %@?";
-"archive.restore.product.message" = "Volverá a la lista principal. También se recuperarán las existencias que se archivaron junto con este producto.";
+"archive.restore.product.message" = "Volverá a la lista principal. También se recuperarán los envases que se archivaron junto con este producto.";
 "archive.restore.inventory.title" = "¿Restaurar %@?";
-"archive.restore.inventory.message" = "Esta existencia volverá a estar disponible para registrar nuevas tomas.";
+"archive.restore.inventory.message" = "Este envase volverá a estar disponible para registrar nuevas tomas.";
 "archive.restore.active.title" = "¿Restaurar %@?";
 "archive.restore.active.message" = "El activo volverá al seguimiento diario y a la selección de composiciones.";
 "archive.restore.inventory.parent.title" = "El producto también está archivado";
-"archive.restore.inventory.parent.message" = "Para recuperar esta existencia se restaurará también %@ y las existencias archivadas junto con el producto.";
+"archive.restore.inventory.parent.message" = "Para recuperar este envase se restaurará también %@ y los envases archivados junto con el producto.";
 "archive.restore.blocked.title" = "Restaura primero los activos";
 "archive.restore.blocked.message" = "La composición utiliza activos archivados: %@. Recupéralos antes de restaurar el producto.";
 "archive.restore.view_actives" = "Ver activos archivados";
 
-/* Inventory */
-"inventory.title" = "Existencias";
-"inventory.add" = "Añadir existencia";
-"inventory.edit" = "Editar existencia";
-"inventory.delete" = "Eliminar existencia";
+/* Packages */
+"inventory.title" = "Envases";
+"inventory.add" = "Añadir envase";
+"inventory.edit" = "Editar envase";
+"inventory.delete" = "Eliminar envase";
 "inventory.batch" = "Etiqueta o lote";
 "inventory.expiry_date" = "Fecha de caducidad";
 "inventory.product" = "Suplemento";
@@ -420,11 +420,11 @@
 "inventory.status.soon" = "Caduca pronto";
 "inventory.status.urgent" = "Caduca esta semana";
 "inventory.status.expired" = "Caducado";
-"inventory.empty.title" = "No hay existencias";
+"inventory.empty.title" = "No hay envases";
 "inventory.empty.message" = "Añade un envase o lote para asociarlo a tus próximas tomas.";
-"inventory.saved" = "Existencia guardada";
-"inventory.deleted" = "Existencia eliminada";
-"inventory.delete.title" = "¿Eliminar esta existencia?";
+"inventory.saved" = "Envase guardado";
+"inventory.deleted" = "Envase eliminado";
+"inventory.delete.title" = "¿Eliminar este envase?";
 "inventory.delete.message" = "Las tomas ya registradas se conservarán.";
 "inventory.label.placeholder" = "Ej.: Bote abierto";
 "inventory.label.helper" = "Usa un nombre que te ayude a distinguir este envase o lote.";
@@ -432,9 +432,9 @@
 "inventory.remaining_content.helper" = "Corrige aquí la cantidad que queda actualmente en este envase.";
 "inventory.remaining_content.value" = "Quedan %@";
 "inventory.remaining_progress.accessibility" = "Contenido restante";
-"inventory.notes.placeholder" = "Notas opcionales sobre esta existencia";
-"inventory.count" = "%d existencias";
-"inventory.requires_supplement" = "Añade primero un suplemento para crear una existencia.";
+"inventory.notes.placeholder" = "Notas opcionales sobre este envase";
+"inventory.count" = "%d envases";
+"inventory.requires_supplement" = "Añade primero un suplemento para crear un envase.";
 
 /* Active ingredients */
 "actives.title" = "Activos";
@@ -487,7 +487,7 @@
 "intake.title.new" = "Registrar toma";
 "intake.title.edit" = "Editar toma";
 "intake.supplement" = "Suplemento";
-"intake.inventory" = "Existencia";
+"intake.inventory" = "Envase";
 "intake.amount" = "Cantidad consumida";
 "intake.date" = "Fecha";
 "intake.time" = "Hora";
@@ -501,15 +501,15 @@
 "intake.delete.message" = "Se actualizarán el diario y las tendencias.";
 "intake.delete.confirmation" = "La toma se eliminará del diario y se recalcularán las tendencias.";
 "intake.duplicate_warning" = "Ya existe una toma similar a esta hora. Revisa los datos antes de guardar.";
-"intake.no_inventory" = "No hay una existencia disponible para este suplemento.";
-"intake.requires_batch" = "Añade una existencia antes de registrar una toma.";
-"intake.choose_batch" = "Elige la existencia que quieres usar para esta toma.";
-"intake.inventory.fixed" = "La toma quedará asociada a esta existencia.";
+"intake.no_inventory" = "No hay un envase disponible para este suplemento.";
+"intake.requires_batch" = "Añade un envase antes de registrar una toma.";
+"intake.choose_batch" = "Elige el envase que quieres usar para esta toma.";
+"intake.inventory.fixed" = "La toma quedará asociada a este envase.";
 "intake.edit" = "Editar toma";
 "intake.quantity.helper" = "Indica la cantidad en la unidad de presentación del suplemento.";
 "intake.preview.empty" = "Este suplemento no tiene activos configurados para calcular el aporte.";
-"intake.warning.expired" = "La existencia seleccionada está caducada.";
-"intake.warning.expires_today" = "La existencia seleccionada caduca hoy.";
+"intake.warning.expired" = "El envase seleccionado está caducado.";
+"intake.warning.expires_today" = "El envase seleccionado caduca hoy.";
 
 /* Diary */
 "diary.title" = "Diario";
@@ -584,7 +584,7 @@
 "settings.advanced.body" = "Personaliza cómo Wellnario interpreta los objetivos y otros cálculos.";
 "settings.advanced.sections.body" = "Las opciones se organizan según el área de la app a la que afectan.";
 "settings.advanced.supplements.title" = "Suplementos";
-"settings.advanced.supplements.body" = "Configura objetivos, márgenes y tomas registradas.";
+"settings.advanced.supplements.body" = "Configura objetivos, márgenes, recordatorios y tomas registradas.";
 "settings.advanced.intakes.title" = "Gestionar tomas";
 "settings.advanced.intakes.body" = "Modifica una toma registrada o elimínala del historial.";
 "settings.advanced.intakes.empty.title" = "No hay tomas registradas";
@@ -592,7 +592,7 @@
 "settings.advanced.deviations.title" = "Corregir desviaciones";
 "settings.advanced.deviations.body" = "Si observas que el contenido restante de algún envase no coincide con la cantidad restante que muestra Wellnario, probablemente te hayas olvidado de registrar una toma (o hayas registrado alguna de más). En ese caso, puedes corregirlo aquí.";
 "settings.advanced.deviations.procedure" = "Wellnario comparará la cantidad real con la registrada y ajustará el historial desde la primera toma de ese envase hasta hoy. Si faltan tomas, añadirá la diferencia repartida a lo largo del período; si sobran, reducirá las registradas. En productos por unidades, los ajustes se distribuirán en fechas aproximadamente equidistantes.";
-"settings.advanced.deviations.instance" = "Existencia";
+"settings.advanced.deviations.instance" = "Envase";
 "settings.advanced.deviations.correction" = "Corrección";
 "settings.advanced.deviations.actual" = "Cantidad real restante";
 "settings.advanced.deviations.actual.helper" = "Introduce la cantidad que queda realmente en el envase.";
@@ -600,12 +600,12 @@
 "settings.advanced.deviations.confirm" = "Confirmar corrección";
 "settings.advanced.deviations.correction_note" = "Corrección automática de desviación";
 "settings.advanced.deviations.success" = "Desviación corregida";
-"settings.advanced.deviations.empty" = "No hay existencias con contenido registrado.";
+"settings.advanced.deviations.empty" = "No hay envases con contenido registrado.";
 "settings.advanced.deviations.error.nonnegative" = "Introduce una cantidad igual o superior a cero.";
-"settings.advanced.deviations.error.untracked" = "Esta existencia no tiene configurada una cantidad restante.";
-"settings.advanced.deviations.error.discrete" = "Las existencias en unidades discretas deben corregirse usando unidades enteras.";
-"settings.advanced.deviations.error.no_history" = "Esta existencia todavía no tiene tomas registradas que se puedan ajustar.";
-"settings.advanced.deviations.error.exceeds_history" = "La corrección supera la cantidad total de tomas registradas para esta existencia.";
+"settings.advanced.deviations.error.untracked" = "Este envase no tiene configurada una cantidad restante.";
+"settings.advanced.deviations.error.discrete" = "Los envases en unidades discretas deben corregirse usando unidades enteras.";
+"settings.advanced.deviations.error.no_history" = "Este envase todavía no tiene tomas registradas que se puedan ajustar.";
+"settings.advanced.deviations.error.exceeds_history" = "La corrección supera la cantidad total de tomas registradas para este envase.";
 "settings.advanced.deviations.error.no_change" = "La cantidad introducida coincide con la que ya consta en Wellnario.";
 "settings.advanced.sleep.title" = "Sueño";
 "settings.advanced.sleep.body" = "Gestiona correcciones manuales y preferencias de los datos de sueño.";
@@ -620,6 +620,15 @@
 "settings.advanced.target_margin.percentage" = "%d %%";
 "settings.advanced.target_margin.example" = "Con un margen del %d %%, un objetivo de 26 mg se considera en rango entre %@ mg y %@ mg.";
 "settings.advanced.target_margin.accessibility_hint" = "Desliza para seleccionar un margen entre el cero y el cincuenta por ciento.";
+"settings.advanced.reminders.title" = "Horarios predefinidos para los recordatorios";
+"settings.advanced.reminders.body" = "Define la hora habitual de cada momento del día. Estos horarios se utilizarán más adelante para crear recordatorios de suplementación.";
+"settings.advanced.reminders.saved" = "Los cambios se guardan automáticamente.";
+"settings.advanced.reminders.template.fasting" = "En ayunas";
+"settings.advanced.reminders.template.breakfast" = "Desayuno";
+"settings.advanced.reminders.template.lunch" = "Almuerzo";
+"settings.advanced.reminders.template.dinner" = "Cena";
+"settings.advanced.reminders.template.bedtime" = "Al acostarse";
+"settings.advanced.reminders.template.anytime" = "En cualquier momento";
 "settings.advanced.sleep.manual.title" = "Editar datos de sueño";
 "settings.advanced.sleep.manual.body" = "Selecciona un día y corrige manualmente la calidad o la duración del sueño.";
 "settings.advanced.sleep.manual.local_only" = "Las correcciones se guardan sólo en Wellnario y prevalecen sobre los datos importados. Apple Health no se modifica.";
@@ -836,3 +845,20 @@
 "sleep.deep" = "Sueño profundo";
 "sleep.rem" = "Sueño REM";
 "sleep.from_apple_health" = "Apple Health";
+"supplements.reminders.title" = "Recordatorios";
+"supplements.reminders.body" = "Configura hasta tres avisos para este producto. Si aún no había ninguno, Wellnario propone horarios según la composición y tus objetivos. Son orientativos: respeta siempre la etiqueta y las indicaciones de tu profesional sanitario.";
+"supplements.reminders.empty" = "No hay recordatorios configurados";
+"supplements.reminders.add" = "Añadir recordatorio";
+"supplements.reminders.save" = "Guardar";
+"supplements.reminders.time" = "Hora";
+"supplements.reminders.template" = "Usar plantilla";
+"supplements.reminders.schedule.title" = "Periodicidad común";
+"supplements.reminders.schedule.weekdays" = "Días de la semana";
+"supplements.reminders.schedule.every_days" = "Cada X días";
+"supplements.reminders.schedule.every_n_days" = "Cada %d días";
+"supplements.reminders.interval" = "Intervalo (días)";
+"supplements.reminders.invalid_weekdays" = "Selecciona al menos un día de la semana.";
+"supplements.reminders.invalid_interval" = "El intervalo debe ser de al menos 1 día.";
+"supplements.reminders.notification.title" = "Recordatorio de suplementación";
+"supplements.reminders.notification.single" = "Es hora de tomar %@";
+"supplements.reminders.notification.multiple" = "Es hora de tomar: %@";

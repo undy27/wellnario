@@ -1,6 +1,6 @@
 # Wellnario
 
-Aplicación iPhone nativa para gestionar suplementos, sus existencias y las tomas diarias. Esta primera entrega implementa el alcance de suplementos descrito en `doc/specs.md`; el resto de áreas de salud aparecen como destinos _coming soon_.
+Aplicación iPhone nativa para gestionar suplementos, sus envases y las tomas diarias. Esta primera entrega implementa el alcance de suplementos descrito en `doc/specs.md`; el resto de áreas de salud aparecen como destinos _coming soon_.
 
 ## Stack
 
@@ -15,7 +15,7 @@ No existe aún un servidor: todos los datos permanecen en el dispositivo. La UI 
 ## Funcionalidad incluida
 
 - CRUD de suplementos, composición por activos y unidades compatibles.
-- CRUD de existencias/lotes con etiqueta, caducidad y notas.
+- CRUD de envases/lotes con etiqueta, caducidad y notas.
 - Catálogo inicial bilingüe de activos y presentaciones; creación de activos propios.
 - Objetivos personales por activo con historial de vigencia.
 - Registro, edición y eliminación de tomas con fecha, hora, cantidad, lote y notas.
@@ -53,7 +53,7 @@ xcodebuild \
 
 ## Pruebas
 
-El esquema incluye pruebas unitarias del repositorio y pruebas de interfaz para navegación, cambio de idioma y el flujo completo suplemento → existencia → toma.
+El esquema incluye pruebas unitarias del repositorio y pruebas de interfaz para navegación, cambio de idioma y el flujo completo suplemento → envase → toma.
 
 ```sh
 xcodebuild \

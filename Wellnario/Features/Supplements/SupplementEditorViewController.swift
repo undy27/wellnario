@@ -1,9 +1,14 @@
+import PhotosUI
 import UIKit
+import UniformTypeIdentifiers
 
 @MainActor
-final class SupplementEditorViewController: EditorViewController {
+final class SupplementEditorViewController: EditorViewController, PHPickerViewControllerDelegate {
     private let supplement: Supplement?
     private let artwork = PresentationArtworkView(kind: .capsule)
+    private let productPhotoView = UIImageView()
+    private let photoButton = UIButton(type: .custom)
+    private let removePhotoButton = UIButton(type: .system)
     private let nameField = FormFieldView()
     private let brandField = FormFieldView()
     private let categoryField = FormFieldView()
@@ -19,6 +24,8 @@ final class SupplementEditorViewController: EditorViewController {
     private var selectedPresentationID: UUID?
     private var basisUnit: DoseUnit = .capsule
     private var componentRows: [ComponentEditorRow] = []
+    private var selectedPhoto: UIImage?
+    private var removesExistingPhoto = false
 
     init(repository: WellnarioRepositoryProtocol, supplement: Supplement? = nil) {
         self.supplement = supplement
@@ -91,6 +98,27 @@ final class SupplementEditorViewController: EditorViewController {
             return
         }
 
+        var storedPhotoReference: String?
+        let imageReference: String?
+        do {
+            if let selectedPhoto {
+                storedPhotoReference = try SupplementPhotoStore.save(
+                    selectedPhoto,
+                    databaseURL: repository.databaseURL
+                )
+                imageReference = storedPhotoReference
+            } else if removesExistingPhoto {
+                imageReference = selectedPresentation?.illustrations.first?.assetKey
+            } else {
+                imageReference = supplement?.imageReference
+                    ?? selectedPresentation?.illustrations.first?.assetKey
+            }
+        } catch {
+            saveButton.isLoading = false
+            showError(error)
+            return
+        }
+
         let draft = SupplementDraft(
             name: name,
             brand: brand,
@@ -98,7 +126,7 @@ final class SupplementEditorViewController: EditorViewController {
             category: normalized(categoryField.textField.text),
             price: price,
             currencyCode: price == nil ? nil : "EUR",
-            imageReference: supplement?.imageReference ?? selectedPresentation?.illustrations.first?.assetKey,
+            imageReference: imageReference,
             presentationTypeID: presentationID,
             basisQuantity: basis,
             basisUnit: basisUnit,
@@ -111,8 +139,19 @@ final class SupplementEditorViewController: EditorViewController {
             } else {
                 _ = try repository.createSupplement(draft)
             }
+            if let previousReference = supplement?.imageReference,
+               previousReference != imageReference {
+                SupplementPhotoStore.remove(
+                    reference: previousReference,
+                    databaseURL: repository.databaseURL
+                )
+            }
             finishSaving()
         } catch {
+            SupplementPhotoStore.remove(
+                reference: storedPhotoReference,
+                databaseURL: repository.databaseURL
+            )
             saveButton.isLoading = false
             showError(error)
         }
@@ -184,11 +223,47 @@ final class SupplementEditorViewController: EditorViewController {
         ])
         let artContainer = UIView()
         artContainer.addForAutoLayout(artwork)
+        artContainer.addForAutoLayout(productPhotoView)
+        artContainer.addForAutoLayout(photoButton)
+        artContainer.addForAutoLayout(removePhotoButton)
         NSLayoutConstraint.activate([
             artwork.centerXAnchor.constraint(equalTo: artContainer.centerXAnchor),
             artwork.topAnchor.constraint(equalTo: artContainer.topAnchor),
-            artwork.bottomAnchor.constraint(equalTo: artContainer.bottomAnchor)
+            artwork.bottomAnchor.constraint(equalTo: artContainer.bottomAnchor),
+            productPhotoView.centerXAnchor.constraint(equalTo: artContainer.centerXAnchor),
+            productPhotoView.topAnchor.constraint(equalTo: artContainer.topAnchor),
+            productPhotoView.bottomAnchor.constraint(equalTo: artContainer.bottomAnchor),
+            productPhotoView.widthAnchor.constraint(equalTo: artwork.widthAnchor),
+            photoButton.leadingAnchor.constraint(equalTo: artContainer.leadingAnchor),
+            photoButton.trailingAnchor.constraint(equalTo: artContainer.trailingAnchor),
+            photoButton.topAnchor.constraint(equalTo: artContainer.topAnchor),
+            photoButton.bottomAnchor.constraint(equalTo: artContainer.bottomAnchor),
+            removePhotoButton.topAnchor.constraint(equalTo: artContainer.topAnchor, constant: 2),
+            removePhotoButton.trailingAnchor.constraint(equalTo: artContainer.trailingAnchor, constant: -2),
+            removePhotoButton.widthAnchor.constraint(equalToConstant: WellnarioLayout.minimumTouchTarget),
+            removePhotoButton.heightAnchor.constraint(equalTo: removePhotoButton.widthAnchor)
         ])
+
+        productPhotoView.contentMode = .scaleAspectFit
+        productPhotoView.clipsToBounds = true
+        productPhotoView.applyContinuousCorners(WellnarioRadius.control)
+        productPhotoView.accessibilityIdentifier = "supplement.photo.preview"
+
+        photoButton.accessibilityIdentifier = "supplement.photo.choose"
+        photoButton.accessibilityLabel = L10n.text("form.choose_photo")
+        photoButton.accessibilityHint = L10n.text("supplements.wizard.photo.tap")
+        photoButton.addTarget(self, action: #selector(choosePhoto), for: .touchUpInside)
+
+        var removeConfiguration = UIButton.Configuration.filled()
+        removeConfiguration.image = UIImage(systemName: "xmark")
+        removeConfiguration.baseBackgroundColor = WellnarioPalette.background.withAlphaComponent(0.82)
+        removeConfiguration.baseForegroundColor = WellnarioPalette.textPrimary
+        removeConfiguration.cornerStyle = .capsule
+        removePhotoButton.configuration = removeConfiguration
+        removePhotoButton.accessibilityIdentifier = "supplement.photo.remove"
+        removePhotoButton.accessibilityLabel = L10n.text("form.remove_photo")
+        removePhotoButton.addTarget(self, action: #selector(removePhoto), for: .touchUpInside)
+        updatePhotoPresentation()
 
         addSection(title: L10n.Form.basics, views: [artContainer, nameField, brandField, presentationField, basisField])
         addSection(title: L10n.Form.details, views: [categoryField, descriptionField, priceField])
@@ -279,6 +354,55 @@ final class SupplementEditorViewController: EditorViewController {
         let index = abs(selectedPresentation.id.hashValue) % palette.count
         artwork.primaryColor = palette[index].0
         artwork.secondaryColor = palette[index].1
+    }
+
+    @objc private func choosePhoto() {
+        var configuration = PHPickerConfiguration(photoLibrary: .shared())
+        configuration.filter = .images
+        configuration.selectionLimit = 1
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    @objc private func removePhoto() {
+        selectedPhoto = nil
+        removesExistingPhoto = true
+        updatePhotoPresentation()
+    }
+
+    nonisolated func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        Task { @MainActor in picker.dismiss(animated: true) }
+        guard let provider = results.first?.itemProvider,
+              provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else { return }
+        provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { [weak self] data, _ in
+            guard let data else { return }
+            Task { @MainActor [weak self] in
+                guard let self, let image = UIImage(data: data) else { return }
+                self.selectedPhoto = image
+                self.removesExistingPhoto = false
+                self.updatePhotoPresentation()
+            }
+        }
+    }
+
+    private func updatePhotoPresentation() {
+        let existingUserPhoto: UIImage?
+        if removesExistingPhoto {
+            existingUserPhoto = nil
+        } else if supplement?.imageReference?.hasPrefix("user-photo:") == true {
+            existingUserPhoto = SupplementPhotoStore.image(
+                reference: supplement?.imageReference,
+                databaseURL: repository.databaseURL
+            )
+        } else {
+            existingUserPhoto = nil
+        }
+        let photo = selectedPhoto ?? existingUserPhoto
+        productPhotoView.image = photo
+        productPhotoView.isHidden = photo == nil
+        artwork.isHidden = photo != nil
+        removePhotoButton.isHidden = photo == nil
     }
 
     private func clearErrors() {

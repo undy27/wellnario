@@ -51,7 +51,7 @@
 "today.actives" = "Actives";
 "today.actives.count" = "%d of %d";
 "today.actives.in_target" = "On target";
-"today.inventory" = "Batches";
+"today.inventory" = "Packages";
 "today.inventory.count" = "%d products";
 "today.inventory.ok" = "Good";
 "today.expiry" = "Expiry";
@@ -67,7 +67,7 @@
 "today.progress.format" = "%d of %d intakes";
 "today.all_done.title" = "All done for today";
 "today.all_done.message" = "You have logged all of today's planned intakes.";
-"today.suggestion.expiry" = "Some products are close to expiry. Review your inventory.";
+"today.suggestion.expiry" = "Some products are close to expiry. Review your packages.";
 "today.suggestion.target" = "Check your actives to see which ones are within your target.";
 "today.intakes" = "Intakes";
 "today.none_yet" = "None yet";
@@ -76,7 +76,7 @@
 "today.in_target" = "On target";
 "today.available_batches" = "Available";
 "today.active_progress.empty" = "Set targets to see your progress by active here.";
-"today.suggestion.expired" = "You have expired products. Review your inventory before logging another intake.";
+"today.suggestion.expired" = "You have expired products. Review your packages before logging another intake.";
 "today.suggestion.first_supplement" = "Add your first supplement to start logging your routine.";
 "today.suggestion.in_target" = "Your configured actives are within today's target.";
 "today.suggestion.log_first" = "Log your first intake today to update the summary.";
@@ -311,7 +311,7 @@
 /* Supplements */
 "supplements.title" = "Supplements";
 "supplements.segment.products" = "Products";
-"supplements.segment.inventory" = "Inventory";
+"supplements.segment.inventory" = "Packages";
 "supplements.segment.actives" = "Actives";
 "supplements.add" = "Add supplement";
 "supplements.edit" = "Edit supplement";
@@ -334,7 +334,7 @@
 "supplements.saved" = "Supplement saved";
 "supplements.deleted" = "Supplement deleted";
 "supplements.delete.title" = "Delete this supplement?";
-"supplements.delete.message" = "Delete this product if you are no longer interested in it. Existing inventory and previously logged intakes will be kept. This action cannot be undone";
+"supplements.delete.message" = "Delete this product if you are no longer interested in it. Existing packages and previously logged intakes will be kept. This action cannot be undone";
 "supplements.archive" = "Archive supplement";
 "supplements.archive.confirmation" = "The supplement will no longer appear in the main list. Its history will be kept.";
 "supplements.more.accessibility" = "More supplement options";
@@ -370,20 +370,20 @@
 "supplements.wizard.unit.drop" = "drop";
 "supplements.wizard.unit.gummy" = "gummy";
 "supplements.wizard.unit.scoop" = "scoop";
-"supplements.wizard.step4.title" = "Number of inventory items";
-"supplements.wizard.inventory.help" = "Choose how many packages to add now. Select 0 to create the product without inventory.";
-"supplements.wizard.inventory.started.advice" = "If any of the packages has already been opened, you can edit its contents in the Inventory section";
+"supplements.wizard.step4.title" = "Number of packages";
+"supplements.wizard.inventory.help" = "Choose how many packages to add now. Select 0 to create the product without packages.";
+"supplements.wizard.inventory.started.advice" = "If any of the packages has already been opened, you can edit its contents in the Packages section";
 "supplements.wizard.inventory.labels.advice" = "If you have more than one package of the same product, you may want to distinguish them with a label or tag. In that case, you can enter an identifying label for each one";
 "supplements.wizard.inventory.label" = "Package %d label (optional)";
 "supplements.wizard.inventory.label.placeholder" = "E.g.: Open package";
-"supplements.wizard.inventory.decrement" = "Decrease inventory count";
-"supplements.wizard.inventory.increment" = "Increase inventory count";
+"supplements.wizard.inventory.decrement" = "Decrease package count";
+"supplements.wizard.inventory.increment" = "Increase package count";
 "supplements.wizard.create" = "Create product";
 "supplements.wizard.component.add" = "Add another active";
 
 /* Archive */
 "archive.title" = "Archived";
-"archive.description" = "Restore products, inventory, and actives without losing their history.";
+"archive.description" = "Restore products, packages, and actives without losing their history.";
 "archive.search.placeholder" = "Search archived items";
 "archive.restore" = "Restore";
 "archive.item.date" = "Archived %@";
@@ -392,27 +392,27 @@
 "archive.active.unit" = "Base unit: %@";
 "archive.empty.products.title" = "No archived products";
 "archive.empty.products.message" = "Supplements you archive while keeping their history will appear here.";
-"archive.empty.inventory.title" = "No archived inventory";
+"archive.empty.inventory.title" = "No archived packages";
 "archive.empty.inventory.message" = "Archived containers and batches that retain intakes will appear here.";
 "archive.empty.actives.title" = "No archived actives";
 "archive.empty.actives.message" = "Archived actives remain available here so you can resume tracking them.";
 "archive.restore.product.title" = "Restore %@?";
-"archive.restore.product.message" = "It will return to the main list. Inventory archived alongside this product will also be recovered.";
+"archive.restore.product.message" = "It will return to the main list. Packages archived alongside this product will also be recovered.";
 "archive.restore.inventory.title" = "Restore %@?";
-"archive.restore.inventory.message" = "This inventory item will become available for logging new intakes.";
+"archive.restore.inventory.message" = "This package will become available for logging new intakes.";
 "archive.restore.active.title" = "Restore %@?";
 "archive.restore.active.message" = "The active will return to daily tracking and composition selection.";
 "archive.restore.inventory.parent.title" = "The product is also archived";
-"archive.restore.inventory.parent.message" = "Restoring this inventory item will also restore %@ and inventory archived alongside the product.";
+"archive.restore.inventory.parent.message" = "Restoring this package will also restore %@ and packages archived alongside the product.";
 "archive.restore.blocked.title" = "Restore the actives first";
 "archive.restore.blocked.message" = "The composition uses archived actives: %@. Recover them before restoring the product.";
 "archive.restore.view_actives" = "View archived actives";
 
-/* Inventory */
-"inventory.title" = "Inventory";
-"inventory.add" = "Add inventory item";
-"inventory.edit" = "Edit inventory item";
-"inventory.delete" = "Delete inventory item";
+/* Packages */
+"inventory.title" = "Packages";
+"inventory.add" = "Add package";
+"inventory.edit" = "Edit package";
+"inventory.delete" = "Delete package";
 "inventory.batch" = "Label or batch";
 "inventory.expiry_date" = "Expiry date";
 "inventory.product" = "Supplement";
@@ -420,11 +420,11 @@
 "inventory.status.soon" = "Expires soon";
 "inventory.status.urgent" = "Expires this week";
 "inventory.status.expired" = "Expired";
-"inventory.empty.title" = "No inventory";
+"inventory.empty.title" = "No packages";
 "inventory.empty.message" = "Add a container or batch to associate it with your next intakes.";
-"inventory.saved" = "Inventory item saved";
-"inventory.deleted" = "Inventory item deleted";
-"inventory.delete.title" = "Delete this inventory item?";
+"inventory.saved" = "Package saved";
+"inventory.deleted" = "Package deleted";
+"inventory.delete.title" = "Delete this package?";
 "inventory.delete.message" = "Previously logged intakes will be kept.";
 "inventory.label.placeholder" = "E.g.: Open package";
 "inventory.label.helper" = "Use a name that helps you distinguish this container or batch.";
@@ -432,9 +432,9 @@
 "inventory.remaining_content.helper" = "Correct the amount currently remaining in this package.";
 "inventory.remaining_content.value" = "%@ remaining";
 "inventory.remaining_progress.accessibility" = "Remaining contents";
-"inventory.notes.placeholder" = "Optional notes about this inventory item";
-"inventory.count" = "%d inventory items";
-"inventory.requires_supplement" = "Add a supplement before creating an inventory item.";
+"inventory.notes.placeholder" = "Optional notes about this package";
+"inventory.count" = "%d packages";
+"inventory.requires_supplement" = "Add a supplement before creating a package.";
 
 /* Active ingredients */
 "actives.title" = "Actives";
@@ -487,7 +487,7 @@
 "intake.title.new" = "Log intake";
 "intake.title.edit" = "Edit intake";
 "intake.supplement" = "Supplement";
-"intake.inventory" = "Inventory item";
+"intake.inventory" = "Package";
 "intake.amount" = "Amount consumed";
 "intake.date" = "Date";
 "intake.time" = "Time";
@@ -501,15 +501,15 @@
 "intake.delete.message" = "Your log and trends will be updated.";
 "intake.delete.confirmation" = "The intake will be removed from the log and trends will be recalculated.";
 "intake.duplicate_warning" = "A similar intake already exists around this time. Review the details before saving.";
-"intake.no_inventory" = "No inventory item is available for this supplement.";
-"intake.requires_batch" = "Add an inventory item before logging an intake.";
-"intake.choose_batch" = "Choose the inventory item to use for this intake.";
-"intake.inventory.fixed" = "The intake will be associated with this inventory item.";
+"intake.no_inventory" = "No package is available for this supplement.";
+"intake.requires_batch" = "Add a package before logging an intake.";
+"intake.choose_batch" = "Choose the package to use for this intake.";
+"intake.inventory.fixed" = "The intake will be associated with this package.";
 "intake.edit" = "Edit intake";
 "intake.quantity.helper" = "Enter the amount in the supplement's presentation unit.";
 "intake.preview.empty" = "This supplement has no configured actives for calculating its contribution.";
-"intake.warning.expired" = "The selected inventory item has expired.";
-"intake.warning.expires_today" = "The selected inventory item expires today.";
+"intake.warning.expired" = "The selected package has expired.";
+"intake.warning.expires_today" = "The selected package expires today.";
 
 /* Diary */
 "diary.title" = "Log";
@@ -584,7 +584,7 @@
 "settings.advanced.body" = "Customize how Wellnario interprets targets and other calculations.";
 "settings.advanced.sections.body" = "Options are organized by the area of the app they affect.";
 "settings.advanced.supplements.title" = "Supplements";
-"settings.advanced.supplements.body" = "Configure targets, margins, and logged intakes.";
+"settings.advanced.supplements.body" = "Configure targets, margins, reminders, and logged intakes.";
 "settings.advanced.intakes.title" = "Manage intakes";
 "settings.advanced.intakes.body" = "Edit a logged intake or remove it from your history.";
 "settings.advanced.intakes.empty.title" = "No logged intakes";
@@ -592,7 +592,7 @@
 "settings.advanced.deviations.title" = "Correct discrepancies";
 "settings.advanced.deviations.body" = "If the amount remaining in a package does not match the amount shown by Wellnario, you may have forgotten to log an intake (or logged one too many). You can correct it here.";
 "settings.advanced.deviations.procedure" = "Wellnario will compare the actual amount with the recorded amount and adjust the history from the first intake for that package through today. If intakes are missing, it will spread the difference across that period; if too many were logged, it will reduce them. For products counted in units, adjustments will be placed on approximately evenly spaced dates.";
-"settings.advanced.deviations.instance" = "Inventory item";
+"settings.advanced.deviations.instance" = "Package";
 "settings.advanced.deviations.correction" = "Correction";
 "settings.advanced.deviations.actual" = "Actual amount remaining";
 "settings.advanced.deviations.actual.helper" = "Enter the amount actually remaining in the package.";
@@ -600,12 +600,12 @@
 "settings.advanced.deviations.confirm" = "Confirm correction";
 "settings.advanced.deviations.correction_note" = "Automatic discrepancy correction";
 "settings.advanced.deviations.success" = "Discrepancy corrected";
-"settings.advanced.deviations.empty" = "There are no inventory items with a recorded amount.";
+"settings.advanced.deviations.empty" = "There are no packages with a recorded amount.";
 "settings.advanced.deviations.error.nonnegative" = "Enter an amount greater than or equal to zero.";
-"settings.advanced.deviations.error.untracked" = "This inventory item does not have a remaining amount configured.";
-"settings.advanced.deviations.error.discrete" = "Inventory in discrete units must be corrected using whole units.";
-"settings.advanced.deviations.error.no_history" = "This inventory item does not have any logged intakes that can be adjusted yet.";
-"settings.advanced.deviations.error.exceeds_history" = "The correction exceeds the total amount of intakes logged for this inventory item.";
+"settings.advanced.deviations.error.untracked" = "This package does not have a remaining amount configured.";
+"settings.advanced.deviations.error.discrete" = "Packages with discrete units must be corrected using whole units.";
+"settings.advanced.deviations.error.no_history" = "This package does not have any logged intakes that can be adjusted yet.";
+"settings.advanced.deviations.error.exceeds_history" = "The correction exceeds the total amount of intakes logged for this package.";
 "settings.advanced.deviations.error.no_change" = "The amount entered already matches the amount shown by Wellnario.";
 "settings.advanced.sleep.title" = "Sleep";
 "settings.advanced.sleep.body" = "Manage manual corrections and sleep data preferences.";
@@ -620,6 +620,15 @@
 "settings.advanced.target_margin.percentage" = "%d%%";
 "settings.advanced.target_margin.example" = "With a %d%% margin, a target of 26 mg counts as within range from %@ mg to %@ mg.";
 "settings.advanced.target_margin.accessibility_hint" = "Swipe to choose a margin between zero and fifty percent.";
+"settings.advanced.reminders.title" = "Preset reminder times";
+"settings.advanced.reminders.body" = "Set the usual time for each moment of the day. These times will later be used to create supplement reminders.";
+"settings.advanced.reminders.saved" = "Changes are saved automatically.";
+"settings.advanced.reminders.template.fasting" = "Fasting";
+"settings.advanced.reminders.template.breakfast" = "Breakfast";
+"settings.advanced.reminders.template.lunch" = "Lunch";
+"settings.advanced.reminders.template.dinner" = "Dinner";
+"settings.advanced.reminders.template.bedtime" = "Bedtime";
+"settings.advanced.reminders.template.anytime" = "Anytime";
 "settings.advanced.sleep.manual.title" = "Edit sleep data";
 "settings.advanced.sleep.manual.body" = "Select a day and manually correct sleep quality or duration.";
 "settings.advanced.sleep.manual.local_only" = "Corrections are stored only in Wellnario and take precedence over imported data. Apple Health is not modified.";
@@ -836,3 +845,20 @@
 "sleep.deep" = "Deep sleep";
 "sleep.rem" = "REM sleep";
 "sleep.from_apple_health" = "Apple Health";
+"supplements.reminders.title" = "Reminders";
+"supplements.reminders.body" = "Set up to three alerts for this product. If none existed, Wellnario suggests times based on its composition and your targets. These are guidance only: always follow the label and your healthcare professional’s advice.";
+"supplements.reminders.empty" = "No reminders configured";
+"supplements.reminders.add" = "Add reminder";
+"supplements.reminders.save" = "Save";
+"supplements.reminders.time" = "Time";
+"supplements.reminders.template" = "Use preset";
+"supplements.reminders.schedule.title" = "Shared schedule";
+"supplements.reminders.schedule.weekdays" = "Days of the week";
+"supplements.reminders.schedule.every_days" = "Every X days";
+"supplements.reminders.schedule.every_n_days" = "Every %d days";
+"supplements.reminders.interval" = "Interval (days)";
+"supplements.reminders.invalid_weekdays" = "Select at least one weekday.";
+"supplements.reminders.invalid_interval" = "The interval must be at least 1 day.";
+"supplements.reminders.notification.title" = "Supplement reminder";
+"supplements.reminders.notification.single" = "Time to take %@";
+"supplements.reminders.notification.multiple" = "Time to take: %@";

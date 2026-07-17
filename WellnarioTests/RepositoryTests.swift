@@ -846,6 +846,57 @@ final class RepositoryTests: XCTestCase {
     }
 
     @MainActor
+    func testSupplementEditorShowsControlsToReplaceOrRemoveProductPhoto() throws {
+        let (repository, _) = try makeRepository()
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 24)).image { context in
+            UIColor.systemPink.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 32, height: 24))
+        }
+        let photoReference = try SupplementPhotoStore.save(image, databaseURL: repository.databaseURL)
+        let capsule = try presentation(repository, key: "presentation.capsule.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Producto fotografiado",
+            brand: "",
+            imageReference: photoReference,
+            presentationTypeID: capsule.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+
+        let controller = SupplementEditorViewController(
+            repository: repository,
+            supplement: supplement
+        )
+        controller.loadViewIfNeeded()
+
+        let photoPreview = try XCTUnwrap(descendant(
+            of: UIImageView.self,
+            identifier: "supplement.photo.preview",
+            in: controller.view
+        ))
+        let choosePhoto = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "supplement.photo.choose",
+            in: controller.view
+        ))
+        let removePhoto = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "supplement.photo.remove",
+            in: controller.view
+        ))
+        XCTAssertNotNil(photoPreview.image)
+        XCTAssertFalse(photoPreview.isHidden)
+        XCTAssertFalse(removePhoto.isHidden)
+        XCTAssertTrue(choosePhoto.isEnabled)
+    }
+
+    @MainActor
     func testIntakeInstanceMenuShowsProductPhotoThumbnail() throws {
         let (repository, _) = try makeRepository()
         let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 24)).image { context in
@@ -1335,6 +1386,137 @@ final class RepositoryTests: XCTestCase {
         }
         _ = try repository.createActive(ActiveDraft(name: "Notification active", baseUnit: .milligram))
         wait(for: [expectation], timeout: 1)
+    }
+
+    func testDefaultReminderPlannerUsesTargetsAndDoesNotRestoreManuallyClearedReminders() throws {
+        let (repository, _) = try makeRepository()
+        let suiteName = "WellnarioDefaultReminderTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = SupplementProductReminderStore(defaults: defaults)
+        let preferences = SupplementReminderSchedulePreferences(defaults: defaults)
+        let calcium = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.calcium.name" }
+        )
+        let today = LocalDay(containing: Date(), in: .current)
+        _ = try repository.setTarget(
+            activeID: calcium.id,
+            lowerBound: 1_000,
+            upperBound: 1_000,
+            unit: .milligram,
+            effectiveFrom: today
+        )
+        let capsule = try presentation(repository, key: "presentation.capsule.name")
+        let product = try repository.createSupplement(
+            SupplementDraft(
+                name: "Calcio objetivo",
+                brand: "",
+                presentationTypeID: capsule.id,
+                basisQuantity: 1,
+                basisUnit: .capsule,
+                components: [
+                    SupplementComponentDraft(
+                        activeID: calcium.id,
+                        amount: 500,
+                        unit: .milligram
+                    )
+                ]
+            )
+        )
+        let planner = SupplementDefaultReminderPlanner(
+            schedulePreferences: preferences,
+            store: store
+        )
+
+        XCTAssertEqual(try planner.seedMissing(in: repository), 1)
+        XCTAssertEqual(
+            store.reminders(for: product.id).map(\.timeMinutes),
+            [preferences.minutes(for: .breakfast), preferences.minutes(for: .dinner)]
+        )
+
+        store.set([], for: product.id)
+        XCTAssertTrue(store.hasConfiguration(for: product.id))
+        XCTAssertEqual(try planner.seedMissing(in: repository), 0)
+        XCTAssertTrue(store.reminders(for: product.id).isEmpty)
+
+        let quercetin = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.quercetin.name" }
+        )
+        _ = try repository.setTarget(
+            activeID: quercetin.id,
+            lowerBound: 250,
+            upperBound: 500,
+            unit: .milligram,
+            effectiveFrom: today
+        )
+        let quercetinProduct = try repository.createSupplement(
+            SupplementDraft(
+                name: "Quercetina objetivo",
+                brand: "",
+                presentationTypeID: capsule.id,
+                basisQuantity: 1,
+                basisUnit: .capsule,
+                components: [
+                    SupplementComponentDraft(
+                        activeID: quercetin.id,
+                        amount: 250,
+                        unit: .milligram
+                    )
+                ]
+            )
+        )
+        XCTAssertEqual(try planner.seedMissing(in: repository), 1)
+        XCTAssertEqual(
+            store.reminders(for: quercetinProduct.id).map(\.timeMinutes),
+            [preferences.minutes(for: .breakfast)]
+        )
+
+        let sulforaphane = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.sulforaphane.name" }
+        )
+        _ = try repository.setTarget(
+            activeID: sulforaphane.id,
+            lowerBound: 5,
+            upperBound: 5,
+            unit: .milligram,
+            effectiveFrom: today
+        )
+        let sulforaphaneProduct = try repository.createSupplement(
+            SupplementDraft(
+                name: "Sulforafano concentrado",
+                brand: "",
+                presentationTypeID: capsule.id,
+                basisQuantity: 1,
+                basisUnit: .capsule,
+                components: [
+                    SupplementComponentDraft(
+                        activeID: sulforaphane.id,
+                        amount: 85,
+                        unit: .milligram
+                    )
+                ]
+            )
+        )
+        store.set(
+            [
+                SupplementProductReminder(
+                    supplementID: sulforaphaneProduct.id,
+                    timeMinutes: preferences.minutes(for: .breakfast)
+                )
+            ],
+            for: sulforaphaneProduct.id,
+            marksUserConfiguration: false
+        )
+
+        XCTAssertEqual(try planner.seedMissing(in: repository), 1)
+        let sulforaphaneReminders = store.reminders(for: sulforaphaneProduct.id)
+        XCTAssertEqual(sulforaphaneReminders.count, 1)
+        XCTAssertEqual(sulforaphaneReminders[0].recurrence, .everyDays)
+        XCTAssertEqual(sulforaphaneReminders[0].intervalDays, 17)
+        XCTAssertEqual(
+            sulforaphaneReminders[0].timeMinutes,
+            preferences.minutes(for: .breakfast)
+        )
     }
 
     private func makeRepository() throws -> (WellnarioRepository, URL) {

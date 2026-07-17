@@ -74,7 +74,7 @@ class WellnessScrollViewController: UIViewController {
 
     func presentSheet(_ controller: UIViewController, largeOnly: Bool = false) {
         let navigationController = controller as? UINavigationController
-            ?? UINavigationController(rootViewController: controller)
+            ?? WellnarioNavigationController(rootViewController: controller)
         navigationController.modalPresentationStyle = .pageSheet
         if let sheet = navigationController.sheetPresentationController {
             sheet.detents = largeOnly ? [.large()] : [.medium(), .large()]

@@ -55,6 +55,7 @@ final class WellnarioSupplementFlowUITests: XCTestCase {
         reveal(supplementSave, in: app)
         supplementSave.tap()
         XCTAssertTrue(app.staticTexts["Magnesio Codex"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["60 cápsulas"].waitForExistence(timeout: 3))
         XCTAssertFalse(app.buttons["supplements.log_intake"].exists)
 
         app.staticTexts["Magnesio Codex"].firstMatch.tap()
@@ -62,7 +63,7 @@ final class WellnarioSupplementFlowUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Registrar toma"].exists)
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
-        app.buttons["Existencias"].tap()
+        app.buttons["Envases"].tap()
         let inventoryIntake = app.buttons["supplements.log_intake"]
         XCTAssertTrue(inventoryIntake.waitForExistence(timeout: 3))
         inventoryIntake.tap()
@@ -139,8 +140,8 @@ final class WellnarioSupplementFlowUITests: XCTestCase {
         create.tap()
         XCTAssertTrue(app.staticTexts["Creatina continua"].waitForExistence(timeout: 5))
 
-        app.buttons["Existencias"].tap()
-        XCTAssertTrue(app.staticTexts["No hay existencias"].waitForExistence(timeout: 5))
+        app.buttons["Envases"].tap()
+        XCTAssertTrue(app.staticTexts["No hay envases"].waitForExistence(timeout: 5))
     }
 
     @MainActor

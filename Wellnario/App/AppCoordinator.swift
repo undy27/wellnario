@@ -100,6 +100,12 @@ final class AppCoordinator: NSObject {
             name: WellnarioAppearanceManager.didChangeNotification,
             object: appearanceManager
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(repositoryDidChange(_:)),
+            name: .wellnarioRepositoryDidChange,
+            object: environment.repository
+        )
     }
 
     deinit {
@@ -115,6 +121,7 @@ final class AppCoordinator: NSObject {
         appliedSystemInterfaceStyle = window.traitCollection.userInterfaceStyle
         refreshDynamicTypeIfNeeded(force: true)
         Task { await environment.appleHealthService.syncIfConfigured() }
+        SupplementReminderNotificationScheduler(repository: environment.repository).reschedule()
     }
 
     func refreshSystemAppearanceIfNeeded() {
@@ -285,6 +292,17 @@ final class AppCoordinator: NSObject {
         appearanceManager.apply(to: window)
         appliedSystemInterfaceStyle = window.traitCollection.userInterfaceStyle
         rebuildRootPreservingState(animated: true)
+    }
+
+    @objc private func repositoryDidChange(_ notification: Notification) {
+        guard let change = notification.userInfo?[WellnarioRepositoryNotificationKey.change]
+                as? RepositoryChange else { return }
+        switch change.entity {
+        case .target, .supplement:
+            SupplementReminderNotificationScheduler(repository: environment.repository).reschedule()
+        case .active, .instance, .consumption:
+            break
+        }
     }
 
     private func rebuildRootPreservingState(animated: Bool) {

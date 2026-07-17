@@ -18,9 +18,13 @@ final class SupplementsViewController: FeatureViewController {
     private let searchController = UISearchController(searchResultsController: nil)
     private let emptyState = EmptyStateView()
     private let addBarButtonItem = UIBarButtonItem()
-    private let intakeBarButtonItem = UIBarButtonItem()
+    private let intakeBarButton = BreathingNavigationButton()
     private let moreBarButtonItem = UIBarButtonItem()
-    private let trendsBarButtonItem = UIBarButtonItem()
+    private let trendsBarButton = BreathingNavigationButton()
+    private let remindersBarButton = BreathingNavigationButton()
+    private lazy var intakeBarButtonItem = UIBarButtonItem(customView: intakeBarButton)
+    private lazy var trendsBarButtonItem = UIBarButtonItem(customView: trendsBarButton)
+    private lazy var remindersBarButtonItem = UIBarButtonItem(customView: remindersBarButton)
     private let settingsBarButtonItem = UIBarButtonItem()
 
     private var mode: Mode = .products
@@ -47,7 +51,13 @@ final class SupplementsViewController: FeatureViewController {
         navigationController?.setNavigationBarHidden(false, animated: animated)
         navigationController?.navigationBar.prefersLargeTitles = false
         navigationItem.largeTitleDisplayMode = .never
+        setBreathingButtonsActive(true)
         reloadContent()
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        setBreathingButtonsActive(false)
     }
 
     override func applyLocalizedCopy() {
@@ -60,7 +70,11 @@ final class SupplementsViewController: FeatureViewController {
         intakeBarButtonItem.accessibilityLabel = L10n.Today.logIntake
         moreBarButtonItem.accessibilityLabel = L10n.text("supplements.more.accessibility")
         trendsBarButtonItem.accessibilityLabel = L10n.Trends.title
+        remindersBarButtonItem.accessibilityLabel = L10n.text("supplements.reminders.title")
         settingsBarButtonItem.accessibilityLabel = L10n.Settings.title
+        intakeBarButton.accessibilityLabel = L10n.Today.logIntake
+        trendsBarButton.accessibilityLabel = L10n.Trends.title
+        remindersBarButton.accessibilityLabel = L10n.text("supplements.reminders.title")
         moreBarButtonItem.menu = makeMoreMenu()
         updateTopBarButtons()
         categoryFilterScrollView.accessibilityLabel = L10n.text("actives.categories.filter.accessibility")
@@ -110,11 +124,12 @@ final class SupplementsViewController: FeatureViewController {
         addBarButtonItem.tintColor = WellnarioPalette.cyan
         addBarButtonItem.accessibilityIdentifier = "supplements.add"
 
-        intakeBarButtonItem.image = makeEatingPersonIcon()
-        intakeBarButtonItem.style = .plain
-        intakeBarButtonItem.target = self
-        intakeBarButtonItem.action = #selector(logIntakeFromInventory)
-        intakeBarButtonItem.tintColor = WellnarioPalette.fuchsia
+        configureBreathingBarButton(
+            intakeBarButton,
+            image: makeEatingPersonIcon(),
+            action: #selector(logIntakeFromInventory),
+            accessibilityIdentifier: "supplements.log_intake"
+        )
         intakeBarButtonItem.accessibilityIdentifier = "supplements.log_intake"
 
         moreBarButtonItem.image = UIImage(systemName: "ellipsis.circle")
@@ -122,12 +137,21 @@ final class SupplementsViewController: FeatureViewController {
         moreBarButtonItem.tintColor = WellnarioPalette.textSecondary
         moreBarButtonItem.accessibilityIdentifier = "supplements.more"
 
-        trendsBarButtonItem.image = UIImage(systemName: "chart.xyaxis.line")
-        trendsBarButtonItem.style = .plain
-        trendsBarButtonItem.target = self
-        trendsBarButtonItem.action = #selector(openTrends)
-        trendsBarButtonItem.tintColor = WellnarioPalette.fuchsia
+        configureBreathingBarButton(
+            trendsBarButton,
+            image: UIImage(systemName: "chart.xyaxis.line"),
+            action: #selector(openTrends),
+            accessibilityIdentifier: "supplements.trends"
+        )
         trendsBarButtonItem.accessibilityIdentifier = "supplements.trends"
+
+        configureBreathingBarButton(
+            remindersBarButton,
+            image: UIImage(systemName: "bell.badge"),
+            action: #selector(openReminders),
+            accessibilityIdentifier: "supplements.reminders"
+        )
+        remindersBarButtonItem.accessibilityIdentifier = "supplements.reminders"
 
         settingsBarButtonItem.image = UIImage(systemName: "gearshape")
         settingsBarButtonItem.style = .plain
@@ -239,18 +263,23 @@ final class SupplementsViewController: FeatureViewController {
     private var filteredSupplements: [Supplement] {
         guard !query.isEmpty else { return supplements }
         return supplements.filter {
-            $0.name.localizedCaseInsensitiveContains(query)
-                || $0.brand.localizedCaseInsensitiveContains(query)
-                || ($0.category?.localizedCaseInsensitiveContains(query) ?? false)
+            searchableSupplementContent($0).localizedCaseInsensitiveContains(query)
         }
     }
 
     private var filteredInstances: [SupplementInstance] {
         guard !query.isEmpty else { return instances }
         return instances.filter { instance in
-            instance.label.localizedCaseInsensitiveContains(query)
-                || supplement(for: instance)?.name.localizedCaseInsensitiveContains(query) == true
-                || supplement(for: instance)?.brand.localizedCaseInsensitiveContains(query) == true
+            let supplementContent = supplement(for: instance).map(searchableSupplementContent) ?? ""
+            let instanceContent = [
+                instance.label,
+                instance.notes ?? "",
+                instance.totalQuantity.map { FeatureFormatting.decimal($0) } ?? "",
+                instance.totalUnit?.symbol(languageCode: catalogLanguage.rawValue) ?? "",
+                FeatureFormatting.expirationText(instance.expirationDay)
+            ].joined(separator: " ")
+            return "\(supplementContent) \(instanceContent)"
+                .localizedCaseInsensitiveContains(query)
         }
     }
 
@@ -338,6 +367,58 @@ final class SupplementsViewController: FeatureViewController {
         return PresentationKind(name: presentation.localizedName(language: catalogLanguage))
     }
 
+    /// Mirrors all textual product-card content and includes every active in
+    /// the composition, not only the first two shown in the compact summary.
+    private func searchableSupplementContent(_ supplement: Supplement) -> String {
+        let presentation = presentation(for: supplement)
+        let componentText = supplement.components.compactMap { component -> String? in
+            let activeName = actives.first(where: { $0.id == component.activeID })?
+                .localizedName(language: catalogLanguage)
+            guard let activeName else { return nil }
+            return [
+                activeName,
+                FeatureFormatting.decimal(component.amount),
+                component.unit.symbol(languageCode: catalogLanguage.rawValue)
+            ].joined(separator: " ")
+        }
+        return [
+            supplement.name,
+            supplement.brand,
+            supplement.category ?? "",
+            presentation?.localizedName(language: catalogLanguage) ?? "",
+            packagePresentationName(for: supplement, presentation: presentation) ?? "",
+            componentText.joined(separator: " ")
+        ].joined(separator: " ")
+    }
+
+    /// Returns the package's original total content together with its
+    /// presentation. The current quantity is deliberately not used here: it
+    /// changes as intakes are recorded, while the product card describes the
+    /// size of the package that was purchased.
+    private func packagePresentationName(
+        for supplement: Supplement,
+        presentation: PresentationType?
+    ) -> String? {
+        guard let presentation else { return nil }
+        let presentationName = presentation
+            .localizedName(language: catalogLanguage)
+            .lowercased(with: LocalizationManager.shared.locale)
+        let package = instances.first { $0.supplementID == supplement.id }
+        guard
+            let package,
+            let quantity = package.initialQuantity ?? package.totalQuantity,
+            let unit = package.initialUnit ?? package.totalUnit
+        else {
+            return presentation.localizedName(language: catalogLanguage)
+        }
+
+        let formattedQuantity = FeatureFormatting.decimal(quantity)
+        if unit.family == .discrete {
+            return "\(formattedQuantity) \(presentationName)"
+        }
+        return "\(formattedQuantity)\(unit.symbol(languageCode: catalogLanguage.rawValue)) de \(presentationName)"
+    }
+
     private func configureProduct(_ cell: CatalogListCell, supplement: Supplement) {
         let presentation = presentation(for: supplement)
         let count = instances.filter { $0.supplementID == supplement.id }.count
@@ -350,7 +431,7 @@ final class SupplementsViewController: FeatureViewController {
                 return $0.localizedName(language: catalogLanguage)
             }
         }.joined(separator: " · ")
-        let subtitle = [supplement.brand, presentation?.localizedName(language: catalogLanguage)]
+        let subtitle = [supplement.brand, packagePresentationName(for: supplement, presentation: presentation)]
             .compactMap { $0 }
             .filter { !$0.isEmpty }
             .joined(separator: " · ")
@@ -460,6 +541,10 @@ final class SupplementsViewController: FeatureViewController {
         updateSearchPlaceholder()
         updateCategoryFilterVisibility()
         updateEmptyState()
+        tableView.setContentOffset(
+            CGPoint(x: 0, y: -tableView.adjustedContentInset.top),
+            animated: false
+        )
         tableView.layer.removeAllAnimations()
         UIView.performWithoutAnimation {
             tableView.reloadData()
@@ -556,12 +641,41 @@ final class SupplementsViewController: FeatureViewController {
         )
     }
 
+    @objc private func openReminders() {
+        guard mode == .products, let navigationController else { return }
+        searchController.isActive = false
+        view.endEditing(true)
+        navigationController.pushViewController(
+            SupplementReminderProductPickerViewController(repository: repository),
+            animated: true
+        )
+    }
+
     private func updateTopBarButtons() {
         var items = [settingsBarButtonItem, addBarButtonItem]
         if mode == .inventory { items.append(intakeBarButtonItem) }
         if mode == .actives { items.append(trendsBarButtonItem) }
+        if mode == .products { items.append(remindersBarButtonItem) }
         items.append(moreBarButtonItem)
         navigationItem.rightBarButtonItems = items
+    }
+
+    private func configureBreathingBarButton(
+        _ button: BreathingNavigationButton,
+        image: UIImage?,
+        action: Selector,
+        accessibilityIdentifier: String
+    ) {
+        button.setImage(image, for: .normal)
+        button.tintColor = WellnarioPalette.fuchsia
+        button.accessibilityIdentifier = accessibilityIdentifier
+        button.addTarget(self, action: action, for: .touchUpInside)
+    }
+
+    private func setBreathingButtonsActive(_ isActive: Bool) {
+        [intakeBarButton, trendsBarButton, remindersBarButton].forEach {
+            $0.setBreathingActive(isActive)
+        }
     }
 
     private func makeEatingPersonIcon() -> UIImage? {
@@ -658,6 +772,70 @@ final class SupplementsViewController: FeatureViewController {
                 UIImpactFeedbackGenerator.wellnarioSuccess()
             } catch { self.showError(error) }
         }
+    }
+}
+
+@MainActor
+private final class BreathingNavigationButton: UIButton {
+    private let animationKey = "wellnario.supplements.breathing"
+    private var isBreathingActive = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        configure()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateBreathingAnimation()
+    }
+
+    func setBreathingActive(_ isActive: Bool) {
+        isBreathingActive = isActive
+        updateBreathingAnimation()
+    }
+
+    private func configure() {
+        frame.size = CGSize(width: 36, height: WellnarioLayout.minimumTouchTarget)
+        widthAnchor.constraint(equalToConstant: 36).isActive = true
+        heightAnchor.constraint(equalToConstant: WellnarioLayout.minimumTouchTarget).isActive = true
+        imageView?.contentMode = .scaleAspectFit
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reduceMotionDidChange),
+            name: UIAccessibility.reduceMotionStatusDidChangeNotification,
+            object: nil
+        )
+    }
+
+    private func updateBreathingAnimation() {
+        guard isBreathingActive, window != nil, WellnarioMotion.animationsEnabled else {
+            layer.removeAnimation(forKey: animationKey)
+            return
+        }
+        guard layer.animation(forKey: animationKey) == nil else { return }
+
+        let animation = CABasicAnimation(keyPath: "transform.scale")
+        animation.fromValue = 1.0
+        animation.toValue = 1.25
+        animation.duration = 1.15
+        animation.autoreverses = true
+        animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(animation, forKey: animationKey)
+    }
+
+    @objc private func reduceMotionDidChange() {
+        updateBreathingAnimation()
     }
 }
 
@@ -776,10 +954,14 @@ private final class InventoryLevelBar: UIView {
     private let trackLayer = CALayer()
     private let fillLayer = CALayer()
     private var normalizedLevel: CGFloat?
+    private var shouldAnimateLevel = false
+    private let fillAnimationKey = "wellnario.inventory.level"
 
     var level: Double? {
         didSet {
             normalizedLevel = level.map { min(1, max(0, CGFloat($0))) }
+            shouldAnimateLevel = normalizedLevel != nil
+            fillLayer.removeAnimation(forKey: fillAnimationKey)
             isHidden = normalizedLevel == nil
             setNeedsLayout()
             updateAccessibility()
@@ -799,13 +981,39 @@ private final class InventoryLevelBar: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        setNeedsLayout()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         let cornerRadius = bounds.height / 2
         trackLayer.frame = bounds
         trackLayer.cornerRadius = cornerRadius
         let width = bounds.width * (normalizedLevel ?? 0)
-        fillLayer.frame = CGRect(x: 0, y: 0, width: width, height: bounds.height)
+        let targetFrame = CGRect(x: 0, y: 0, width: width, height: bounds.height)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if shouldAnimateLevel, window != nil, WellnarioMotion.animationsEnabled, width > 0 {
+            fillLayer.frame = targetFrame
+            shouldAnimateLevel = false
+            let widthAnimation = CABasicAnimation(keyPath: "bounds.size.width")
+            widthAnimation.fromValue = 0
+            widthAnimation.toValue = width
+            let positionAnimation = CABasicAnimation(keyPath: "position.x")
+            positionAnimation.fromValue = 0
+            positionAnimation.toValue = width / 2
+            let animation = CAAnimationGroup()
+            animation.animations = [widthAnimation, positionAnimation]
+            animation.duration = 0.36
+            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            fillLayer.add(animation, forKey: fillAnimationKey)
+        } else {
+            fillLayer.frame = targetFrame
+            if window != nil { shouldAnimateLevel = false }
+        }
+        CATransaction.commit()
         fillLayer.cornerRadius = cornerRadius
     }
 
