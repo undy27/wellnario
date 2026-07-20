@@ -15,7 +15,9 @@
 #   TESTFLIGHT_EXPORT_PATH                 Defaults under build/testflight/.
 #   TESTFLIGHT_EXPORT_OPTIONS_PLIST        Uses a custom ExportOptions.plist as-is.
 #   TESTFLIGHT_PROVISIONING_PROFILE        Enables manual signing only while exporting.
-#   TESTFLIGHT_PROVISIONING_PROFILE_PATH   Installs a local .mobileprovision first.
+#   TESTFLIGHT_PROVISIONING_PROFILE_PATH   Installs the app .mobileprovision first.
+#   TESTFLIGHT_WIDGET_PROVISIONING_PROFILE_PATH
+#                                         Installs the widget .mobileprovision first.
 #   TESTFLIGHT_SIGNING_CERTIFICATE         Defaults to "Apple Distribution" for manual export.
 #   TESTFLIGHT_ALLOW_PROVISIONING_UPDATES  Defaults to 1.
 #   TESTFLIGHT_SKIP_BUILD=1                Upload an already exported IPA.
@@ -29,6 +31,8 @@ PROJECT_PATH="$ROOT_DIR/Wellnario.xcodeproj"
 SCHEME="Wellnario"
 DEFAULT_TEAM_ID="73ZVWQPH3Z"
 DEFAULT_BUNDLE_ID="com.dtigl.wellnario.ios"
+DEFAULT_WIDGET_BUNDLE_ID="com.dtigl.wellnario.ios.widgets"
+DEFAULT_APP_GROUP_ID="group.com.dtigl.wellnario"
 
 usage() {
   printf '%s\n' \
@@ -73,9 +77,12 @@ find_ipa() {
 
 install_provisioning_profile() {
   local profile_path="$1"
+  local profile_var_name="$2"
+  local profile_label="$3"
   local profile_plist
   local profile_uuid
   local profile_name
+  local entitlement_groups
   local profiles_directory="$HOME/Library/MobileDevice/Provisioning Profiles"
 
   if [ ! -f "$profile_path" ]; then
@@ -85,13 +92,19 @@ install_provisioning_profile() {
 
   profile_plist="$TEMPORARY_DIRECTORY/profile.plist"
   security cms -D -i "$profile_path" > "$profile_plist"
+  entitlement_groups="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups' "$profile_plist" 2>/dev/null || true)"
+  if [[ "$entitlement_groups" != *"$DEFAULT_APP_GROUP_ID"* ]]; then
+    printf 'Error: %s provisioning profile %s does not include App Groups or the %s group.\n' "$profile_label" "$profile_path" "$DEFAULT_APP_GROUP_ID" >&2
+    printf 'Regenerate the App Store profiles for the app and the widget with App Groups enabled, or remove the manual provisioning profile paths to let automatic signing create fresh profiles.\n' >&2
+    exit 1
+  fi
   profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")"
   profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$profile_plist")"
   mkdir -p "$profiles_directory"
   cp "$profile_path" "$profiles_directory/$profile_uuid.mobileprovision"
-  TESTFLIGHT_PROVISIONING_PROFILE="$profile_name"
-  export TESTFLIGHT_PROVISIONING_PROFILE
-  printf "Installed provisioning profile '%s'.\n" "$profile_name"
+  printf -v "$profile_var_name" '%s' "$profile_name"
+  export "$profile_var_name"
+  printf "Installed %s provisioning profile '%s'.\n" "$profile_label" "$profile_name"
 }
 
 prepare_export_options() {
@@ -115,10 +128,15 @@ prepare_export_options() {
   /usr/libexec/PlistBuddy -c 'Add :stripSwiftSymbols bool true' "$destination"
   /usr/libexec/PlistBuddy -c 'Add :uploadSymbols bool true' "$destination"
 
-  if [ -n "${TESTFLIGHT_PROVISIONING_PROFILE:-}" ]; then
+  if [ -n "${TESTFLIGHT_APP_PROVISIONING_PROFILE:-}" ] || [ -n "${TESTFLIGHT_WIDGET_PROVISIONING_PROFILE:-}" ]; then
     /usr/libexec/PlistBuddy -c 'Add :signingStyle string manual' "$destination"
     /usr/libexec/PlistBuddy -c 'Add :provisioningProfiles dict' "$destination"
-    /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$bundle_id string $TESTFLIGHT_PROVISIONING_PROFILE" "$destination"
+    if [ -n "${TESTFLIGHT_APP_PROVISIONING_PROFILE:-}" ]; then
+      /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$bundle_id string $TESTFLIGHT_APP_PROVISIONING_PROFILE" "$destination"
+    fi
+    if [ -n "${TESTFLIGHT_WIDGET_PROVISIONING_PROFILE:-}" ]; then
+      /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$DEFAULT_WIDGET_BUNDLE_ID string $TESTFLIGHT_WIDGET_PROVISIONING_PROFILE" "$destination"
+    fi
     /usr/libexec/PlistBuddy -c "Add :signingCertificate string ${TESTFLIGHT_SIGNING_CERTIFICATE:-Apple Distribution}" "$destination"
   else
     /usr/libexec/PlistBuddy -c 'Add :signingStyle string automatic' "$destination"
@@ -209,7 +227,11 @@ TEMPORARY_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/wellnario-testflight.XXXXXX")"
 trap 'rm -rf "$TEMPORARY_DIRECTORY"' EXIT
 
 if [ -n "${TESTFLIGHT_PROVISIONING_PROFILE_PATH:-}" ]; then
-  install_provisioning_profile "$TESTFLIGHT_PROVISIONING_PROFILE_PATH"
+  install_provisioning_profile "$TESTFLIGHT_PROVISIONING_PROFILE_PATH" TESTFLIGHT_APP_PROVISIONING_PROFILE app
+fi
+
+if [ -n "${TESTFLIGHT_WIDGET_PROVISIONING_PROFILE_PATH:-}" ]; then
+  install_provisioning_profile "$TESTFLIGHT_WIDGET_PROVISIONING_PROFILE_PATH" TESTFLIGHT_WIDGET_PROVISIONING_PROFILE widget
 fi
 
 team_id="${TESTFLIGHT_TEAM_ID:-$DEFAULT_TEAM_ID}"
