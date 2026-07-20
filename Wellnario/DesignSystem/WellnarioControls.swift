@@ -68,6 +68,10 @@ final class PrimaryButton: UIButton {
         titleLabel?.adjustsFontForContentSizeCategory = true
         titleLabel?.adjustsFontSizeToFitWidth = true
         titleLabel?.minimumScaleFactor = 0.82
+        // UIButton's legacy image/title layout has no built-in gap. Keep a
+        // consistent breathing space so icon-bearing actions never overlap.
+        imageEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 8)
+        titleEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 0)
         gradientLayer.startPoint = CGPoint(x: 0, y: 0.5)
         gradientLayer.endPoint = CGPoint(x: 1, y: 0.5)
         layer.insertSublayer(gradientLayer, at: 0)
@@ -138,9 +142,79 @@ final class PrimaryButton: UIButton {
     }
 }
 
+/// A compact navigation-bar control that matches the animated fuchsia actions
+/// in Supplements. The animation honours the system Reduce Motion setting.
+@MainActor
+final class BreathingNavigationButton: UIButton {
+    private let animationKey = "wellnario.navigation.breathing"
+    private var isBreathingActive = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        configure()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateBreathingAnimation()
+    }
+
+    func setBreathingActive(_ isActive: Bool) {
+        isBreathingActive = isActive
+        updateBreathingAnimation()
+    }
+
+    private func configure() {
+        frame.size = CGSize(width: 36, height: WellnarioLayout.minimumTouchTarget)
+        widthAnchor.constraint(equalToConstant: 36).isActive = true
+        heightAnchor.constraint(equalToConstant: WellnarioLayout.minimumTouchTarget).isActive = true
+        imageView?.contentMode = .scaleAspectFit
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reduceMotionDidChange),
+            name: UIAccessibility.reduceMotionStatusDidChangeNotification,
+            object: nil
+        )
+    }
+
+    private func updateBreathingAnimation() {
+        guard isBreathingActive, window != nil, WellnarioMotion.animationsEnabled else {
+            layer.removeAnimation(forKey: animationKey)
+            return
+        }
+        guard layer.animation(forKey: animationKey) == nil else { return }
+
+        let animation = CABasicAnimation(keyPath: "transform.scale")
+        animation.fromValue = 1.0
+        animation.toValue = 1.3125
+        animation.duration = 0.92
+        animation.autoreverses = true
+        animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(animation, forKey: animationKey)
+    }
+
+    @objc private func reduceMotionDidChange() {
+        updateBreathingAnimation()
+    }
+}
+
 /// A single-line secondary label that loops horizontally only when its text
 /// does not fit. Reduce Motion falls back to ordinary tail truncation.
 final class ContinuousMarqueeLabel: UIView {
+    override var accessibilityIdentifier: String? {
+        didSet { primaryLabel.accessibilityIdentifier = accessibilityIdentifier }
+    }
+
     var text: String? {
         didSet {
             primaryLabel.text = text
@@ -158,12 +232,26 @@ final class ContinuousMarqueeLabel: UIView {
         }
     }
 
+    var textAlignment: NSTextAlignment = .left {
+        didSet {
+            [primaryLabel, repeatedLabel].forEach { $0.textAlignment = textAlignment }
+        }
+    }
+
     private(set) var isOverflowing = false
 
     private let primaryLabel = UILabel()
     private let repeatedLabel = UILabel()
     private let animationKey = "wellnario.continuousMarquee"
     private var animatedDistance: CGFloat?
+
+    func applyTextStyle(_ style: WellnarioTextStyle, color: UIColor) {
+        [primaryLabel, repeatedLabel].forEach {
+            $0.applyWellnarioStyle(style, color: color)
+        }
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -201,6 +289,7 @@ final class ContinuousMarqueeLabel: UIView {
             label.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
             label.numberOfLines = 1
             label.lineBreakMode = .byTruncatingTail
+            label.textAlignment = textAlignment
             label.isAccessibilityElement = false
             addSubview(label)
         }
@@ -348,6 +437,13 @@ final class FormFieldView: UIView {
 
     var onUnitTap: (() -> Void)?
 
+    /// Horizontal gap between the unit selector and the field's trailing edge.
+    /// Most fields keep a small inset; some compact editors can opt into a
+    /// flush selector so it aligns with the container edge.
+    var unitButtonTrailingInset: CGFloat = 10 {
+        didSet { unitButtonTrailingConstraint?.constant = -unitButtonTrailingInset }
+    }
+
     var title: String = "" {
         didSet {
             titleLabel.text = title
@@ -388,6 +484,7 @@ final class FormFieldView: UIView {
     private var textToUnitConstraint: NSLayoutConstraint?
     private var textToEdgeConstraint: NSLayoutConstraint?
     private var unitMinimumWidthConstraint: NSLayoutConstraint?
+    private var unitButtonTrailingConstraint: NSLayoutConstraint?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -448,6 +545,9 @@ final class FormFieldView: UIView {
 
         var unitConfiguration = UIButton.Configuration.plain()
         unitConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10)
+        unitConfiguration.image = UIImage(systemName: "chevron.down")
+        unitConfiguration.imagePlacement = .trailing
+        unitConfiguration.imagePadding = 4
         unitConfiguration.baseForegroundColor = WellnarioPalette.cyan
         unitConfiguration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
             var outgoing = incoming
@@ -474,12 +574,22 @@ final class FormFieldView: UIView {
         textToUnitConstraint = textField.trailingAnchor.constraint(equalTo: unitButton.leadingAnchor, constant: -8)
         textToEdgeConstraint = textField.trailingAnchor.constraint(equalTo: fieldContainer.trailingAnchor, constant: -16)
         unitMinimumWidthConstraint = unitButton.widthAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.minimumTouchTarget)
+        unitButtonTrailingConstraint = unitButton.trailingAnchor.constraint(
+            equalTo: fieldContainer.trailingAnchor,
+            constant: -unitButtonTrailingInset
+        )
         NSLayoutConstraint.activate([
             textField.leadingAnchor.constraint(equalTo: fieldContainer.leadingAnchor, constant: 16),
-            textField.topAnchor.constraint(equalTo: fieldContainer.topAnchor, constant: 8),
-            textField.bottomAnchor.constraint(equalTo: fieldContainer.bottomAnchor, constant: -8),
+            textField.topAnchor.constraint(
+                equalTo: fieldContainer.topAnchor,
+                constant: WellnarioLayout.fieldVerticalPadding
+            ),
+            textField.bottomAnchor.constraint(
+                equalTo: fieldContainer.bottomAnchor,
+                constant: -WellnarioLayout.fieldVerticalPadding
+            ),
             textToEdgeConstraint!,
-            unitButton.trailingAnchor.constraint(equalTo: fieldContainer.trailingAnchor, constant: -10),
+            unitButtonTrailingConstraint!,
             unitButton.centerYAnchor.constraint(equalTo: fieldContainer.centerYAnchor),
             unitButton.heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.minimumTouchTarget)
         ])

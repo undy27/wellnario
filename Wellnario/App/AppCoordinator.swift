@@ -14,15 +14,18 @@ private final class LiveRootFeatureFactory: RootFeatureBuilding {
     private let repository: WellnarioRepositoryProtocol
     private let appleHealthService: AppleHealthSyncing
     private let medicalReviewStore: MedicalReviewStore
+    private let healthDataStore: HealthDataStore
 
     init(
         repository: WellnarioRepositoryProtocol,
         appleHealthService: AppleHealthSyncing,
-        medicalReviewStore: MedicalReviewStore
+        medicalReviewStore: MedicalReviewStore,
+        healthDataStore: HealthDataStore
     ) {
         self.repository = repository
         self.appleHealthService = appleHealthService
         self.medicalReviewStore = medicalReviewStore
+        self.healthDataStore = healthDataStore
     }
 
     func makeToday() -> TodayViewController {
@@ -34,17 +37,24 @@ private final class LiveRootFeatureFactory: RootFeatureBuilding {
     }
 
     func makeSupplements() -> SupplementsViewController {
-        SupplementsViewController(repository: repository)
+        SupplementsViewController(
+            repository: repository,
+            appleHealthService: appleHealthService
+        )
     }
 
     func makeSleep() -> SleepViewController {
-        SleepViewController(appleHealthService: appleHealthService)
+        SleepViewController(
+            appleHealthService: appleHealthService,
+            repository: repository
+        )
     }
 
     func makeHealth() -> HealthViewController {
         HealthViewController(
             appleHealthService: appleHealthService,
-            medicalReviewStore: medicalReviewStore
+            medicalReviewStore: medicalReviewStore,
+            healthDataStore: healthDataStore
         )
     }
 
@@ -78,7 +88,8 @@ final class AppCoordinator: NSObject {
             ?? LiveRootFeatureFactory(
                 repository: environment.repository,
                 appleHealthService: environment.appleHealthService,
-                medicalReviewStore: environment.medicalReviewStore
+                medicalReviewStore: environment.medicalReviewStore,
+                healthDataStore: environment.healthDataStore
             )
         super.init()
 
@@ -106,6 +117,24 @@ final class AppCoordinator: NSObject {
             name: .wellnarioRepositoryDidChange,
             object: environment.repository
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sleepWidgetDataDidChange),
+            name: .appleHealthSyncDidChange,
+            object: environment.appleHealthService
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sleepWidgetDataDidChange),
+            name: .sleepManualOverridesDidChange,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sleepWidgetDataDidChange),
+            name: .sleepQualityPreferencesDidChange,
+            object: nil
+        )
     }
 
     deinit {
@@ -120,7 +149,16 @@ final class AppCoordinator: NSObject {
         window.makeKeyAndVisible()
         appliedSystemInterfaceStyle = window.traitCollection.userInterfaceStyle
         refreshDynamicTypeIfNeeded(force: true)
-        Task { await environment.appleHealthService.syncIfConfigured() }
+        SupplementWidgetSnapshotUpdater.refresh(repository: environment.repository)
+        SleepWidgetSnapshotUpdater.refresh(snapshot: environment.appleHealthService.snapshot)
+        Task { [weak self] in
+            guard let self else { return }
+            if await environment.appleHealthService.consumePendingAuthorizationWarning() {
+                presentPendingAppleHealthAuthorizationAlert()
+            }
+            await environment.appleHealthService.syncIfConfigured()
+            SleepWidgetSnapshotUpdater.refresh(snapshot: environment.appleHealthService.snapshot)
+        }
         SupplementReminderNotificationScheduler(repository: environment.repository).reschedule()
     }
 
@@ -144,6 +182,42 @@ final class AppCoordinator: NSObject {
         UIView.performWithoutAnimation {
             rootView.layoutIfNeeded()
         }
+    }
+
+    /// The widget lets the user select cards in place. Its final batch action
+    /// opens the app because WidgetKit cannot present the mandatory
+    /// confirmation alert itself.
+    func handleWidgetURL(_ url: URL) {
+        if SupplementWidgetURL.requestsSleepWidgetSync(from: url) {
+            rootTabBarController?.select(
+                index: AppLaunchConfiguration.InitialTab.sleep.rawValue
+            )
+            Task { [weak self] in
+                guard let self else { return }
+                await environment.appleHealthService.syncIfConfigured()
+                SleepWidgetSnapshotUpdater.refresh(snapshot: environment.appleHealthService.snapshot)
+            }
+            return
+        }
+        if SupplementWidgetURL.requestsSleepWidget(from: url) {
+            rootTabBarController?.select(
+                index: AppLaunchConfiguration.InitialTab.sleep.rawValue
+            )
+            return
+        }
+        if let packageID = SupplementWidgetURL.packageID(from: url) {
+            presentWidgetIntakeConfirmation(for: [packageID])
+            return
+        }
+        guard SupplementWidgetURL.requestsSelectedIntakesConfirmation(from: url) else { return }
+
+        let store = SupplementWidgetDataStore()
+        let selected = store.selectedPackageIDs()
+        let orderedIdentifiers = store.snapshot()?.packages.map(\.id).filter(selected.contains)
+            ?? selected.sorted()
+        presentWidgetIntakeConfirmation(
+            for: orderedIdentifiers.compactMap(UUID.init(uuidString:))
+        )
     }
 
     private func installRoot(
@@ -270,8 +344,159 @@ final class AppCoordinator: NSObject {
         )
     }
 
+    private func presentWidgetIntakeConfirmation(for packageIDs: [UUID]) {
+        guard let rootTabBarController,
+              rootTabBarController.presentedViewController == nil else {
+            return
+        }
+
+        do {
+            var seenPackageIDs = Set<UUID>()
+            let uniquePackageIDs = packageIDs.filter { seenPackageIDs.insert($0).inserted }
+            guard !uniquePackageIDs.isEmpty else { return }
+            let intakes = try uniquePackageIDs.map { packageID -> WidgetPendingIntake in
+                guard let package = try environment.repository.instance(id: packageID),
+                      !package.isArchived,
+                      let supplement = try environment.repository.supplement(id: package.supplementID),
+                      !supplement.isArchived else {
+                    throw RepositoryError.notFound(entity: "Package", id: packageID)
+                }
+                return WidgetPendingIntake(package: package, supplement: supplement)
+            }
+
+            guard !intakes.isEmpty else {
+                return
+            }
+
+            rootTabBarController.select(
+                index: AppLaunchConfiguration.InitialTab.today.rawValue,
+                animated: false
+            )
+            guard let navigationController = rootTabBarController.selectedViewController
+                as? UINavigationController else {
+                return
+            }
+            navigationController.popToRootViewController(animated: false)
+
+            let languageCode = LocalizationManager.shared.language.rawValue
+            let descriptions = intakes.map { intake in
+                "\(intake.supplement.name) · \(amountDescription(for: intake, languageCode: languageCode))"
+            }
+            let singleIntake = intakes.count == 1
+            let title = L10n.text(
+                singleIntake
+                    ? "widget.intake.confirmation.title"
+                    : "widget.intake.batch.confirmation.title"
+            )
+            let message: String
+            if let intake = intakes.first, singleIntake {
+                message = L10n.text(
+                    "widget.intake.confirmation.message",
+                    amountDescription(for: intake, languageCode: languageCode),
+                    intake.supplement.name,
+                    intake.package.label
+                )
+            } else {
+                message = L10n.text(
+                    "widget.intake.batch.confirmation.message",
+                    descriptions.joined(separator: "\n")
+                )
+            }
+            let alert = UIAlertController(
+                title: title,
+                message: message,
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: L10n.Common.cancel, style: .cancel))
+            alert.addAction(UIAlertAction(title: L10n.Common.confirm, style: .default) { [weak self] _ in
+                guard let self else { return }
+                do {
+                    _ = try self.environment.repository.createConsumptions(intakes.map {
+                        ConsumptionDraft(
+                            instanceID: $0.package.id,
+                            quantity: $0.supplement.basisQuantity,
+                            unit: $0.supplement.basisUnit
+                        )
+                    })
+                    SupplementWidgetDataStore().clearSelectedPackageIDs()
+                    SupplementWidgetSnapshotUpdater.refresh(repository: self.environment.repository)
+                    let announcement = intakes.count == 1
+                        ? L10n.text("widget.intake.recorded")
+                        : L10n.text("widget.intake.batch.recorded", intakes.count)
+                    UIAccessibility.post(notification: .announcement, argument: announcement)
+                } catch {
+                    self.presentWidgetIntakeError(error)
+                }
+            })
+            navigationController.present(alert, animated: true)
+        } catch {
+            presentWidgetIntakeError(error)
+        }
+    }
+
+    private func amountDescription(
+        for intake: WidgetPendingIntake,
+        languageCode: String
+    ) -> String {
+        "\(FeatureFormatting.decimal(intake.supplement.basisQuantity)) \(intake.supplement.basisUnit.symbol(languageCode: languageCode))"
+    }
+
+    private func presentWidgetIntakeError(_ error: Error) {
+        guard let rootTabBarController,
+              rootTabBarController.presentedViewController == nil else {
+            return
+        }
+        let alert = UIAlertController(
+            title: L10n.Common.error,
+            message: error.localizedDescription,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: L10n.Common.done, style: .default))
+        rootTabBarController.present(alert, animated: true)
+    }
+
+    private func presentPendingAppleHealthAuthorizationAlert() {
+        guard let rootTabBarController,
+              rootTabBarController.presentedViewController == nil else {
+            return
+        }
+        let alert = UIAlertController(
+            title: L10n.text("apple_health.authorization_pending.title"),
+            message: L10n.text("apple_health.authorization_pending.message"),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(
+            title: L10n.text("apple_health.authorization_pending.later"),
+            style: .cancel
+        ))
+        alert.addAction(UIAlertAction(
+            title: L10n.text("apple_health.authorization_pending.review"),
+            style: .default
+        ) { [weak self] _ in
+            self?.showAppleHealthIntegration()
+        })
+        rootTabBarController.present(alert, animated: true)
+    }
+
+    private func showAppleHealthIntegration() {
+        guard let rootTabBarController,
+              let selectedNavigation = rootTabBarController.selectedViewController
+                as? UINavigationController else {
+            return
+        }
+        selectedNavigation.pushViewController(
+            IntegrationSetupViewController(
+                provider: .appleHealth,
+                appleHealthService: environment.appleHealthService
+            ),
+            animated: true
+        )
+    }
+
     @objc private func languageDidChange() {
         guard !isRebuildingRoot else { return }
+        SupplementWidgetSnapshotUpdater.refresh(repository: environment.repository)
+        SleepWidgetSnapshotUpdater.refresh(snapshot: environment.appleHealthService.snapshot)
         isRebuildingRoot = true
 
         let selectedIndex = rootTabBarController?.selectedIndex
@@ -282,6 +507,10 @@ final class AppCoordinator: NSObject {
             animated: true
         )
         isRebuildingRoot = false
+    }
+
+    @objc private func sleepWidgetDataDidChange() {
+        SleepWidgetSnapshotUpdater.refresh(snapshot: environment.appleHealthService.snapshot)
     }
 
     @objc private func contentSizeCategoryDidChange() {
@@ -298,9 +527,14 @@ final class AppCoordinator: NSObject {
         guard let change = notification.userInfo?[WellnarioRepositoryNotificationKey.change]
                 as? RepositoryChange else { return }
         switch change.entity {
-        case .target, .supplement:
+        case .target:
             SupplementReminderNotificationScheduler(repository: environment.repository).reschedule()
-        case .active, .instance, .consumption:
+        case .supplement:
+            SupplementReminderNotificationScheduler(repository: environment.repository).reschedule()
+            SupplementWidgetSnapshotUpdater.refresh(repository: environment.repository)
+        case .instance, .consumption:
+            SupplementWidgetSnapshotUpdater.refresh(repository: environment.repository)
+        case .active:
             break
         }
     }
@@ -325,4 +559,9 @@ final class AppCoordinator: NSObject {
         }
         return selectedNavigation.viewControllers.contains { $0 is SettingsViewController }
     }
+}
+
+private struct WidgetPendingIntake {
+    let package: SupplementInstance
+    let supplement: Supplement
 }

@@ -186,6 +186,15 @@ struct SupplementProductReminder: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+/// A pre-filled schedule shown by the reminder editor. It deliberately has no
+/// identity and is never written to the reminder store until the user saves.
+struct SupplementReminderSuggestion: Hashable, Sendable {
+    let timeMinutes: [Int]
+    let recurrence: SupplementReminderRecurrence
+    let weekdaysMask: Int
+    let intervalDays: Int
+}
+
 /// Device-local product reminder configuration. Reminders belong to a product,
 /// so all packages of that product share the same schedule.
 struct SupplementProductReminderStore {
@@ -254,6 +263,22 @@ struct SupplementProductReminderStore {
         defaults.set(identifiers.map(\.uuidString).sorted(), forKey: Self.configuredProductsKey)
     }
 
+    /// Removes schedules created by the former automatic-scheduling flow.
+    /// User-confirmed schedules are tracked separately and are never removed.
+    @discardableResult
+    func removeLegacyUnconfirmedSuggestions() -> Int {
+        let configured = configuredProductIDs
+        let existing = all()
+        let retained = existing.filter { configured.contains($0.supplementID) }
+        let removedCount = existing.count - retained.count
+        guard removedCount > 0,
+              let data = try? JSONEncoder().encode(retained) else {
+            return 0
+        }
+        defaults.set(data, forKey: Self.storageKey)
+        return removedCount
+    }
+
     private var configuredProductIDs: Set<UUID> {
         Set(
             (defaults.stringArray(forKey: Self.configuredProductsKey) ?? [])
@@ -262,68 +287,50 @@ struct SupplementProductReminderStore {
     }
 }
 
-/// Creates and updates conservative schedules until the user edits them.
-/// The target amount controls both the number of suggested times and, for
-/// discrete products, the interval needed to approximate the daily target.
+/// Produces a non-persistent suggestion for the reminder editor. The target
+/// amount controls both the proposed times and, for discrete products, the
+/// interval needed to approximate the daily target.
 struct SupplementDefaultReminderPlanner {
     private let schedulePreferences: SupplementReminderSchedulePreferences
-    private let store: SupplementProductReminderStore
 
     init(
-        schedulePreferences: SupplementReminderSchedulePreferences = SupplementReminderSchedulePreferences(),
-        store: SupplementProductReminderStore = SupplementProductReminderStore()
+        schedulePreferences: SupplementReminderSchedulePreferences = SupplementReminderSchedulePreferences()
     ) {
         self.schedulePreferences = schedulePreferences
-        self.store = store
     }
 
-    @discardableResult
-    func seedMissing(in repository: WellnarioRepositoryProtocol) throws -> Int {
+    func suggestion(
+        for supplement: Supplement,
+        in repository: WellnarioRepositoryProtocol
+    ) throws -> SupplementReminderSuggestion? {
         let actives = Dictionary(
             uniqueKeysWithValues: try repository.fetchActives(includeArchived: false).map { ($0.id, $0) }
         )
-        var seededCount = 0
-        for supplement in try repository.fetchSupplements(includeArchived: false) {
-            guard !store.hasUserConfiguration(for: supplement.id) else { continue }
-            let existingReminders = store.reminders(for: supplement.id)
-            let components = supplement.components.compactMap { component -> (SupplementComponent, Active)? in
-                guard let active = actives[component.activeID] else { return nil }
-                return (component, active)
-            }
-            guard components.contains(where: { $0.1.currentTarget != nil }) else {
-                if !existingReminders.isEmpty {
-                    store.set([], for: supplement.id, marksUserConfiguration: false)
-                    seededCount += 1
-                }
-                continue
-            }
-            let templates = suggestedTemplates(for: components)
-            let uniqueMinutes = templates
-                .map { schedulePreferences.minutes(for: $0) }
-                .reduce(into: [Int]()) { result, minutes in
-                    if !result.contains(minutes) { result.append(minutes) }
-                }
-                .prefix(3)
-            guard !uniqueMinutes.isEmpty else { continue }
-            let intervalDays = suggestedIntervalDays(
-                for: supplement,
-                components: components,
-                remindersPerDoseDay: uniqueMinutes.count
-            )
-            let reminders = uniqueMinutes.map {
-                SupplementProductReminder(
-                    supplementID: supplement.id,
-                    timeMinutes: $0,
-                    recurrence: intervalDays > 1 ? .everyDays : .weekdays,
-                    weekdaysMask: 127,
-                    intervalDays: intervalDays
-                )
-            }
-            guard !sameSchedule(existingReminders, reminders) else { continue }
-            store.set(reminders, for: supplement.id, marksUserConfiguration: false)
-            seededCount += 1
+        let components = supplement.components.compactMap { component -> (SupplementComponent, Active)? in
+            guard let active = actives[component.activeID] else { return nil }
+            return (component, active)
         }
-        return seededCount
+        guard components.contains(where: { $0.1.currentTarget != nil }) else { return nil }
+
+        let timeMinutes = suggestedTemplates(for: components)
+            .map { schedulePreferences.minutes(for: $0) }
+            .reduce(into: [Int]()) { result, minutes in
+                if !result.contains(minutes) { result.append(minutes) }
+            }
+            .prefix(3)
+        guard !timeMinutes.isEmpty else { return nil }
+
+        let intervalDays = suggestedIntervalDays(
+            for: supplement,
+            components: components,
+            remindersPerDoseDay: timeMinutes.count
+        )
+        return SupplementReminderSuggestion(
+            timeMinutes: Array(timeMinutes),
+            recurrence: intervalDays > 1 ? .everyDays : .weekdays,
+            weekdaysMask: 127,
+            intervalDays: intervalDays
+        )
     }
 
     private func suggestedTemplates(
@@ -377,18 +384,6 @@ struct SupplementDefaultReminderPlanner {
             let interval = Int(ceil(min(ratioValue, 3_650)))
             result = max(result, interval)
         }
-    }
-
-    private func sameSchedule(
-        _ lhs: [SupplementProductReminder],
-        _ rhs: [SupplementProductReminder]
-    ) -> Bool {
-        let normalized: ([SupplementProductReminder]) -> [String] = { reminders in
-            reminders.map {
-                "\($0.timeMinutes)|\($0.recurrence.rawValue)|\($0.weekdaysMask)|\($0.intervalDays)"
-            }.sorted()
-        }
-        return normalized(lhs) == normalized(rhs)
     }
 
     private func slug(for active: Active) -> String? {
@@ -456,6 +451,7 @@ public protocol WellnarioRepositoryProtocol: AnyObject {
     func fetchConsumptions(from: LocalDay?, through: LocalDay?, limit: Int?) throws -> [Consumption]
     func consumption(id: UUID) throws -> Consumption?
     func createConsumption(_ draft: ConsumptionDraft) throws -> Consumption
+    func createConsumptions(_ drafts: [ConsumptionDraft]) throws -> [Consumption]
     func updateConsumption(id: UUID, with draft: ConsumptionDraft) throws -> Consumption
     func deleteConsumption(id: UUID) throws
 

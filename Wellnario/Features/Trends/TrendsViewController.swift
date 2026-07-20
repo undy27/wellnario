@@ -2,8 +2,6 @@ import UIKit
 
 @MainActor
 final class TrendsViewController: FeatureViewController {
-    private static let referenceLinePreferenceKey = "wellnario.consumption.trends.referenceLine"
-
     private enum Period: Int, CaseIterable { case sevenDays, thirtyDays, year, custom }
 
     private struct FavoritePeriodSummary {
@@ -19,7 +17,6 @@ final class TrendsViewController: FeatureViewController {
 
     private let initialActiveID: UUID?
     private let returnsToActiveDetail: Bool
-    private let defaults: UserDefaults
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
     private let activeField = SelectionFieldView(title: L10n.Form.active)
@@ -29,12 +26,10 @@ final class TrendsViewController: FeatureViewController {
     private let summaryStack = UIStackView()
     private let emptyState = EmptyStateView()
     private lazy var periodControl = makePeriodControl()
-    private lazy var referenceLineControl = makeReferenceLineControl()
 
     private var actives: [Active] = []
     private var selectedActiveID: UUID?
     private var selectedPeriod: Period = .sevenDays
-    private var selectedReferenceLine: WellnessTrendReferenceLine
     private var customFrom = LocalDay(containing: Calendar.current.date(byAdding: .day, value: -29, to: Date()) ?? Date(), in: .current)
     private var customThrough = LocalDay(containing: Date(), in: .current)
     private var series: ConsumptionSeries?
@@ -49,11 +44,7 @@ final class TrendsViewController: FeatureViewController {
         self.initialActiveID = activeID
         self.selectedActiveID = activeID
         self.returnsToActiveDetail = returnsToActiveDetail
-        self.defaults = defaults
-        let storedReferenceLine = defaults.object(forKey: Self.referenceLinePreferenceKey) as? Int
-        selectedReferenceLine = storedReferenceLine
-            .flatMap(WellnessTrendReferenceLine.init(rawValue:))
-            ?? .linearTrend
+        _ = defaults
         super.init(repository: repository)
     }
 
@@ -229,7 +220,6 @@ final class TrendsViewController: FeatureViewController {
         let stack = UIStackView(
             arrangedSubviews: [
                 header,
-                makeReferenceLineControlContainer(),
                 chartView,
                 periodControl,
                 legends
@@ -512,18 +502,6 @@ final class TrendsViewController: FeatureViewController {
         return control
     }
 
-    private func makeReferenceLineControl() -> UISegmentedControl {
-        let control = UISegmentedControl(
-            items: WellnessTrendReferenceLine.allCases.map(referenceLineTitle)
-        )
-        control.selectedSegmentIndex = selectedReferenceLine.rawValue
-        styleSelector(control, fontSize: 11)
-        control.accessibilityIdentifier = "trends.reference.selector"
-        control.accessibilityLabel = L10n.text("trends.reference.selector.accessibility")
-        control.addTarget(self, action: #selector(referenceLineDidChange), for: .valueChanged)
-        return control
-    }
-
     private func styleSelector(_ control: UISegmentedControl, fontSize: CGFloat) {
         control.selectedSegmentTintColor = WellnarioPalette.fuchsia
         control.setTitleTextAttributes([
@@ -536,28 +514,9 @@ final class TrendsViewController: FeatureViewController {
         ], for: .selected)
     }
 
-    private func makeReferenceLineControlContainer() -> UIView {
-        let container = UIView()
-        container.addForAutoLayout(referenceLineControl)
-        NSLayoutConstraint.activate([
-            referenceLineControl.topAnchor.constraint(equalTo: container.topAnchor),
-            referenceLineControl.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            referenceLineControl.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            referenceLineControl.widthAnchor.constraint(equalToConstant: 180),
-            referenceLineControl.heightAnchor.constraint(equalToConstant: 28)
-        ])
-        return container
-    }
-
     private func updateSelectorTitles() {
         for period in Period.allCases {
             periodControl.setTitle(periodTitle(period), forSegmentAt: period.rawValue)
-        }
-        for referenceLine in WellnessTrendReferenceLine.allCases {
-            referenceLineControl.setTitle(
-                referenceLineTitle(referenceLine),
-                forSegmentAt: referenceLine.rawValue
-            )
         }
     }
 
@@ -567,13 +526,6 @@ final class TrendsViewController: FeatureViewController {
         case .thirtyDays: L10n.Trends.thirtyDays
         case .year: L10n.Trends.oneYear
         case .custom: L10n.Trends.customRange
-        }
-    }
-
-    private func referenceLineTitle(_ referenceLine: WellnessTrendReferenceLine) -> String {
-        switch referenceLine {
-        case .average: L10n.text("trends.reference.average")
-        case .linearTrend: L10n.text("trends.reference.linear")
         }
     }
 
@@ -587,15 +539,6 @@ final class TrendsViewController: FeatureViewController {
             selectedPeriod = period
             reloadContent()
         }
-    }
-
-    @objc private func referenceLineDidChange() {
-        guard let referenceLine = WellnessTrendReferenceLine(
-            rawValue: referenceLineControl.selectedSegmentIndex
-        ) else { return }
-        selectedReferenceLine = referenceLine
-        defaults.set(referenceLine.rawValue, forKey: Self.referenceLinePreferenceKey)
-        chartView.referenceLine = referenceLine
     }
 
     private func dateRange() throws -> (from: LocalDay, through: LocalDay) {
@@ -622,8 +565,8 @@ final class TrendsViewController: FeatureViewController {
             return FeatureFormatting.double(lower)...FeatureFormatting.double(upper)
         }
         chartView.targetBandColor = WellnarioPalette.fuchsia
-        chartView.linearTrend = WellnessLinearRegression.fit(values: values)
-        chartView.referenceLine = selectedReferenceLine
+        chartView.linearTrend = nil
+        chartView.referenceLine = .average
         chartView.averageTitle = L10n.Trends.average
         chartView.averageColor = WellnarioPalette.cyan
         chartView.smoothingWindow = 1
@@ -705,61 +648,109 @@ final class TrendsViewController: FeatureViewController {
     private func rebuildSummary(_ series: ConsumptionSeries) {
         summaryStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let unit = series.unit.symbol(languageCode: catalogLanguage.rawValue)
-        let average = summaryCard(
-            title: L10n.Trends.average,
-            value: FeatureFormatting.decimal(series.average),
-            unit: unit,
-            symbol: "waveform.path.ecg",
-            tone: .accent
-        )
-        let total = summaryCard(
-            title: L10n.Trends.total,
-            value: FeatureFormatting.decimal(series.total),
-            unit: unit,
-            symbol: "sum",
-            tone: .information
-        )
-        let inTarget = summaryCard(
-            title: L10n.Trends.daysInTarget,
-            value: "\(series.daysWithinTarget)",
-            unit: "/\(series.recordedDayCount)",
-            symbol: "scope",
-            tone: series.daysWithinTarget > 0 ? .success : .neutral
-        )
-        if traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
-            [average, total, inTarget].forEach(summaryStack.addArrangedSubview)
-        } else {
-            let top = UIStackView(arrangedSubviews: [average, total], axis: .horizontal, spacing: WellnarioSpacing.cardGap, distribution: .fillEqually)
-            average.widthAnchor.constraint(equalTo: total.widthAnchor).isActive = true
-            summaryStack.addArrangedSubview(top)
-            summaryStack.addArrangedSubview(inTarget)
-        }
+        let metrics: [(title: String, value: String, unit: String, tone: WellnarioTone)] = [
+            (
+                L10n.Trends.average,
+                FeatureFormatting.decimal(series.average),
+                unit,
+                .accent
+            ),
+            (
+                L10n.Trends.total,
+                FeatureFormatting.decimal(series.total),
+                unit,
+                .information
+            ),
+            (
+                L10n.Trends.daysInTarget,
+                "\(series.daysWithinTarget)",
+                "/\(series.recordedDayCount)",
+                series.daysWithinTarget > 0 ? .success : .neutral
+            )
+        ]
 
-        if series.active.currentTarget == nil {
-            let button = PrimaryButton(title: L10n.text("trends.define_target"), style: .secondary)
-            button.addTarget(self, action: #selector(defineTarget), for: .touchUpInside)
-            summaryStack.addArrangedSubview(button)
+        let summaryCard = PremiumCardView()
+        summaryCard.accessibilityLabel = metrics
+            .map { "\($0.title): \($0.value)\($0.unit)" }
+            .joined(separator: ", ")
+        summaryCard.accessibilityTraits = [.summaryElement]
+
+        let metricViews = metrics.map { metric in
+            compactSummaryMetric(
+                title: metric.title,
+                value: metric.value,
+                unit: metric.unit,
+                tone: metric.tone
+            )
         }
+        let metricsStack = UIStackView(
+            arrangedSubviews: metricViews,
+            axis: traitCollection.preferredContentSizeCategory.isAccessibilityCategory ? .vertical : .horizontal,
+            spacing: WellnarioSpacing.small,
+            distribution: .fillEqually
+        )
+        summaryCard.contentView.addForAutoLayout(metricsStack)
+        metricsStack.pinEdges(
+            to: summaryCard.contentView,
+            insets: NSDirectionalEdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+        )
+        summaryStack.addArrangedSubview(summaryCard)
     }
 
-    private func summaryCard(title: String, value: String, unit: String, symbol: String, tone: WellnarioTone) -> MetricCardView {
-        let card = MetricCardView()
-        card.configure(title: title, symbolName: symbol, value: value, unit: unit, status: "", tone: tone)
+    private func compactSummaryMetric(
+        title: String,
+        value: String,
+        unit: String,
+        tone: WellnarioTone
+    ) -> UIView {
+        let titleLabel = UILabel()
+        titleLabel.applyWellnarioStyle(.summaryDetail, color: WellnarioPalette.textSecondary)
+        titleLabel.text = title
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 2
+        titleLabel.lineBreakMode = .byWordWrapping
+
+        let valueLabel = UILabel()
+        valueLabel.applyWellnarioStyle(.summaryMetric, color: WellnarioPalette.textPrimary)
+        valueLabel.text = value
+        valueLabel.textAlignment = .center
+        valueLabel.minimumScaleFactor = 0.72
+        valueLabel.adjustsFontSizeToFitWidth = true
+
+        let unitLabel = UILabel()
+        unitLabel.applyWellnarioStyle(.summaryDetail, color: WellnarioPalette.textSecondary)
+        unitLabel.text = unit
+        unitLabel.textAlignment = .center
+        unitLabel.numberOfLines = 1
+        unitLabel.isHidden = unit.isEmpty
+
+        let valueStack = UIStackView(
+            arrangedSubviews: [valueLabel, unitLabel],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.xxxSmall,
+            alignment: .lastBaseline
+        )
+        valueStack.alignment = .center
+        valueStack.distribution = .fill
+
         let progress = SegmentedProgressView()
         progress.totalSegments = 6
         progress.completedSegments = tone == .neutral ? 0 : 4
-        card.setVisualization(progress)
-        return card
+        progress.heightAnchor.constraint(equalToConstant: 8).isActive = true
+
+        let stack = UIStackView(
+            arrangedSubviews: [titleLabel, valueStack, progress],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxxSmall,
+            alignment: .fill
+        )
+        stack.setCustomSpacing(WellnarioSpacing.xxSmall, after: titleLabel)
+        return stack
     }
 
     private func showEmptyActives() {
         contentStack.isHidden = true
         emptyState.isHidden = false
-    }
-
-    @objc private func defineTarget() {
-        guard let active = actives.first(where: { $0.id == selectedActiveID }) else { return }
-        presentSheet(ActiveEditorViewController(repository: repository, active: active), largeOnly: true)
     }
 
     private func presentCustomRangePicker() {

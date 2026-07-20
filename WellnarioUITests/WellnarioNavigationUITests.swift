@@ -404,17 +404,39 @@ final class WellnarioNavigationUITests: XCTestCase {
     }
 
     @MainActor
-    func testMedicalReviewCanBeCreatedFromHealthCard() {
+    func testHealthSectionsRemainVisibleAfterRepeatedTransitions() {
         let app = launch(language: "es", initialTab: "health")
-        let medicalReviews = app.buttons["health.medical_reviews.open"]
-        XCTAssertTrue(medicalReviews.waitForExistence(timeout: 5))
-        for _ in 0..<5 where !medicalReviews.isHittable { app.swipeUp() }
-        XCTAssertTrue(medicalReviews.isHittable)
-        medicalReviews.tap()
+        let tabs = app.segmentedControls["health.tabs"]
+        XCTAssertTrue(tabs.waitForExistence(timeout: 5))
 
+        tabs.buttons["Biomarcadores"].tap()
+        waitUntilHittable(
+            app.descendants(matching: .any)["health.biomarkers.search"],
+            description: "El buscador de biomarcadores debe quedar visible tras la transición"
+        )
+        XCTAssertTrue(app.buttons["health.biomarkers.add"].isHittable)
+
+        tabs.buttons["Analíticas"].tap()
+        waitUntilHittable(
+            app.descendants(matching: .any)["health.analytics.root"],
+            description: "El contenido de analíticas debe quedar visible tras la transición"
+        )
+        XCTAssertTrue(app.buttons["health.analytics.add"].isHittable)
+
+        tabs.buttons["Revisiones"].tap()
+        waitUntilHittable(
+            app.descendants(matching: .any)["health.medical_reviews.root"],
+            description: "El contenido de revisiones debe quedar visible tras la transición"
+        )
+        XCTAssertTrue(app.buttons["health.medical_reviews.add"].isHittable)
+    }
+
+    @MainActor
+    func testMedicalReviewCanBeCreatedFromHealthTab() {
+        let app = launch(language: "es", initialTab: "health")
         XCTAssertTrue(
             app.descendants(matching: .any)["health.medical_reviews.root"]
-                .waitForExistence(timeout: 3)
+                .waitForExistence(timeout: 5)
         )
         let add = app.buttons["health.medical_reviews.add"]
         XCTAssertTrue(add.waitForExistence(timeout: 3))
@@ -478,7 +500,7 @@ final class WellnarioNavigationUITests: XCTestCase {
     @MainActor
     func testActiveDetailIsReachable() {
         let app = launch(language: "es", initialTab: "supplements")
-        let actives = app.buttons["Activos"]
+        let actives = app.segmentedControls["supplements.tabs"].buttons["Suplementos"]
         XCTAssertTrue(actives.waitForExistence(timeout: 5))
         actives.tap()
 
@@ -512,5 +534,19 @@ final class WellnarioNavigationUITests: XCTestCase {
         ]
         app.launch()
         return app
+    }
+
+    @MainActor
+    private func waitUntilHittable(
+        _ element: XCUIElement,
+        timeout: TimeInterval = 4,
+        description: String
+    ) {
+        XCTAssertTrue(element.waitForExistence(timeout: timeout), description)
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "isHittable == true"),
+            object: element
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: timeout), .completed, description)
     }
 }

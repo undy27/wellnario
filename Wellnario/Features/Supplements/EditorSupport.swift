@@ -101,11 +101,19 @@ class EditorViewController: FeatureViewController, UIGestureRecognizerDelegate {
     }
 
     private func closeEditor(animated: Bool) {
-        if let navigationController, navigationController.presentingViewController != nil {
+        // Intake and the other editors are normally wrapped in a page-sheet
+        // navigation controller. During the end of a sheet presentation,
+        // `presentingViewController` can briefly be nil even though the
+        // navigation controller still owns the sheet. Dismiss the sheet by
+        // its presentation style as well so saving never leaves the editor
+        // stranded on screen.
+        if let navigationController,
+           navigationController.presentingViewController != nil
+            || navigationController.sheetPresentationController != nil {
             navigationController.dismiss(animated: animated)
             return
         }
-        if presentingViewController != nil {
+        if presentingViewController != nil || sheetPresentationController != nil {
             dismiss(animated: animated)
             return
         }
@@ -176,7 +184,12 @@ final class SelectionFieldView: UIView {
     private let leadingImageView = UIImageView()
     private let accessoryImageView = UIImageView(image: UIImage(systemName: "chevron.up.chevron.down"))
 
-    var title: String = "" { didSet { titleLabel.text = title } }
+    var title: String = "" {
+        didSet {
+            titleLabel.text = title
+            titleLabel.isHidden = title.isEmpty
+        }
+    }
     var value: String = "" { didSet { updateValue() } }
     var leadingImage: UIImage? { didSet { updateValue() } }
     var menu: UIMenu? { didSet { button.menu = menu } }
@@ -197,6 +210,7 @@ final class SelectionFieldView: UIView {
 
     private func setUp() {
         titleLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
+        titleLabel.isHidden = title.isEmpty
         button.titleLabel?.font = WellnarioTypography.font(for: .body)
         button.titleLabel?.adjustsFontForContentSizeCategory = true
         button.contentHorizontalAlignment = .leading
@@ -209,6 +223,7 @@ final class SelectionFieldView: UIView {
         leadingImageView.clipsToBounds = true
         leadingImageView.isHidden = true
         leadingImageView.isUserInteractionEnabled = false
+        leadingImageView.accessibilityIdentifier = "selection.leading_image"
         accessoryImageView.contentMode = .scaleAspectFit
         accessoryImageView.tintColor = WellnarioPalette.textTertiary
         accessoryImageView.isUserInteractionEnabled = false
@@ -272,7 +287,7 @@ final class TextAreaFieldView: UIView, UITextViewDelegate {
         get { textView.text }
         set { textView.text = newValue; updatePlaceholder() }
     }
-    var minimumHeight: CGFloat = 110 {
+    var minimumHeight: CGFloat = WellnarioLayout.textAreaMinimumHeight {
         didSet { minimumHeightConstraint?.constant = minimumHeight }
     }
 
@@ -295,7 +310,12 @@ final class TextAreaFieldView: UIView, UITextViewDelegate {
         textView.tintColor = WellnarioPalette.cyan
         textView.font = WellnarioTypography.font(for: .body)
         textView.adjustsFontForContentSizeCategory = true
-        textView.textContainerInset = UIEdgeInsets(top: 14, left: 12, bottom: 14, right: 12)
+        textView.textContainerInset = UIEdgeInsets(
+            top: WellnarioLayout.textAreaVerticalPadding,
+            left: 12,
+            bottom: WellnarioLayout.textAreaVerticalPadding,
+            right: 12
+        )
         textView.applyContinuousCorners(WellnarioRadius.control)
         textView.layer.borderWidth = 1
         textView.layer.borderColor = WellnarioPalette.hairline.cgColor
@@ -311,7 +331,10 @@ final class TextAreaFieldView: UIView, UITextViewDelegate {
         NSLayoutConstraint.activate([
             placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 16),
             placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: textView.trailingAnchor, constant: -16),
-            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: 15)
+            placeholderLabel.topAnchor.constraint(
+                equalTo: textView.topAnchor,
+                constant: WellnarioLayout.textAreaVerticalPadding + 1
+            )
         ])
 
         let stack = UIStackView(arrangedSubviews: [titleLabel, textView], axis: .vertical, spacing: 7)

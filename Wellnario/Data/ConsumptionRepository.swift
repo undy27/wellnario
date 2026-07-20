@@ -39,45 +39,66 @@ extension WellnarioRepository {
     }
 
     public func createConsumption(_ draft: ConsumptionDraft) throws -> Consumption {
-        let id = UUID()
-        let created = try withLock { () -> Consumption in
-            let prepared = try prepareConsumption(draft, allowArchivedInstance: false)
+        guard let created = try createConsumptions([draft]).first else {
+            throw RepositoryError.storage("No consumption was created.")
+        }
+        return created
+    }
+
+    /// Creates related intakes as one SQLite transaction. The widget uses this
+    /// path so confirming several cards cannot leave a partially logged batch.
+    public func createConsumptions(_ drafts: [ConsumptionDraft]) throws -> [Consumption] {
+        guard !drafts.isEmpty else {
+            throw RepositoryError.validation("At least one consumption is required.")
+        }
+
+        let records = try withLock { () -> [Consumption] in
+            let identifiers = drafts.map { _ in UUID() }
+            let preparedDrafts = try zip(identifiers, drafts).map { id, draft in
+                (id, draft, try prepareConsumption(draft, allowArchivedInstance: false))
+            }
             let now = Date().timeIntervalSince1970
             try database.transaction {
-                try database.execute(
-                    """
-                    INSERT INTO consumptions (
-                        id, instance_id, user_id, supplement_name_snapshot,
-                        instance_label_snapshot, quantity, unit, consumed_at,
-                        timezone_id, local_day, notes, inventory_applied, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-                    """,
-                    bindings: [
-                        .text(id.uuidString), .text(draft.instanceID.uuidString), .text(userID.uuidString),
-                        .text(prepared.supplementName), .text(prepared.instanceLabel),
-                        .text(try DecimalCodec.encode(draft.quantity)), .text(draft.unit.rawValue),
-                        .real(draft.consumedAt.timeIntervalSince1970), .text(prepared.timeZone.identifier),
-                        .text(prepared.localDay.iso8601), binding(prepared.notes), .integer(0),
-                        .real(now), .real(now)
-                    ]
-                )
-                try replaceSnapshots(consumptionID: id, snapshots: prepared.snapshots)
-                let inventoryApplied = try applyInventoryConsumption(
-                    instanceID: draft.instanceID,
-                    quantity: draft.quantity,
-                    unit: draft.unit
-                )
-                if inventoryApplied {
-                    try setInventoryApplied(true, to: id)
+                for (id, draft, prepared) in preparedDrafts {
+                    try database.execute(
+                        """
+                        INSERT INTO consumptions (
+                            id, instance_id, user_id, supplement_name_snapshot,
+                            instance_label_snapshot, quantity, unit, consumed_at,
+                            timezone_id, local_day, notes, inventory_applied, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                        """,
+                        bindings: [
+                            .text(id.uuidString), .text(draft.instanceID.uuidString), .text(userID.uuidString),
+                            .text(prepared.supplementName), .text(prepared.instanceLabel),
+                            .text(try DecimalCodec.encode(draft.quantity)), .text(draft.unit.rawValue),
+                            .real(draft.consumedAt.timeIntervalSince1970), .text(prepared.timeZone.identifier),
+                            .text(prepared.localDay.iso8601), binding(prepared.notes), .integer(0),
+                            .real(now), .real(now)
+                        ]
+                    )
+                    try replaceSnapshots(consumptionID: id, snapshots: prepared.snapshots)
+                    let inventoryApplied = try applyInventoryConsumption(
+                        instanceID: draft.instanceID,
+                        quantity: draft.quantity,
+                        unit: draft.unit
+                    )
+                    if inventoryApplied {
+                        try setInventoryApplied(true, to: id)
+                    }
                 }
             }
-            guard let result = try loadConsumption(id: id) else {
-                throw RepositoryError.notFound(entity: "Consumption", id: id)
+            return try identifiers.map { id in
+                guard let result = try loadConsumption(id: id) else {
+                    throw RepositoryError.notFound(entity: "Consumption", id: id)
+                }
+                return result
             }
-            return result
         }
-        notify(entity: .consumption, mutation: .created, id: id)
-        return created
+        for consumption in records {
+            notify(entity: .consumption, mutation: .created, id: consumption.id)
+        }
+        return records
     }
 
     public func updateConsumption(id: UUID, with draft: ConsumptionDraft) throws -> Consumption {

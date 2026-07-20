@@ -337,6 +337,13 @@ final class AppleHealthSourceSectionView: UIView {
 
 @MainActor
 final class IntegrationSetupViewController: WellnessScrollViewController {
+    private struct StatusBannerEvent: Equatable {
+        let state: AppleHealthSyncState
+        let lastSyncedAt: Date?
+    }
+
+    private static let statusBannerDisplayDuration: UInt64 = 10_000_000_000
+
     private let provider: IntegrationProvider
     private let appleHealthService: AppleHealthSyncing
     private let statusBanner = FeedbackBannerView()
@@ -344,6 +351,8 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
     private let sourcesStack = UIStackView()
     private var expandedSourceKinds: Set<AppleHealthDataKind> = [.sleep]
     private var sourceSelectionsOnEntry: Set<AppleHealthSourceSelection>
+    private var terminalStatusBannerEvent: StatusBannerEvent?
+    private var statusBannerDismissalTask: Task<Void, Never>?
 
     init(
         provider: IntegrationProvider,
@@ -381,6 +390,11 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
         sourceSelectionsOnEntry = currentSelections
         let service = appleHealthService
         Task { await service.syncIfConfigured() }
+    }
+
+    deinit {
+        statusBannerDismissalTask?.cancel()
+        NotificationCenter.default.removeObserver(self)
     }
 
     private func buildContent() {
@@ -440,6 +454,26 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
                     identifier: "settings.integration.apple_health.sources"
                 )
             )
+
+            contentStack.addArrangedSubview(
+                makeSectionTitle(L10n.text("apple_health.shortcut.automation.section_title"))
+            )
+            let shortcutAutomationRow = makeShortcutAutomationRow()
+            shortcutAutomationRow.addAction(UIAction { [weak self] _ in
+                guard let self else { return }
+                navigationController?.pushViewController(
+                    AppleHealthShortcutAutomationViewController(
+                        appleHealthService: appleHealthService
+                    ),
+                    animated: true
+                )
+            }, for: .touchUpInside)
+            contentStack.addArrangedSubview(
+                makeCard(
+                    containing: shortcutAutomationRow,
+                    identifier: "settings.integration.apple_health.automation.card"
+                )
+            )
         }
 
         let privacy = FeedbackBannerView()
@@ -477,6 +511,7 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
         case .syncing:
             statusBanner.configure(message: L10n.text("apple_health.syncing"), tone: .information)
             connectButton.setTitle(L10n.text("apple_health.sync_now"), for: .normal)
+            connectButton.isEnabled = false
         case .failed:
             statusBanner.configure(message: L10n.text("apple_health.sync_failed"), tone: .warning)
             connectButton.setTitle(L10n.text("apple_health.try_again"), for: .normal)
@@ -488,6 +523,59 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
             connectButton.setTitle(L10n.text("apple_health.sync_now"), for: .normal)
             connectButton.isEnabled = true
         }
+        updateStatusBannerVisibility()
+    }
+
+    private func updateStatusBannerVisibility() {
+        let event = StatusBannerEvent(
+            state: appleHealthService.state,
+            lastSyncedAt: appleHealthService.snapshot.lastSyncedAt
+        )
+        switch appleHealthService.state {
+        case .ready, .failed:
+            guard terminalStatusBannerEvent != event else { return }
+            terminalStatusBannerEvent = event
+            showStatusBanner()
+            scheduleStatusBannerDismissal(for: event)
+        case .unavailable, .notConfigured, .syncing:
+            statusBannerDismissalTask?.cancel()
+            statusBannerDismissalTask = nil
+            terminalStatusBannerEvent = nil
+            showStatusBanner()
+        }
+    }
+
+    private func showStatusBanner() {
+        statusBannerDismissalTask?.cancel()
+        statusBanner.isHidden = false
+        statusBanner.alpha = 1
+        statusBanner.transform = .identity
+        view.setNeedsLayout()
+    }
+
+    private func scheduleStatusBannerDismissal(for event: StatusBannerEvent) {
+        statusBannerDismissalTask?.cancel()
+        statusBannerDismissalTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.statusBannerDisplayDuration)
+            guard !Task.isCancelled,
+                  let self,
+                  self.terminalStatusBannerEvent == event else { return }
+            self.dismissStatusBanner(for: event)
+        }
+    }
+
+    private func dismissStatusBanner(for event: StatusBannerEvent) {
+        guard terminalStatusBannerEvent == event, !statusBanner.isHidden else { return }
+        WellnarioMotion.animate(duration: 0.36, animations: {
+            self.statusBanner.alpha = 0
+            self.statusBanner.transform = CGAffineTransform(translationX: 0, y: -6)
+        }, completion: { [weak self] _ in
+            guard let self, self.terminalStatusBannerEvent == event else { return }
+            self.statusBanner.isHidden = true
+            self.statusBanner.alpha = 1
+            self.statusBanner.transform = .identity
+            self.view.setNeedsLayout()
+        })
     }
 
     private func dataRows() -> [UIView] {
@@ -499,6 +587,7 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
                 ("person.text.rectangle", "integrations.data.profile"),
                 ("heart.fill", "integrations.data.heart"),
                 ("figure.run", "integrations.data.activity"),
+                ("sun.max.fill", "integrations.data.daylight"),
                 ("figure.strengthtraining.traditional", "integrations.data.workouts")
             ]
         case .oura:
@@ -524,6 +613,55 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
                 alignment: .center
             )
         }
+    }
+
+    private func makeShortcutAutomationRow() -> UIButton {
+        let symbol = UIImageView(image: UIImage(systemName: "clock.arrow.2.circlepath"))
+        symbol.tintColor = WellnarioPalette.pink
+        symbol.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 19, weight: .semibold)
+        symbol.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        symbol.setContentHuggingPriority(.required, for: .horizontal)
+
+        let titleLabel = UILabel()
+        titleLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textPrimary)
+        titleLabel.text = L10n.text("apple_health.shortcut.automation.section_title")
+        titleLabel.numberOfLines = 0
+
+        let bodyLabel = UILabel()
+        bodyLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
+        bodyLabel.text = L10n.text("apple_health.shortcut.automation.section_body")
+        bodyLabel.numberOfLines = 0
+
+        let labels = UIStackView(
+            arrangedSubviews: [titleLabel, bodyLabel],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxxSmall
+        )
+
+        let chevron = UIImageView(image: UIImage(systemName: "chevron.forward"))
+        chevron.tintColor = WellnarioPalette.textTertiary
+        chevron.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        chevron.setContentHuggingPriority(.required, for: .horizontal)
+
+        let content = UIStackView(
+            arrangedSubviews: [symbol, labels, chevron],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.xSmall,
+            alignment: .center
+        )
+        content.isUserInteractionEnabled = false
+
+        let row = UIButton(type: .system)
+        row.accessibilityIdentifier = "settings.integration.apple_health.automation.open"
+        row.accessibilityLabel = titleLabel.text
+        row.accessibilityHint = bodyLabel.text
+        row.addForAutoLayout(content)
+        content.pinEdges(
+            to: row,
+            insets: NSDirectionalEdgeInsets(top: 11, leading: 0, bottom: 11, trailing: 0)
+        )
+        row.heightAnchor.constraint(greaterThanOrEqualToConstant: 68).isActive = true
+        return row
     }
 
     private func rebuildSourceRows() {
@@ -607,6 +745,11 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
                 // such as the birth date used for age-based sleep guidance.
                 try await appleHealthService.requestAuthorizationAndSync()
                 sourceSelectionsOnEntry = appleHealthService.disabledSourceSelections
+                if appleHealthService.requiresManualBloodPressureAuthorization,
+                   appleHealthService.snapshot.systolicBloodPressureSixMonthAverage == nil {
+                    presentManualBloodPressureAuthorizationAlert()
+                    return
+                }
                 let alert = UIAlertController(
                     title: L10n.text("apple_health.connected.title"),
                     message: L10n.text("apple_health.connected.message"),
@@ -624,6 +767,26 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
                 present(alert, animated: true)
             }
         }
+    }
+
+    private func presentManualBloodPressureAuthorizationAlert() {
+        let alert = UIAlertController(
+            title: L10n.text("apple_health.blood_pressure.manual.title"),
+            message: L10n.text("apple_health.blood_pressure.manual.message"),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(
+            title: L10n.text("apple_health.blood_pressure.manual.open_health"),
+            style: .default
+        ) { _ in
+            guard let url = URL(string: "x-apple-health://HealthProfile") else { return }
+            UIApplication.shared.open(url)
+        })
+        alert.addAction(UIAlertAction(
+            title: L10n.Common.cancel,
+            style: .cancel
+        ))
+        present(alert, animated: true)
     }
 
     @objc private func appleHealthDidChange() {

@@ -11,10 +11,19 @@ enum WellnarioTextStyle: Int, Sendable {
     case summaryDetail
     case sectionTitle
     case body
+    case bodyBold
     case secondary
     case caption
     case tab
     case button
+    /// Enlarged marker name used in the blood/urine analysis editor.
+    case analysisMarkerTitle
+    /// Slightly larger than `summaryDetail`, reserved for the compact
+    /// biomarker-history table where individual results must remain legible.
+    case biomarkerSummaryDetail
+    /// Compact value and unit styles used inside the biological-age ring.
+    case biologicalAgeRingMetric
+    case biologicalAgeRingUnit
 }
 
 enum WellnarioTypography {
@@ -55,6 +64,8 @@ enum WellnarioTypography {
             scaledFont(size: 18, weight: .semibold, textStyle: .headline, compatibleWith: traitCollection)
         case .body:
             scaledFont(size: 16, weight: .regular, textStyle: .body, compatibleWith: traitCollection)
+        case .bodyBold:
+            scaledFont(size: 16, weight: .bold, textStyle: .body, compatibleWith: traitCollection)
         case .secondary:
             scaledFont(size: 15, weight: .regular, textStyle: .subheadline, compatibleWith: traitCollection)
         case .caption:
@@ -63,6 +74,21 @@ enum WellnarioTypography {
             scaledFont(size: 11, weight: .semibold, textStyle: .caption2, compatibleWith: traitCollection)
         case .button:
             scaledFont(size: 16, weight: .semibold, textStyle: .headline, compatibleWith: traitCollection)
+        case .analysisMarkerTitle:
+            scaledFont(size: 26, weight: .semibold, textStyle: .title2, compatibleWith: traitCollection)
+        case .biomarkerSummaryDetail:
+            scaledFont(size: 13.75, weight: .medium, textStyle: .caption1, compatibleWith: traitCollection)
+        case .biologicalAgeRingMetric:
+            scaledFont(
+                size: 15,
+                weight: .bold,
+                textStyle: .title3,
+                design: .rounded,
+                tabular: true,
+                compatibleWith: traitCollection
+            )
+        case .biologicalAgeRingUnit:
+            scaledFont(size: 8, weight: .medium, textStyle: .caption2, compatibleWith: traitCollection)
         }
     }
 

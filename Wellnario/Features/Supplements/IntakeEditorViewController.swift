@@ -175,8 +175,13 @@ final class IntakeEditorViewController: EditorViewController {
             instanceField.value = [supplement.name, instance.label]
                 .filter { !$0.isEmpty }
                 .joined(separator: " · ")
+            instanceField.leadingImage = SupplementPhotoStore.image(
+                reference: supplement.imageReference,
+                databaseURL: repository.databaseURL
+            )?.withRenderingMode(.alwaysOriginal)
         } else {
             instanceField.value = L10n.Common.required
+            instanceField.leadingImage = nil
         }
         instanceField.menu = UIMenu(children: instances.compactMap { instance in
             guard let supplement = supplement(for: instance) else { return nil }

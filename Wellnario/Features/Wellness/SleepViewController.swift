@@ -4,6 +4,7 @@ import UIKit
 final class SleepViewController: WellnessScrollViewController {
     private static let trendReferenceLinePreferenceKey = "wellnario.sleep.trend.referenceLine"
     private static let sourceBannerHeight: CGFloat = 76
+    private static let sourceBannerDisplayDuration: UInt64 = 10_000_000_000
 
     private enum TrendMetric: Int, CaseIterable {
         case quality
@@ -13,29 +14,40 @@ final class SleepViewController: WellnessScrollViewController {
         case light
     }
 
+    private struct SourceBannerEvent: Equatable {
+        let state: AppleHealthSyncState
+        let lastSyncedAt: Date?
+    }
+
     var onOpenSettings: (() -> Void)?
 
     private let appleHealthService: AppleHealthSyncing
+    private let repository: WellnarioRepositoryProtocol?
     private let defaults: UserDefaults
     private let cardLayoutPreferences: SleepCardLayoutPreferences
     private let sleepManualOverrideStore: SleepManualOverrideStore
     private let sourceBanner = FeedbackBannerView()
+    private lazy var syncIndicator = AppleHealthSyncNavigationIndicator(service: appleHealthService)
     private let trendChart = WellnessTrendChartView()
     private var isSourceBannerVisible = false
     private var appliedSourceBannerInset: CGFloat = 0
     private var selectedTrendPeriod = AppleHealthSleepTrendPeriod.sevenDays
     private var selectedTrendMetric = TrendMetric.duration
     private var selectedTrendReferenceLine: WellnessTrendReferenceLine
+    private var terminalSourceBannerEvent: SourceBannerEvent?
+    private var sourceBannerDismissalTask: Task<Void, Never>?
     private lazy var trendPeriodControl: UISegmentedControl = makeTrendPeriodControl()
     private lazy var trendMetricControl: UISegmentedControl = makeTrendMetricControl()
     private lazy var trendReferenceLineControl: UISegmentedControl = makeTrendReferenceLineControl()
 
     init(
         appleHealthService: AppleHealthSyncing,
+        repository: WellnarioRepositoryProtocol? = nil,
         defaults: UserDefaults = .standard,
         sleepManualOverrideStore: SleepManualOverrideStore? = nil
     ) {
         self.appleHealthService = appleHealthService
+        self.repository = repository
         self.defaults = defaults
         self.sleepManualOverrideStore = sleepManualOverrideStore
             ?? SleepManualOverrideStore(defaults: defaults)
@@ -73,6 +85,10 @@ final class SleepViewController: WellnessScrollViewController {
         editCardsButton.accessibilityLabel = L10n.text("sleep.cards.edit")
         editCardsButton.accessibilityIdentifier = "sleep.cards.edit"
         navigationItem.rightBarButtonItems = [settingsButton, editCardsButton]
+        syncIndicator.install(
+            on: navigationItem,
+            baseItems: navigationItem.rightBarButtonItems ?? []
+        )
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(appleHealthDidChange),
@@ -100,12 +116,18 @@ final class SleepViewController: WellnessScrollViewController {
         navigationController?.setNavigationBarHidden(false, animated: animated)
         navigationController?.navigationBar.prefersLargeTitles = false
         navigationItem.largeTitleDisplayMode = .never
+        syncIndicator.refresh()
         buildContent()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateScrollInsetsForSourceBanner()
+    }
+
+    deinit {
+        sourceBannerDismissalTask?.cancel()
+        NotificationCenter.default.removeObserver(self)
     }
 
     private func buildContent() {
@@ -145,7 +167,7 @@ final class SleepViewController: WellnessScrollViewController {
             cardView = makeTrendCard(snapshot: snapshot)
         case .factors:
             sectionTitle = makeSectionTitle(L10n.text("sleep.factors.title"))
-            cardView = makeFactorCard()
+            cardView = makeFactorCards()
         }
 
         let section = UIStackView(
@@ -218,17 +240,90 @@ final class SleepViewController: WellnessScrollViewController {
 
     private func updateSourceBanner(snapshot: AppleHealthSnapshot) {
         guard appleHealthService.isConfigured else {
-            isSourceBannerVisible = false
-            sourceBanner.isHidden = true
-            view.setNeedsLayout()
+            clearTerminalSourceBannerEvent()
+            hideSourceBannerImmediately()
             return
         }
 
+        let event = SourceBannerEvent(
+            state: appleHealthService.state,
+            lastSyncedAt: snapshot.lastSyncedAt
+        )
+        switch appleHealthService.state {
+        case .ready, .failed:
+            if appleHealthService.state == .ready {
+                clearTerminalSourceBannerEvent()
+                hideSourceBannerImmediately()
+                return
+            }
+            guard terminalSourceBannerEvent != event else {
+                if !sourceBanner.isHidden { configureSourceBanner(sourceBanner, snapshot: snapshot) }
+                return
+            }
+            terminalSourceBannerEvent = event
+            showSourceBanner()
+            configureSourceBanner(sourceBanner, snapshot: snapshot)
+            scheduleSourceBannerDismissal(for: event)
+        case .syncing:
+            clearTerminalSourceBannerEvent()
+            hideSourceBannerImmediately()
+        case .unavailable, .notConfigured:
+            clearTerminalSourceBannerEvent()
+            showSourceBanner()
+            configureSourceBanner(sourceBanner, snapshot: snapshot)
+        }
+    }
+
+    private func showSourceBanner() {
+        sourceBannerDismissalTask?.cancel()
         isSourceBannerVisible = true
         sourceBanner.isHidden = false
-        configureSourceBanner(sourceBanner, snapshot: snapshot)
+        sourceBanner.alpha = 1
+        sourceBanner.transform = .identity
         view.bringSubviewToFront(sourceBanner)
         view.setNeedsLayout()
+    }
+
+    private func hideSourceBannerImmediately() {
+        isSourceBannerVisible = false
+        sourceBanner.isHidden = true
+        sourceBanner.alpha = 1
+        sourceBanner.transform = .identity
+        view.setNeedsLayout()
+    }
+
+    private func clearTerminalSourceBannerEvent() {
+        sourceBannerDismissalTask?.cancel()
+        sourceBannerDismissalTask = nil
+        terminalSourceBannerEvent = nil
+    }
+
+    private func scheduleSourceBannerDismissal(for event: SourceBannerEvent) {
+        sourceBannerDismissalTask?.cancel()
+        sourceBannerDismissalTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.sourceBannerDisplayDuration)
+            guard !Task.isCancelled,
+                  let self,
+                  self.terminalSourceBannerEvent == event else { return }
+            self.dismissSourceBanner(for: event)
+        }
+    }
+
+    private func dismissSourceBanner(for event: SourceBannerEvent) {
+        guard terminalSourceBannerEvent == event, !sourceBanner.isHidden else { return }
+        view.layoutIfNeeded()
+        WellnarioMotion.animate(duration: 0.36, animations: {
+            self.sourceBanner.alpha = 0
+            self.sourceBanner.transform = CGAffineTransform(translationX: 0, y: -6)
+            self.isSourceBannerVisible = false
+            self.updateScrollInsetsForSourceBanner()
+            self.view.layoutIfNeeded()
+        }, completion: { [weak self] _ in
+            guard let self, self.terminalSourceBannerEvent == event else { return }
+            self.sourceBanner.isHidden = true
+            self.sourceBanner.alpha = 1
+            self.sourceBanner.transform = .identity
+        })
     }
 
     private func updateScrollInsetsForSourceBanner() {
@@ -537,10 +632,27 @@ final class SleepViewController: WellnessScrollViewController {
             ? session
             : nil
         let displayedDay = latestManual?.day ?? sessionDay
-        let displayedQuality = displayedDay.flatMap { day in
+        let displayedSleepEntry = displayedDay.flatMap { day in
             snapshot.sleepTrend.last {
                 LocalDay(containing: $0.date, in: .current) == day
-            }?.qualityScore
+            }
+        }
+        let displayedQuality = displayedSleepEntry?.qualityScore
+        let qualityConfiguration = sleepManualOverrideStore.qualityPreferences.configuration(
+            dateOfBirthComponents: snapshot.dateOfBirthComponents,
+            calendar: .autoupdatingCurrent
+        )
+        let qualityBreakdown: SleepQualityBreakdown?
+        if latestManual?.qualityScore == nil,
+           let displayedSleepEntry {
+            qualityBreakdown = SleepQualityCalculator.breakdown(
+                for: displayedSleepEntry,
+                in: snapshot.sleepTrend,
+                configuration: qualityConfiguration,
+                calendar: .autoupdatingCurrent
+            )
+        } else {
+            qualityBreakdown = nil
         }
 
         let moon = UIImageView(image: UIImage(systemName: "moon.stars.fill"))
@@ -553,8 +665,8 @@ final class SleepViewController: WellnessScrollViewController {
             titleLabel.text = AppleHealthUIFormatting.duration(durationHours * 3_600)
         } else if let displayedSession {
             titleLabel.text = AppleHealthUIFormatting.duration(displayedSession.asleepSeconds)
-        } else if let quality = displayedQuality {
-            titleLabel.text = L10n.text("sleep.manual.quality", Int(quality.rounded()))
+        } else if latestManual?.qualityScore != nil {
+            titleLabel.text = L10n.text("sleep.latest.title")
         } else {
             titleLabel.text = L10n.text("sleep.latest.empty.title")
         }
@@ -572,9 +684,6 @@ final class SleepViewController: WellnessScrollViewController {
             if latestManual != nil {
                 details.append(L10n.text("sleep.manual.source"))
             }
-            if let quality = displayedQuality {
-                details.append(L10n.text("sleep.manual.quality", Int(quality.rounded())))
-            }
             bodyLabel.text = details.joined(separator: " · ")
         } else if let latestManual {
             let formatter = DateFormatter()
@@ -584,9 +693,6 @@ final class SleepViewController: WellnessScrollViewController {
             let date = try? latestManual.day.startDate(in: TimeZone.current)
             var details = [L10n.text("sleep.manual.source")]
             if let date { details.insert(formatter.string(from: date), at: 0) }
-            if let quality = displayedQuality {
-                details.append(L10n.text("sleep.manual.quality", Int(quality.rounded())))
-            }
             bodyLabel.text = details.joined(separator: " · ")
         } else {
             bodyLabel.text = L10n.text("sleep.latest.empty.body")
@@ -628,11 +734,23 @@ final class SleepViewController: WellnessScrollViewController {
             spacing: WellnarioSpacing.xxSmall
         )
 
-        let content = UIStackView(
-            arrangedSubviews: [summary, separator, timelineSection],
-            axis: .vertical,
-            spacing: WellnarioSpacing.small
-        )
+        var sections: [UIView] = [summary]
+        if let displayedQuality {
+            sections.append(separator)
+            sections.append(makeSleepQualityBreakdownSection(
+                qualityScore: displayedQuality,
+                breakdown: qualityBreakdown,
+                configuration: qualityConfiguration,
+                entry: displayedSleepEntry
+            ))
+        }
+        let timelineSeparator = UIView()
+        timelineSeparator.backgroundColor = WellnarioPalette.hairline
+        timelineSeparator.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        sections.append(timelineSeparator)
+        sections.append(timelineSection)
+
+        let content = UIStackView(arrangedSubviews: sections, axis: .vertical, spacing: WellnarioSpacing.small)
         let card = makeCard(containing: content, identifier: "sleep.latest.card")
         card.isAccessibilityElement = true
         card.accessibilityLabel = [
@@ -644,32 +762,251 @@ final class SleepViewController: WellnessScrollViewController {
         return card
     }
 
-    private func makeFactorCard() -> PremiumCardView {
-        let lastFactor = WellnessLocalStore.lastSleepFactor
-        let icon = UIImageView(image: UIImage(systemName: "text.badge.plus"))
-        icon.tintColor = WellnarioPalette.cyan
-        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
+    private func makeSleepQualityBreakdownSection(
+        qualityScore: Double,
+        breakdown: SleepQualityBreakdown?,
+        configuration: SleepQualityConfiguration,
+        entry: AppleHealthSleepDay?
+    ) -> UIView {
+        let title = UILabel()
+        title.applyWellnarioStyle(.secondary, color: WellnarioPalette.textPrimary)
+        title.text = L10n.text("sleep.latest.quality.breakdown.title")
 
-        let titleLabel = UILabel()
-        titleLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textPrimary)
-        titleLabel.text = lastFactor ?? L10n.text("sleep.factors.empty.title")
-        let detailLabel = UILabel()
-        detailLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
-        detailLabel.text = lastFactor == nil
-            ? L10n.text("sleep.factors.empty.body")
-            : L10n.text("sleep.factors.last_logged")
-        detailLabel.numberOfLines = 0
+        let total = UILabel()
+        total.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.violet)
+        total.textAlignment = .right
+        total.text = L10n.text("sleep.latest.quality.total", Int(qualityScore.rounded()))
+        total.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        let labels = UIStackView(arrangedSubviews: [titleLabel, detailLabel], axis: .vertical, spacing: 4)
-        let stack = UIStackView(
-            arrangedSubviews: [icon, labels],
+        let header = UIStackView(
+            arrangedSubviews: [title, UIView(), total],
             axis: .horizontal,
             spacing: WellnarioSpacing.xSmall,
             alignment: .center
         )
-        let card = makeCard(containing: stack, identifier: "sleep.factor.summary")
-        card.isAccessibilityElement = true
-        card.accessibilityLabel = [titleLabel.text, detailLabel.text].compactMap { $0 }.joined(separator: ". ")
+
+        guard let breakdown else {
+            let content = UIStackView(arrangedSubviews: [header], axis: .vertical, spacing: 6)
+            content.accessibilityIdentifier = "sleep.latest.quality.breakdown"
+            content.isAccessibilityElement = true
+            content.accessibilityLabel = [title.text, total.text].compactMap { $0 }.joined(separator: ". ")
+            return content
+        }
+
+        let durationDetail: String
+        if let hours = entry?.hours {
+            durationDetail = L10n.text(
+                "sleep.latest.quality.duration.detail",
+                AppleHealthUIFormatting.compactDuration(hours * 3_600),
+                AppleHealthUIFormatting.compactDuration(configuration.targetHours * 3_600)
+            )
+        } else {
+            durationDetail = L10n.text("wellness.no_data")
+        }
+        let regularityDetail = L10n.text(
+            "sleep.latest.quality.regularity.detail",
+            breakdown.compliantDays,
+            SleepQualityCalculator.regularityWindowDays
+        )
+        let interruptionDetail: String
+        if entry?.awakeHours != nil {
+            interruptionDetail = L10n.text(
+                "sleep.latest.quality.interruptions.detail",
+                AppleHealthUIFormatting.number(breakdown.awakePercentage, maximumFractionDigits: 1)
+            )
+        } else {
+            interruptionDetail = L10n.text("sleep.latest.quality.interruptions.unavailable")
+        }
+
+        let weights = configuration.weights
+        let rows = [
+            makeSleepQualityBreakdownRow(
+                title: L10n.text("settings.advanced.sleep.quality.weight.duration"),
+                detail: durationDetail,
+                contribution: breakdown.durationScore * Double(weights.duration) / 100,
+                maximumContribution: weights.duration,
+                color: WellnarioPalette.violet,
+                identifier: "sleep.latest.quality.duration"
+            ),
+            makeSleepQualityBreakdownRow(
+                title: L10n.text("settings.advanced.sleep.quality.weight.regularity"),
+                detail: regularityDetail,
+                contribution: breakdown.regularityScore * Double(weights.regularity) / 100,
+                maximumContribution: weights.regularity,
+                color: WellnarioPalette.cyan,
+                identifier: "sleep.latest.quality.regularity"
+            ),
+            makeSleepQualityBreakdownRow(
+                title: L10n.text("settings.advanced.sleep.quality.weight.interruptions"),
+                detail: interruptionDetail,
+                contribution: breakdown.interruptionScore * Double(weights.interruptions) / 100,
+                maximumContribution: weights.interruptions,
+                color: WellnarioPalette.pink,
+                identifier: "sleep.latest.quality.interruptions"
+            )
+        ]
+        let content = UIStackView(arrangedSubviews: [header] + rows, axis: .vertical, spacing: 6)
+        content.accessibilityIdentifier = "sleep.latest.quality.breakdown"
+        content.isAccessibilityElement = true
+        content.accessibilityLabel = (
+            [title.text, total.text].compactMap { $0 } + rows.compactMap(\.accessibilityLabel)
+        ).joined(separator: ". ")
+        return content
+    }
+
+    private func makeSleepQualityBreakdownRow(
+        title: String,
+        detail: String,
+        contribution: Double,
+        maximumContribution: Int,
+        color: UIColor,
+        identifier: String
+    ) -> UIView {
+        let titleLabel = UILabel()
+        titleLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textPrimary)
+        titleLabel.text = title
+
+        let detailLabel = UILabel()
+        detailLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)
+        detailLabel.text = detail
+        detailLabel.numberOfLines = 1
+        detailLabel.adjustsFontSizeToFitWidth = true
+        detailLabel.minimumScaleFactor = 0.76
+
+        let labels = UIStackView(
+            arrangedSubviews: [titleLabel, detailLabel],
+            axis: .vertical,
+            spacing: 1
+        )
+        let score = UILabel()
+        score.applyWellnarioStyle(.bodyBold, color: color)
+        score.textAlignment = .right
+        score.text = L10n.text(
+            "sleep.latest.quality.contribution",
+            Int(contribution.rounded()),
+            maximumContribution
+        )
+        score.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let row = UIStackView(
+            arrangedSubviews: [labels, UIView(), score],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.xSmall,
+            alignment: .center
+        )
+        row.accessibilityIdentifier = identifier
+        row.isAccessibilityElement = true
+        row.accessibilityLabel = [title, score.text, detail].compactMap { $0 }.joined(separator: ". ")
+        return row
+    }
+
+    private func makeFactorCards() -> UIStackView {
+        let cards = [
+            makeFactorMenuCard(
+                symbolName: "slider.horizontal.3",
+                title: L10n.text("sleep.factors.manage.configure.title"),
+                body: L10n.text("sleep.factors.manage.configure.body"),
+                tone: WellnarioPalette.fuchsia,
+                identifier: "sleep.factors.configure"
+            ) { [weak self] in
+                guard let self else { return }
+                self.navigationController?.pushViewController(
+                    SleepFactorConfigurationViewController(repository: self.repository),
+                    animated: true
+                )
+            },
+            makeFactorMenuCard(
+                symbolName: "calendar.badge.plus",
+                title: L10n.text("sleep.factors.manage.daily.title"),
+                body: L10n.text("sleep.factors.manage.daily.body"),
+                tone: WellnarioPalette.cyan,
+                identifier: "sleep.factors.daily_log"
+            ) { [weak self] in
+                guard let self else { return }
+                self.navigationController?.pushViewController(
+                    SleepFactorDailyLogViewController(
+                        appleHealthService: self.appleHealthService,
+                        repository: self.repository
+                    ),
+                    animated: true
+                )
+            },
+            makeFactorMenuCard(
+                symbolName: "chart.line.uptrend.xyaxis",
+                title: L10n.text("sleep.factors.manage.analysis.title"),
+                body: L10n.text("sleep.factors.manage.analysis.body"),
+                tone: WellnarioPalette.violet,
+                identifier: "sleep.factors.analysis"
+            ) { [weak self] in
+                guard let self else { return }
+                self.navigationController?.pushViewController(
+                    SleepFactorAnalysisViewController(
+                        appleHealthService: self.appleHealthService,
+                        sleepManualOverrideStore: self.sleepManualOverrideStore,
+                        repository: self.repository
+                    ),
+                    animated: true
+                )
+            }
+        ]
+        return UIStackView(
+            arrangedSubviews: cards,
+            axis: .vertical,
+            spacing: WellnarioSpacing.cardGap
+        )
+    }
+
+    private func makeFactorMenuCard(
+        symbolName: String,
+        title: String,
+        body: String,
+        tone: UIColor,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> PremiumCardView {
+        let symbol = UIImageView(image: UIImage(systemName: symbolName))
+        symbol.tintColor = tone
+        symbol.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
+        symbol.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        symbol.setContentHuggingPriority(.required, for: .horizontal)
+
+        let titleLabel = UILabel()
+        titleLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textPrimary)
+        titleLabel.text = title
+        titleLabel.numberOfLines = 0
+
+        let bodyLabel = UILabel()
+        bodyLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
+        bodyLabel.text = body
+        bodyLabel.numberOfLines = 0
+
+        let chevron = UIImageView(image: UIImage(systemName: "chevron.forward"))
+        chevron.tintColor = WellnarioPalette.textTertiary
+        chevron.setContentHuggingPriority(.required, for: .horizontal)
+
+        let labels = UIStackView(
+            arrangedSubviews: [titleLabel, bodyLabel],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxxSmall
+        )
+        let row = UIStackView(
+            arrangedSubviews: [symbol, labels, chevron],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.small,
+            alignment: .center
+        )
+        let button = UIButton(type: .system)
+        button.accessibilityIdentifier = identifier
+        button.accessibilityLabel = title
+        button.accessibilityHint = body
+        button.addAction(UIAction { _ in action() }, for: .touchUpInside)
+        button.addForAutoLayout(row)
+        row.pinEdges(to: button, insets: .all(WellnarioSpacing.cardPadding))
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 76).isActive = true
+
+        let card = PremiumCardView()
+        card.contentView.addForAutoLayout(button)
+        button.pinEdges(to: card.contentView)
         return card
     }
 

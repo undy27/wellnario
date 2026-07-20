@@ -6,6 +6,7 @@ final class AppEnvironment {
     let launchConfiguration: AppLaunchConfiguration
     let appleHealthService: AppleHealthSyncing
     let medicalReviewStore: MedicalReviewStore
+    let healthDataStore: HealthDataStore
 
     init(
         launchConfiguration: AppLaunchConfiguration = .current(),
@@ -45,6 +46,10 @@ final class AppEnvironment {
             databaseURL: repository.databaseURL,
             userID: repository.userID,
             legacyDefaults: .standard
+        )
+        healthDataStore = try HealthDataStore(
+            databaseURL: repository.databaseURL,
+            userID: repository.userID
         )
     }
 

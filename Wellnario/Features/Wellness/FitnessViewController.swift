@@ -33,6 +33,7 @@ final class FitnessViewController: WellnessScrollViewController {
     var onOpenSettings: (() -> Void)?
     private let appleHealthService: AppleHealthSyncing
     private let cardLayoutPreferences: FitnessCardLayoutPreferences
+    private lazy var syncIndicator = AppleHealthSyncNavigationIndicator(service: appleHealthService)
 
     init(appleHealthService: AppleHealthSyncing, defaults: UserDefaults = .standard) {
         self.appleHealthService = appleHealthService
@@ -66,6 +67,10 @@ final class FitnessViewController: WellnessScrollViewController {
         editCardsButton.accessibilityLabel = L10n.text("fitness.cards.edit")
         editCardsButton.accessibilityIdentifier = "fitness.cards.edit"
         navigationItem.rightBarButtonItems = [settingsButton, editCardsButton]
+        syncIndicator.install(
+            on: navigationItem,
+            baseItems: navigationItem.rightBarButtonItems ?? []
+        )
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(appleHealthDidChange),
@@ -80,6 +85,7 @@ final class FitnessViewController: WellnessScrollViewController {
         navigationController?.setNavigationBarHidden(false, animated: animated)
         navigationController?.navigationBar.prefersLargeTitles = false
         navigationItem.largeTitleDisplayMode = .never
+        syncIndicator.refresh()
         buildContent()
     }
 

@@ -8,6 +8,7 @@ enum PresentationKind: String, CaseIterable, Sendable {
     case liquid
     case gummy
     case sachet
+    case laboratory
     case other
 
     init(name: String) {
@@ -32,6 +33,7 @@ enum PresentationKind: String, CaseIterable, Sendable {
         case .liquid: "drop.fill"
         case .gummy: "seal.fill"
         case .sachet: "shippingbox.fill"
+        case .laboratory: "testtube.2"
         case .other: "sparkles"
         }
     }
@@ -92,7 +94,7 @@ final class PresentationArtworkView: UIView {
         case .liquid: drawLiquid(in: artworkRect, context: context)
         case .gummy: drawGummy(in: artworkRect, context: context)
         case .sachet: drawSachet(in: artworkRect, context: context)
-        case .other: drawSymbol(in: artworkRect)
+        case .laboratory, .other: drawSymbol(in: artworkRect)
         }
         context.restoreGState()
     }

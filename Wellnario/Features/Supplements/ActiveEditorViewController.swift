@@ -7,14 +7,16 @@ final class ActiveEditorViewController: EditorViewController {
     private let descriptionField = TextAreaFieldView()
     private let unitField = SelectionFieldView(title: L10n.Form.unit)
     private let categoriesField = SelectionFieldView()
-    private let lowerField = FormFieldView()
-    private let upperField = FormFieldView()
+    private let targetField = FormFieldView()
+    private let originalTarget: ActiveTarget?
     private var selectedUnit: DoseUnit
     private var selectedTargetUnit: DoseUnit
     private var selectedCategories: Set<ActiveCategory>
+    private var targetWasEdited = false
 
     init(repository: WellnarioRepositoryProtocol, active: Active? = nil) {
         self.active = active
+        self.originalTarget = active?.currentTarget
         self.selectedUnit = active?.baseUnit ?? .milligram
         self.selectedTargetUnit = active?.currentTarget?.unit ?? active?.baseUnit ?? .milligram
         self.selectedCategories = Set(active?.categories ?? [])
@@ -33,41 +35,24 @@ final class ActiveEditorViewController: EditorViewController {
 
     override func performSave() {
         nameField.setError(nil)
-        lowerField.setError(nil)
-        upperField.setError(nil)
+        targetField.setError(nil)
 
         let name = nameField.textField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let lowerText = lowerField.textField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let upperText = upperField.textField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let targetText = targetField.textField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard active?.isSeeded == true || !name.isEmpty else {
             nameField.setError(L10n.Error.required)
             saveButton.isLoading = false
             return
         }
 
-        let lower = FeatureFormatting.parseDecimal(lowerText)
-        let upper = FeatureFormatting.parseDecimal(upperText)
-        if !lowerText.isEmpty, lower == nil {
-            lowerField.setError(L10n.Error.invalidNumber)
+        let target = FeatureFormatting.parseDecimal(targetText)
+        if !targetText.isEmpty, target == nil {
+            targetField.setError(L10n.Error.invalidNumber)
             saveButton.isLoading = false
             return
         }
-        if !upperText.isEmpty, upper == nil {
-            upperField.setError(L10n.Error.invalidNumber)
-            saveButton.isLoading = false
-            return
-        }
-        if lowerText.isEmpty != upperText.isEmpty {
-            let message = L10n.Error.targetRange
-            lowerField.setError(message)
-            upperField.setError(message)
-            saveButton.isLoading = false
-            return
-        }
-        if let lower, let upper, (lower < 0 || upper < lower) {
-            let message = L10n.Error.targetRange
-            lowerField.setError(message)
-            upperField.setError(message)
+        if let target, target <= 0 {
+            targetField.setError(L10n.Error.positiveAmount)
             saveButton.isLoading = false
             return
         }
@@ -104,11 +89,23 @@ final class ActiveEditorViewController: EditorViewController {
             }
 
             let today = LocalDay(containing: Date(), in: .current)
-            if let lower, let upper {
+            if let originalTarget,
+               !targetWasEdited,
+               originalTarget.lowerBound != originalTarget.upperBound {
+                // Preserve legacy explicit ranges when editing another field;
+                // newly entered targets are always stored as single values.
                 _ = try repository.setTarget(
                     activeID: saved.id,
-                    lowerBound: lower,
-                    upperBound: upper,
+                    lowerBound: originalTarget.lowerBound,
+                    upperBound: originalTarget.upperBound,
+                    unit: originalTarget.unit,
+                    effectiveFrom: today
+                )
+            } else if let target {
+                _ = try repository.setTarget(
+                    activeID: saved.id,
+                    lowerBound: target,
+                    upperBound: target,
                     unit: selectedTargetUnit,
                     effectiveFrom: today
                 )
@@ -137,21 +134,17 @@ final class ActiveEditorViewController: EditorViewController {
         descriptionField.text = active?.localizedDescription(language: catalogLanguage) ?? ""
         descriptionField.textView.isEditable = !isSeeded
 
-        lowerField.configure(
-            title: L10n.Actives.targetMinimum,
+        targetField.configure(
+            title: L10n.text("actives.target.daily_amount"),
             placeholder: "0",
             text: active?.currentTarget.map { FeatureFormatting.decimal($0.lowerBound) },
             keyboardType: .decimalPad
         )
-        upperField.configure(
-            title: L10n.Actives.targetMaximum,
-            placeholder: "0",
-            text: active?.currentTarget.map { FeatureFormatting.decimal($0.upperBound) },
-            keyboardType: .decimalPad
-        )
-        lowerField.unitTitle = selectedTargetUnit.symbol(languageCode: catalogLanguage.rawValue)
-        upperField.unitTitle = selectedTargetUnit.symbol(languageCode: catalogLanguage.rawValue)
-        lowerField.helperText = L10n.text("actives.target.helper")
+        targetField.textField.accessibilityIdentifier = "active.target.amount"
+        targetField.unitButton.accessibilityIdentifier = "active.target.unit"
+        targetField.textField.addTarget(self, action: #selector(targetChanged), for: .editingChanged)
+        targetField.unitTitle = selectedTargetUnit.symbol(languageCode: catalogLanguage.rawValue)
+        targetField.helperText = L10n.text("actives.target.helper")
 
         unitField.button.isEnabled = !isSeeded
         rebuildUnitMenu()
@@ -176,7 +169,7 @@ final class ActiveEditorViewController: EditorViewController {
         ])
 
         addSection(title: L10n.Form.basics, views: [artworkContainer, nameField, descriptionField, unitField, categoriesField])
-        addSection(title: L10n.Actives.target, views: [lowerField, upperField])
+        addSection(title: L10n.Actives.target, views: [targetField])
         addSaveButton()
     }
 
@@ -195,20 +188,17 @@ final class ActiveEditorViewController: EditorViewController {
     private func selectUnit(_ unit: DoseUnit) {
         guard unit != selectedUnit else { return }
 
-        let fields = [lowerField, upperField]
-        var convertedValues: [Decimal?] = []
-        for field in fields {
-            let text = field.textField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !text.isEmpty else {
-                convertedValues.append(nil)
-                continue
-            }
+        let text = targetField.textField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let convertedValue: Decimal?
+        if text.isEmpty {
+            convertedValue = nil
+        } else {
             guard let value = FeatureFormatting.parseDecimal(text) else {
-                field.setError(L10n.Error.invalidNumber)
+                targetField.setError(L10n.Error.invalidNumber)
                 return
             }
             do {
-                convertedValues.append(try selectedTargetUnit.convert(value, to: unit))
+                convertedValue = try selectedTargetUnit.convert(value, to: unit)
             } catch {
                 showError(RepositoryError.validation(L10n.text("error.target_unit_conversion")))
                 return
@@ -217,12 +207,10 @@ final class ActiveEditorViewController: EditorViewController {
 
         selectedUnit = unit
         selectedTargetUnit = unit
-        lowerField.textField.text = convertedValues[0].map { FeatureFormatting.decimal($0) }
-        upperField.textField.text = convertedValues[1].map { FeatureFormatting.decimal($0) }
-        lowerField.setError(nil)
-        upperField.setError(nil)
-        lowerField.unitTitle = unit.symbol(languageCode: catalogLanguage.rawValue)
-        upperField.unitTitle = unit.symbol(languageCode: catalogLanguage.rawValue)
+        targetWasEdited = true
+        targetField.textField.text = convertedValue.map { FeatureFormatting.decimal($0) }
+        targetField.setError(nil)
+        targetField.unitTitle = unit.symbol(languageCode: catalogLanguage.rawValue)
         rebuildUnitMenu()
     }
 
@@ -253,6 +241,10 @@ final class ActiveEditorViewController: EditorViewController {
     private func normalized(_ value: String) -> String? {
         let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? nil : value
+    }
+
+    @objc private func targetChanged() {
+        targetWasEdited = true
     }
 }
 

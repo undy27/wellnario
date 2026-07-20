@@ -27,6 +27,8 @@ No existe aún un servidor: todos los datos permanecen en el dispositivo. La UI 
 - Historial consistente: cada toma guarda una instantánea de producto, lote y aportes activos, de modo que una edición posterior no altera las gráficas pasadas.
 - Archivado seguro para registros que ya tienen historial y borrado físico para registros sin uso.
 - Dynamic Type, VoiceOver, estados vacíos, reducción de movimiento/transparencia y contraste adaptado.
+- Widget de iOS para registrar suplementos en unidades discretas: se configura al mantenerlo pulsado, admite hasta cuatro envases en tamaño mediano u ocho en grande, y una única acción confirma el registro conjunto en Wellnario.
+- Widget de Sueño con la misma tarjeta de métricas que Hoy: calidad, duración, regularidad e interrupciones, actualizado con la última sincronización de Apple Health.
 
 ## Abrir y ejecutar
 

@@ -16,6 +16,7 @@ final class WellnarioSupplementFlowUITests: XCTestCase {
             "--initial-tab", "supplements"
         ]
         app.launch()
+        markFirstActiveAsFavorite(in: app)
 
         let addSupplement = app.buttons["supplements.add"]
         XCTAssertTrue(addSupplement.waitForExistence(timeout: 5))
@@ -50,6 +51,10 @@ final class WellnarioSupplementFlowUITests: XCTestCase {
         next.tap()
         XCTAssertTrue(app.descendants(matching: .any)["supplement.package.wizard.step4"].waitForExistence(timeout: 3))
         XCTAssertEqual(app.staticTexts["supplement.package.inventory.count"].label, "1")
+
+        reveal(next, in: app)
+        next.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["supplement.package.wizard.step5"].waitForExistence(timeout: 3))
 
         let supplementSave = app.buttons["supplement.package.wizard.create"]
         reveal(supplementSave, in: app)
@@ -106,6 +111,7 @@ final class WellnarioSupplementFlowUITests: XCTestCase {
             "--initial-tab", "supplements"
         ]
         app.launch()
+        markFirstActiveAsFavorite(in: app)
 
         let addSupplement = app.buttons["supplements.add"]
         XCTAssertTrue(addSupplement.waitForExistence(timeout: 5))
@@ -135,6 +141,10 @@ final class WellnarioSupplementFlowUITests: XCTestCase {
         app.buttons["supplement.package.inventory.decrement"].tap()
         XCTAssertEqual(app.staticTexts["supplement.package.inventory.count"].label, "0")
 
+        reveal(next, in: app)
+        next.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["supplement.package.wizard.step5"].waitForExistence(timeout: 3))
+
         let create = app.buttons["supplement.package.wizard.create"]
         reveal(create, in: app)
         create.tap()
@@ -156,22 +166,21 @@ final class WellnarioSupplementFlowUITests: XCTestCase {
         app.launch()
 
         XCTAssertFalse(app.buttons["supplements.trends"].exists)
-        app.buttons["Activos"].tap()
+        app.segmentedControls["supplements.tabs"].buttons["Suplementos"].tap()
         let trendsButton = app.buttons["supplements.trends"]
         XCTAssertTrue(trendsButton.waitForExistence(timeout: 3))
         trendsButton.tap()
         XCTAssertTrue(app.navigationBars["Tendencias"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["trends.active.selector"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.segmentedControls["trends.reference.selector"].exists)
+        XCTAssertFalse(app.segmentedControls["trends.reference.selector"].exists)
         XCTAssertTrue(app.segmentedControls["trends.period.selector"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["trends.chart"].exists)
-        XCTAssertTrue(app.segmentedControls["trends.reference.selector"].buttons["Tendencia"].isSelected)
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
         let favoritesFilter = app.buttons["actives.category.favorites"]
         XCTAssertTrue(favoritesFilter.waitForExistence(timeout: 5))
         favoritesFilter.tap()
-        XCTAssertTrue(app.staticTexts["No hay activos favoritos"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["No hay suplementos favoritos"].waitForExistence(timeout: 3))
 
         app.buttons["actives.category.all"].tap()
         let magnesium = app.staticTexts["Magnesio"].firstMatch
@@ -186,13 +195,22 @@ final class WellnarioSupplementFlowUITests: XCTestCase {
             magnesiumCard.label.contains("Objetivo: NC"),
             "The compact unconfigured target was not shown: \(magnesiumCard.label)"
         )
-        XCTAssertTrue(
-            magnesiumCard.label.contains("Consumo de los últimos 7 días: 0 mg"),
-            "Unexpected weekly consumption summary: \(magnesiumCard.label)"
+        XCTAssertFalse(
+            magnesiumCard.label.contains("Consumo de los últimos 7 días"),
+            "The weekly consumption summary should only appear for favorite supplements: \(magnesiumCard.label)"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             magnesiumCard.images["active.weekly.chart"].exists,
-            "The seven-day chart is missing from the active card"
+            "The seven-day chart should only appear for favorite actives"
+        )
+        let cardFavoriteButton = app.buttons["actives.card.favorite"].firstMatch
+        XCTAssertTrue(cardFavoriteButton.exists)
+        XCTAssertEqual(cardFavoriteButton.label, "Marcar como favorito")
+        cardFavoriteButton.tap()
+        XCTAssertEqual(cardFavoriteButton.label, "Favorito")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["active.weekly.chart"].waitForExistence(timeout: 3),
+            "The seven-day chart is missing from the favorite active card"
         )
         magnesium.tap()
 
@@ -241,6 +259,15 @@ final class WellnarioSupplementFlowUITests: XCTestCase {
         XCTAssertTrue(element.isHittable)
         element.tap()
         element.typeText(text)
+    }
+
+    @MainActor
+    private func markFirstActiveAsFavorite(in app: XCUIApplication) {
+        app.segmentedControls["supplements.tabs"].buttons["Suplementos"].tap()
+        let favoriteButton = app.buttons["actives.card.favorite"].firstMatch
+        XCTAssertTrue(favoriteButton.waitForExistence(timeout: 5))
+        favoriteButton.tap()
+        app.buttons["Productos"].tap()
     }
 
     @MainActor

@@ -270,6 +270,87 @@ enum SchemaMigrator {
             ALTER TABLE consumptions
                 ADD COLUMN inventory_applied INTEGER NOT NULL DEFAULT 0;
             """
+        ),
+        Migration(
+            version: 10,
+            sql: """
+            CREATE TABLE IF NOT EXISTS biomarkers (
+                id TEXT PRIMARY KEY NOT NULL,
+                name_key TEXT,
+                custom_name TEXT,
+                sample_type TEXT NOT NULL,
+                default_unit TEXT NOT NULL,
+                image_key TEXT,
+                is_seeded INTEGER NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                archived_at REAL,
+                CHECK (name_key IS NOT NULL OR custom_name IS NOT NULL)
+            );
+
+            CREATE TABLE IF NOT EXISTS biomarker_favorites (
+                user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                biomarker_id TEXT NOT NULL REFERENCES biomarkers(id) ON DELETE CASCADE,
+                created_at REAL NOT NULL,
+                PRIMARY KEY(user_id, biomarker_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS lab_analyses (
+                id TEXT PRIMARY KEY NOT NULL,
+                user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                collected_at REAL NOT NULL,
+                laboratory TEXT,
+                notes TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS lab_results (
+                id TEXT PRIMARY KEY NOT NULL,
+                analysis_id TEXT NOT NULL REFERENCES lab_analyses(id) ON DELETE CASCADE,
+                biomarker_id TEXT NOT NULL REFERENCES biomarkers(id) ON DELETE RESTRICT,
+                value TEXT NOT NULL,
+                unit TEXT NOT NULL,
+                reference_lower TEXT,
+                reference_upper TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE(analysis_id, biomarker_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_biomarkers_type
+                ON biomarkers(sample_type, archived_at);
+            CREATE INDEX IF NOT EXISTS idx_biomarker_favorites_user
+                ON biomarker_favorites(user_id, biomarker_id);
+            CREATE INDEX IF NOT EXISTS idx_lab_analyses_user_date
+                ON lab_analyses(user_id, collected_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_lab_results_biomarker
+                ON lab_results(biomarker_id, analysis_id);
+            """
+        ),
+        Migration(
+            version: 11,
+            sql: """
+            ALTER TABLE lab_results
+                ADD COLUMN notes TEXT;
+            """
+        ),
+        Migration(
+            version: 12,
+            sql: """
+            ALTER TABLE lab_analyses
+                ADD COLUMN imported_pdf_path TEXT;
+            ALTER TABLE lab_analyses
+                ADD COLUMN imported_pdf_name TEXT;
+            """
+        ),
+        Migration(
+            version: 13,
+            sql: """
+            UPDATE biomarkers
+            SET sample_type = 'other'
+            WHERE sample_type = 'physiological';
+            """
         )
     ]
 }

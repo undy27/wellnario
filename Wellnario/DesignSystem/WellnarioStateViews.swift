@@ -8,6 +8,11 @@ final class EmptyStateView: UIView {
     let actionButton = PrimaryButton(style: .secondary)
 
     var onAction: (() -> Void)?
+    var contentVerticalOffset: CGFloat = 0 {
+        didSet { stackCenterYConstraint?.constant = contentVerticalOffset }
+    }
+
+    private var stackCenterYConstraint: NSLayoutConstraint?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -61,11 +66,13 @@ final class EmptyStateView: UIView {
         stack.setCustomSpacing(WellnarioSpacing.medium, after: artworkView)
         stack.setCustomSpacing(WellnarioSpacing.medium, after: messageLabel)
         addForAutoLayout(stack)
+        let centerYConstraint = stack.centerYAnchor.constraint(equalTo: centerYAnchor)
+        stackCenterYConstraint = centerYConstraint
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: WellnarioSpacing.medium),
             stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -WellnarioSpacing.medium),
             stack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            centerYConstraint,
             stack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: WellnarioSpacing.large),
             stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -WellnarioSpacing.large),
             actionButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 180)

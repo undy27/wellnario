@@ -377,8 +377,7 @@ final class SupplementReminderNotificationScheduler {
 
     func reschedule() {
         Task { @MainActor in
-            _ = try? SupplementDefaultReminderPlanner(store: self.store)
-                .seedMissing(in: self.repository)
+            _ = self.store.removeLegacyUnconfirmedSuggestions()
             if !self.store.all().isEmpty {
                 guard (try? await self.center.requestAuthorization(options: [.alert, .sound])) == true else { return }
             }
@@ -460,6 +459,7 @@ final class SupplementReminderEditorViewController: UIViewController {
     private let repository: WellnarioRepositoryProtocol
     private let supplement: Supplement
     private let store: SupplementProductReminderStore
+    private let onSaveDraft: (([SupplementProductReminder]) -> Void)?
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
     private let remindersStack = UIStackView()
@@ -471,21 +471,30 @@ final class SupplementReminderEditorViewController: UIViewController {
     private var weekdaysMask: Int
     private var intervalDays: Int
     private var anchorDay: LocalDay
+    private let suggestion: SupplementReminderSuggestion?
     private let addButton = PrimaryButton(style: .secondary)
 
     init(
         repository: WellnarioRepositoryProtocol,
         supplement: Supplement,
-        store: SupplementProductReminderStore = SupplementProductReminderStore()
+        store: SupplementProductReminderStore = SupplementProductReminderStore(),
+        onSaveDraft: (([SupplementProductReminder]) -> Void)? = nil
     ) {
         self.repository = repository
         self.supplement = supplement
         self.store = store
-        self.reminders = store.reminders(for: supplement.id)
-        self.recurrence = self.reminders.first?.recurrence ?? .weekdays
-        self.weekdaysMask = self.reminders.first?.weekdaysMask ?? 127
-        self.intervalDays = self.reminders.first?.intervalDays ?? 1
-        self.anchorDay = self.reminders.first?.anchorDay ?? LocalDay(containing: Date(), in: .autoupdatingCurrent)
+        self.onSaveDraft = onSaveDraft
+        _ = store.removeLegacyUnconfirmedSuggestions()
+        let savedReminders = store.reminders(for: supplement.id)
+        let proposedSuggestion = savedReminders.isEmpty && !store.hasUserConfiguration(for: supplement.id)
+            ? try? SupplementDefaultReminderPlanner().suggestion(for: supplement, in: repository)
+            : nil
+        self.reminders = savedReminders
+        self.suggestion = proposedSuggestion
+        self.recurrence = savedReminders.first?.recurrence ?? proposedSuggestion?.recurrence ?? .weekdays
+        self.weekdaysMask = savedReminders.first?.weekdaysMask ?? proposedSuggestion?.weekdaysMask ?? 127
+        self.intervalDays = savedReminders.first?.intervalDays ?? proposedSuggestion?.intervalDays ?? 1
+        self.anchorDay = savedReminders.first?.anchorDay ?? LocalDay(containing: Date(), in: .autoupdatingCurrent)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -620,11 +629,25 @@ final class SupplementReminderEditorViewController: UIViewController {
 
     @objc private func addReminder() {
         guard reminders.count < 3 else { return }
-        reminders.append(SupplementProductReminder(supplementID: supplement.id))
+        let suggestedTime = suggestion?.timeMinutes[
+            min(reminders.count, max(0, (suggestion?.timeMinutes.count ?? 1) - 1))
+        ] ?? SupplementReminderTemplate.anytime.defaultMinutes
+        reminders.append(
+            SupplementProductReminder(
+                supplementID: supplement.id,
+                timeMinutes: suggestedTime
+            )
+        )
         rebuildRows()
     }
 
-    @objc private func cancelTapped() { dismiss(animated: true) }
+    @objc private func cancelTapped() {
+        if onSaveDraft != nil {
+            navigationController?.popViewController(animated: true)
+        } else {
+            dismiss(animated: true)
+        }
+    }
 
     @objc private func saveTapped() {
         if recurrence == .weekdays && weekdaysMask == 0 {
@@ -646,9 +669,14 @@ final class SupplementReminderEditorViewController: UIViewController {
                 anchorDay: anchorDay
             )
         }
-        store.set(normalized, for: supplement.id)
-        SupplementReminderNotificationScheduler(repository: repository, store: store).reschedule()
-        dismiss(animated: true)
+        if let onSaveDraft {
+            onSaveDraft(normalized)
+            navigationController?.popViewController(animated: true)
+        } else {
+            store.set(normalized, for: supplement.id)
+            SupplementReminderNotificationScheduler(repository: repository, store: store).reschedule()
+            dismiss(animated: true)
+        }
     }
 
     private func updateSharedScheduleVisibility() {
@@ -821,10 +849,7 @@ final class SupplementReminderProductPickerViewController: FeatureViewController
 
     override func reloadContent() {
         do {
-            let seededCount = try SupplementDefaultReminderPlanner().seedMissing(in: repository)
-            if seededCount > 0 {
-                SupplementReminderNotificationScheduler(repository: repository).reschedule()
-            }
+            _ = SupplementProductReminderStore().removeLegacyUnconfirmedSuggestions()
             supplements = try repository.fetchSupplements(includeArchived: false)
                 .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             tableView.reloadData()

@@ -75,6 +75,8 @@ private final class ProductPackageWizardState {
     var initialInventoryCount = 1
     var initialInventoryLabels: [String] = []
     var initialInventoryExpirations: [LocalDay?] = []
+    let reminderDraftProductID = UUID()
+    var reminderDrafts: [SupplementProductReminder] = []
 }
 
 @MainActor
@@ -469,6 +471,7 @@ private final class ProductPackageCompositionStepViewController: EditorViewContr
     private let basisField = FormFieldView()
     private let componentsStack = UIStackView()
     private let addComponentButton = PrimaryButton(style: .secondary)
+    private let favoriteActivesHint = UILabel()
     private weak var compositionSection: FormSectionView?
     private var presentations: [PresentationType] = []
     private var actives: [Active] = []
@@ -553,7 +556,7 @@ private final class ProductPackageCompositionStepViewController: EditorViewContr
     private func loadOptions() {
         do {
             presentations = try repository.fetchPresentationTypes()
-            actives = try repository.fetchActives(includeArchived: false)
+            actives = try repository.fetchActives(includeArchived: false).filter(\.isFavorite)
         } catch { showError(error) }
     }
 
@@ -577,13 +580,18 @@ private final class ProductPackageCompositionStepViewController: EditorViewContr
         addComponentButton.tintColor = WellnarioPalette.fuchsia
         addComponentButton.accessibilityIdentifier = "supplement.package.component.add"
         addComponentButton.addTarget(self, action: #selector(addComponent), for: .touchUpInside)
+        favoriteActivesHint.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
+        favoriteActivesHint.text = L10n.text("supplements.component.requires_favorite")
+        favoriteActivesHint.numberOfLines = 0
+        favoriteActivesHint.isHidden = !actives.isEmpty
+        addComponentButton.isHidden = actives.isEmpty
     }
 
     private func buildForm() {
         contentStack.addArrangedSubview(stepLabel(number: 3))
         let views: [UIView] = state.doseStyle == .continuous
-            ? [basisField, componentsStack, addComponentButton]
-            : [componentsStack, addComponentButton]
+            ? [basisField, componentsStack, favoriteActivesHint, addComponentButton]
+            : [componentsStack, favoriteActivesHint, addComponentButton]
         compositionSection = addSection(
             title: compositionTitle(),
             views: views
@@ -724,60 +732,25 @@ private final class ProductPackageInventoryStepViewController: EditorViewControl
         title = L10n.text("supplements.wizard.title")
         view.accessibilityIdentifier = "supplement.package.wizard.step4"
         configureBackButton()
-        saveButton.setTitle(L10n.text("supplements.wizard.create"), for: .normal)
-        saveButton.accessibilityIdentifier = "supplement.package.wizard.create"
+        saveButton.setTitle(L10n.Common.next, for: .normal)
+        saveButton.accessibilityIdentifier = "supplement.package.wizard.next"
         configureFields()
         buildForm()
     }
 
     override func performSave() {
-        guard let presentationID = state.presentationID, !state.components.isEmpty else {
+        guard state.presentationID != nil, !state.components.isEmpty else {
             saveButton.isLoading = false
             showError(RepositoryError.validation(L10n.text("error.component_required")))
             return
         }
         persistInventoryInputs()
 
-        var storedPhotoReference: String?
-        var createdSupplement: Supplement?
-        do {
-            if let photo = state.photo {
-                storedPhotoReference = try SupplementPhotoStore.save(photo, databaseURL: repository.databaseURL)
-            }
-            let supplement = try repository.createSupplement(SupplementDraft(
-                name: state.name,
-                brand: state.brand,
-                price: state.price,
-                currencyCode: state.price == nil ? nil : state.currencyCode,
-                imageReference: storedPhotoReference ?? state.presentationImageReference,
-                presentationTypeID: presentationID,
-                basisQuantity: state.basisQuantity,
-                basisUnit: state.basisUnit,
-                components: state.components
-            ))
-            createdSupplement = supplement
-
-            for index in 0..<state.initialInventoryCount {
-                _ = try repository.createInstance(SupplementInstanceDraft(
-                    supplementID: supplement.id,
-                    label: instanceLabel(at: index),
-                    expirationDay: instanceExpiration(at: index),
-                    totalQuantity: state.totalQuantity,
-                    totalUnit: state.totalUnit,
-                    initialQuantity: state.totalQuantity,
-                    initialUnit: state.totalUnit
-                ))
-            }
-
-            saveButton.isLoading = false
-            UIImpactFeedbackGenerator.wellnarioSuccess()
-            navigationController?.dismiss(animated: true)
-        } catch {
-            if let createdSupplement { _ = try? repository.deleteSupplement(id: createdSupplement.id) }
-            SupplementPhotoStore.remove(reference: storedPhotoReference, databaseURL: repository.databaseURL)
-            saveButton.isLoading = false
-            showError(error)
-        }
+        saveButton.isLoading = false
+        navigationController?.pushViewController(
+            ProductPackageReminderStepViewController(repository: repository, state: state),
+            animated: true
+        )
     }
 
     private func configureFields() {
@@ -1038,10 +1011,212 @@ private final class ProductPackageInventoryStepViewController: EditorViewControl
 }
 
 @MainActor
+private final class ProductPackageReminderStepViewController: EditorViewController {
+    private let state: ProductPackageWizardState
+    private let summaryLabel = UILabel()
+    private let configureButton = PrimaryButton(style: .secondary)
+    private let reminderStore = SupplementProductReminderStore()
+
+    init(repository: WellnarioRepositoryProtocol, state: ProductPackageWizardState) {
+        self.state = state
+        super.init(repository: repository)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = L10n.text("supplements.reminders.title")
+        view.accessibilityIdentifier = "supplement.package.wizard.step5"
+        configureBackButton()
+        saveButton.setTitle(L10n.text("supplements.wizard.create"), for: .normal)
+        saveButton.accessibilityIdentifier = "supplement.package.wizard.create"
+        configureFields()
+        buildForm()
+        updateSummary()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        updateSummary()
+    }
+
+    override func performSave() {
+        guard let presentationID = state.presentationID, !state.components.isEmpty else {
+            saveButton.isLoading = false
+            showError(RepositoryError.validation(L10n.text("error.component_required")))
+            return
+        }
+
+        var storedPhotoReference: String?
+        var createdSupplement: Supplement?
+        do {
+            if let photo = state.photo {
+                storedPhotoReference = try SupplementPhotoStore.save(photo, databaseURL: repository.databaseURL)
+            }
+            let supplement = try repository.createSupplement(SupplementDraft(
+                name: state.name,
+                brand: state.brand,
+                price: state.price,
+                currencyCode: state.price == nil ? nil : state.currencyCode,
+                imageReference: storedPhotoReference ?? state.presentationImageReference,
+                presentationTypeID: presentationID,
+                basisQuantity: state.basisQuantity,
+                basisUnit: state.basisUnit,
+                components: state.components
+            ))
+            createdSupplement = supplement
+
+            for index in 0..<state.initialInventoryCount {
+                _ = try repository.createInstance(SupplementInstanceDraft(
+                    supplementID: supplement.id,
+                    label: instanceLabel(at: index),
+                    expirationDay: instanceExpiration(at: index),
+                    totalQuantity: state.totalQuantity,
+                    totalUnit: state.totalUnit,
+                    initialQuantity: state.totalQuantity,
+                    initialUnit: state.totalUnit
+                ))
+            }
+
+            let reminders = state.reminderDrafts.map {
+                SupplementProductReminder(
+                    id: $0.id,
+                    supplementID: supplement.id,
+                    timeMinutes: $0.timeMinutes,
+                    recurrence: $0.recurrence,
+                    weekdaysMask: $0.weekdaysMask,
+                    intervalDays: $0.intervalDays,
+                    anchorDay: $0.anchorDay
+                )
+            }
+            reminderStore.set(reminders, for: supplement.id)
+            SupplementReminderNotificationScheduler(repository: repository, store: reminderStore).reschedule()
+
+            saveButton.isLoading = false
+            UIImpactFeedbackGenerator.wellnarioSuccess()
+            navigationController?.dismiss(animated: true)
+        } catch {
+            if let createdSupplement { _ = try? repository.deleteSupplement(id: createdSupplement.id) }
+            SupplementPhotoStore.remove(reference: storedPhotoReference, databaseURL: repository.databaseURL)
+            saveButton.isLoading = false
+            showError(error)
+        }
+    }
+
+    private func configureFields() {
+        summaryLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
+        summaryLabel.numberOfLines = 0
+        configureButton.tintColor = WellnarioPalette.fuchsia
+        configureButton.addTarget(self, action: #selector(configureReminders), for: .touchUpInside)
+        configureButton.accessibilityIdentifier = "supplement.package.reminders.configure"
+    }
+
+    private func buildForm() {
+        contentStack.addArrangedSubview(stepLabel(number: 5))
+        addSection(
+            title: L10n.text("supplements.wizard.step5.title"),
+            views: [summaryLabel, configureButton]
+        )
+        addSaveButton()
+    }
+
+    private func updateSummary() {
+        if state.reminderDrafts.isEmpty {
+            summaryLabel.text = L10n.text("supplements.wizard.reminders.empty")
+            configureButton.setTitle(L10n.text("supplements.reminders.add"), for: .normal)
+            return
+        }
+        let calendar = Calendar.autoupdatingCurrent
+        let formatter = DateFormatter()
+        formatter.locale = LocalizationManager.shared.locale
+        formatter.timeStyle = .short
+        let times = state.reminderDrafts.map { reminder in
+            formatter.string(from: calendar.date(
+                bySettingHour: reminder.timeMinutes / 60,
+                minute: reminder.timeMinutes % 60,
+                second: 0,
+                of: Date()
+            ) ?? Date())
+        }.joined(separator: " · ")
+        summaryLabel.text = L10n.text("supplements.wizard.reminders.summary", times)
+        configureButton.setTitle(L10n.Common.edit, for: .normal)
+    }
+
+    @objc private func configureReminders() {
+        guard let preview = reminderPreviewSupplement() else { return }
+        let editor = SupplementReminderEditorViewController(
+            repository: repository,
+            supplement: preview,
+            onSaveDraft: { [weak self] reminders in
+                self?.state.reminderDrafts = reminders
+            }
+        )
+        navigationController?.pushViewController(editor, animated: true)
+    }
+
+    private func reminderPreviewSupplement() -> Supplement? {
+        guard let presentationID = state.presentationID else { return nil }
+        let now = Date()
+        let id = state.reminderDraftProductID
+        let components = state.components.enumerated().map { index, component in
+            SupplementComponent(
+                id: UUID(),
+                supplementID: id,
+                activeID: component.activeID,
+                amount: component.amount,
+                unit: component.unit,
+                displayOrder: index
+            )
+        }
+        return Supplement(
+            id: id,
+            name: state.name,
+            brand: state.brand,
+            details: nil,
+            category: nil,
+            price: state.price,
+            currencyCode: state.price == nil ? nil : state.currencyCode,
+            imageReference: state.presentationImageReference,
+            presentationTypeID: presentationID,
+            basisQuantity: state.basisQuantity,
+            basisUnit: state.basisUnit,
+            components: components,
+            createdAt: now,
+            updatedAt: now,
+            archivedAt: nil
+        )
+    }
+
+    private func instanceLabel(at index: Int) -> String? {
+        guard state.initialInventoryLabels.indices.contains(index) else { return nil }
+        let label = state.initialInventoryLabels[index].trimmingCharacters(in: .whitespacesAndNewlines)
+        return label.isEmpty ? nil : label
+    }
+
+    private func instanceExpiration(at index: Int) -> LocalDay? {
+        guard state.initialInventoryExpirations.indices.contains(index) else { return nil }
+        return state.initialInventoryExpirations[index]
+    }
+
+    private func configureBackButton() {
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            title: L10n.Common.back,
+            style: .plain,
+            target: self,
+            action: #selector(backTapped)
+        )
+    }
+
+    @objc private func backTapped() { navigationController?.popViewController(animated: true) }
+}
+
+@MainActor
 private func stepLabel(number: Int) -> UILabel {
     let label = UILabel()
     label.applyWellnarioStyle(.caption, color: WellnarioPalette.fuchsia)
-    label.text = L10n.text("supplements.wizard.step", number, 4)
+    label.text = L10n.text("supplements.wizard.step", number, 5)
     label.textAlignment = .center
     label.accessibilityIdentifier = "supplement.package.wizard.progress"
     return label

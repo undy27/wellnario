@@ -67,6 +67,7 @@ enum WellnarioPalette {
     static let pink = adaptive(light: 0xD91F5C, dark: 0xFF3E7D)
 
     static let success = adaptive(light: 0x238A31, dark: 0x66E26F)
+    static let biologicalAgeGreen = adaptive(light: 0x176B24, dark: 0x3C9B4B)
     static let warning = adaptive(light: 0xA85F00, dark: 0xFFB44D)
     static let yellow = adaptive(light: 0x8A6C00, dark: 0xFFD84D)
     static let orange = adaptive(light: 0xC45B00, dark: 0xFF8A3D)
@@ -182,7 +183,10 @@ enum WellnarioRadius {
 
 enum WellnarioLayout {
     static let minimumTouchTarget: CGFloat = 44
-    static let fieldMinimumHeight: CGFloat = 56
+    static let fieldMinimumHeight: CGFloat = 45
+    static let fieldVerticalPadding: CGFloat = 5
+    static let textAreaMinimumHeight: CGFloat = 88
+    static let textAreaVerticalPadding: CGFloat = 11
     static let primaryButtonHeight: CGFloat = 52
     static let floatingTabBarHeight: CGFloat = 72
     static let metricCardMinimumHeight: CGFloat = 172

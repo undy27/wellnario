@@ -17,11 +17,20 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.backgroundColor = WellnarioPalette.background
         self.window = window
         bootstrap(in: window)
+
+        if let url = connectionOptions.urlContexts.first?.url {
+            coordinator?.handleWidgetURL(url)
+        }
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {
         coordinator?.refreshSystemAppearanceIfNeeded()
         coordinator?.refreshDynamicTypeIfNeeded()
+    }
+
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        guard let url = URLContexts.first?.url else { return }
+        coordinator?.handleWidgetURL(url)
     }
 
     private func bootstrap(in window: UIWindow) {

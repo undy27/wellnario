@@ -669,7 +669,7 @@ final class MedicalReviewsViewController: UITableViewController {
         return configuration
     }
 
-    private func reloadReviews() {
+    func reloadReviews() {
         reviews = store.reviews
         tableView.reloadData()
         if reviews.isEmpty {
@@ -726,11 +726,11 @@ final class MedicalReviewsViewController: UITableViewController {
         present(alert, animated: true)
     }
 
-    @objc private func addReview() {
+    @objc func addReview() {
         presentEditor(review: nil)
     }
 
-    @objc private func showAllReviews() {
+    @objc func showAllReviews() {
         navigationController?.pushViewController(
             AllMedicalReviewHistoryViewController(store: store),
             animated: true
@@ -1006,7 +1006,7 @@ final class MedicalReviewEditorViewController: UIViewController {
 
         notesField.title = L10n.text("health.medical_reviews.notes")
         notesField.placeholder = L10n.text("health.medical_reviews.notes.placeholder")
-        notesField.minimumHeight = 80
+        notesField.minimumHeight = 64
         notesField.text = review?.completions.first(where: {
             Calendar.autoupdatingCurrent.isDate($0.completedAt, inSameDayAs: lastDatePicker.date)
         })?.notes ?? ""
@@ -1345,7 +1345,7 @@ final class MedicalReviewCompletionEditorViewController: UIViewController {
 
         notesField.title = L10n.text("health.medical_reviews.notes")
         notesField.placeholder = L10n.text("health.medical_reviews.notes.placeholder")
-        notesField.minimumHeight = 80
+        notesField.minimumHeight = 64
         notesField.text = completion.notes ?? ""
         notesField.textView.tintColor = WellnarioPalette.fuchsia
         notesField.textView.accessibilityIdentifier =

@@ -1,150 +1,292 @@
 import UIKit
 
+struct SleepFactorLogEntry: Codable, Hashable, Sendable {
+    let date: Date
+    let factor: String
+    let factorID: String?
+    let numericValue: Double?
+
+    init(
+        date: Date,
+        factor: String,
+        factorID: String? = nil,
+        numericValue: Double? = nil
+    ) {
+        self.date = date
+        self.factor = factor
+        self.factorID = factorID
+        self.numericValue = numericValue
+    }
+}
+
 @MainActor
 enum WellnessLocalStore {
     private static let customFactorsKey = "wellnario.sleep.customFactors"
+    private static let customFactorDefinitionsKey = "wellnario.sleep.customFactorDefinitions.v2"
+    private static let disabledFactorIDsKey = "wellnario.sleep.disabledFactorIDs.v2"
+    private static let sleepFactorLogKey = "wellnario.sleep.factorLog"
     private static let lastSleepFactorKey = "wellnario.sleep.lastFactor"
     private static let lastSleepFactorDateKey = "wellnario.sleep.lastFactorDate"
     private static let lastWorkoutTypeKey = "wellnario.fitness.lastWorkoutType"
     private static let lastWorkoutDateKey = "wellnario.fitness.lastWorkoutDate"
 
     static var customSleepFactors: [String] {
-        UserDefaults.standard.stringArray(forKey: customFactorsKey) ?? []
+        customSleepFactorDefinitions.map(\.title)
+    }
+
+    static var suggestedSleepFactors: [String] {
+        SleepFactorCatalog.predefined
+            .filter { $0.source == .manual }
+            .map(\.title)
+    }
+
+    static var customSleepFactorDefinitions: [SleepFactorDefinition] {
+        if let data = UserDefaults.standard.data(forKey: customFactorDefinitionsKey),
+           let definitions = try? JSONDecoder().decode([SleepFactorDefinition].self, from: data) {
+            return definitions.sorted {
+                $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
+        }
+        return (UserDefaults.standard.stringArray(forKey: customFactorsKey) ?? []).map {
+            SleepFactorDefinition(
+                id: legacyCustomFactorID(for: $0),
+                category: .custom,
+                title: $0,
+                valueKind: .discrete,
+                source: .manual,
+                symbolName: "tag.fill",
+                analysisStep: 1,
+                analysisStepLabel: ""
+            )
+        }
+    }
+
+    static func allSleepFactorDefinitions(
+        repository: WellnarioRepositoryProtocol? = nil
+    ) -> [SleepFactorDefinition] {
+        SleepFactorCatalog.predefined
+            + SleepSupplementFactorCatalog.definitions(repository: repository)
+            + customSleepFactorDefinitions
+    }
+
+    static func enabledSleepFactorDefinitions(
+        repository: WellnarioRepositoryProtocol? = nil
+    ) -> [SleepFactorDefinition] {
+        let disabledIDs = Set(
+            UserDefaults.standard.stringArray(forKey: disabledFactorIDsKey) ?? []
+        )
+        return allSleepFactorDefinitions(repository: repository).filter { !disabledIDs.contains($0.id) }
+    }
+
+    static func isSleepFactorEnabled(
+        _ id: String,
+        repository: WellnarioRepositoryProtocol? = nil
+    ) -> Bool {
+        enabledSleepFactorDefinitions(repository: repository).contains { $0.id == id }
+    }
+
+    static func setSleepFactor(_ id: String, enabled: Bool) {
+        var disabledIDs = Set(
+            UserDefaults.standard.stringArray(forKey: disabledFactorIDsKey) ?? []
+        )
+        if enabled {
+            disabledIDs.remove(id)
+        } else {
+            disabledIDs.insert(id)
+        }
+        UserDefaults.standard.set(disabledIDs.sorted(), forKey: disabledFactorIDsKey)
+    }
+
+    static var sleepFactorLog: [SleepFactorLogEntry] {
+        if let data = UserDefaults.standard.data(forKey: sleepFactorLogKey),
+           let log = try? JSONDecoder().decode([SleepFactorLogEntry].self, from: data) {
+            return log.sorted { $0.date > $1.date }
+        }
+        guard let lastSleepFactor,
+              let date = UserDefaults.standard.object(forKey: lastSleepFactorDateKey) as? Date else {
+            return []
+        }
+        return [SleepFactorLogEntry(date: date, factor: lastSleepFactor)]
     }
 
     static var lastSleepFactor: String? {
         UserDefaults.standard.string(forKey: lastSleepFactorKey)
     }
 
-    static func addCustomSleepFactor(_ name: String) {
+    static func addCustomSleepFactor(
+        _ name: String,
+        valueKind: SleepFactorValueKind = .discrete
+    ) {
         let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return }
-        var factors = customSleepFactors
-        guard !factors.contains(where: { $0.localizedCaseInsensitiveCompare(normalized) == .orderedSame }) else {
+        var definitions = customSleepFactorDefinitions
+        guard !allSleepFactorDefinitions().contains(where: {
+            $0.title.localizedCaseInsensitiveCompare(normalized) == .orderedSame
+        }) else {
             return
         }
-        factors.append(normalized)
-        UserDefaults.standard.set(factors.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }, forKey: customFactorsKey)
+        definitions.append(SleepFactorDefinition(
+            id: "custom.\(UUID().uuidString.lowercased())",
+            category: .custom,
+            title: normalized,
+            valueKind: valueKind,
+            source: .manual,
+            symbolName: valueKind == .discrete ? "tag.fill" : "number.circle.fill",
+            analysisStep: 1,
+            analysisStepLabel: valueKind.unit ?? ""
+        ))
+        persistCustomDefinitions(definitions)
     }
 
-    static func logSleepFactor(_ name: String) {
+    static func removeCustomSleepFactor(_ name: String) {
+        let definitions = customSleepFactorDefinitions.filter {
+            $0.title.localizedCaseInsensitiveCompare(name) != .orderedSame
+        }
+        persistCustomDefinitions(definitions)
+    }
+
+    static func sleepFactorEntry(
+        for definition: SleepFactorDefinition,
+        on date: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> SleepFactorLogEntry? {
+        sleepFactorLog.first {
+            calendar.isDate($0.date, inSameDayAs: date)
+                && entry($0, matches: definition)
+        }
+    }
+
+    static func setSleepFactorValue(
+        _ value: Double?,
+        for definition: SleepFactorDefinition,
+        on date: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) {
+        let startOfDay = calendar.startOfDay(for: date)
+        var log = sleepFactorLog.filter {
+            !(calendar.isDate($0.date, inSameDayAs: startOfDay)
+                && entry($0, matches: definition))
+        }
+        if definition.valueKind == .discrete {
+            if value != nil {
+                log.append(SleepFactorLogEntry(
+                    date: startOfDay,
+                    factor: definition.title,
+                    factorID: definition.id
+                ))
+            }
+        } else if let value, value.isFinite {
+            log.append(SleepFactorLogEntry(
+                date: startOfDay,
+                factor: definition.title,
+                factorID: definition.id,
+                numericValue: value
+            ))
+        }
+        persistSleepFactorLog(log)
+        refreshLastSleepFactorCache(log: log, changedDate: startOfDay, calendar: calendar)
+    }
+
+    static func factors(on date: Date, calendar: Calendar = .autoupdatingCurrent) -> [String] {
+        sleepFactorLog
+            .filter { calendar.isDate($0.date, inSameDayAs: date) }
+            .map(\.factor)
+    }
+
+    static func setSleepFactors(
+        _ factors: [String],
+        on date: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) {
+        let normalizedFactors = Array(Set(factors.map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty })).sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+        let startOfDay = calendar.startOfDay(for: date)
+        var log = sleepFactorLog.filter { !calendar.isDate($0.date, inSameDayAs: startOfDay) }
+        log.append(contentsOf: normalizedFactors.map { factor in
+            let definition = SleepFactorCatalog.definition(matchingLegacyTitle: factor)
+            return SleepFactorLogEntry(
+                date: startOfDay,
+                factor: factor,
+                factorID: definition?.id
+            )
+        })
+        persistSleepFactorLog(log)
+
+        guard calendar.isDateInToday(startOfDay) else { return }
+        if let factor = normalizedFactors.last {
+            UserDefaults.standard.set(factor, forKey: lastSleepFactorKey)
+            UserDefaults.standard.set(Date(), forKey: lastSleepFactorDateKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: lastSleepFactorKey)
+            UserDefaults.standard.removeObject(forKey: lastSleepFactorDateKey)
+        }
+    }
+
+    static func logSleepFactor(_ name: String, on date: Date = Date()) {
+        var factors = factors(on: date)
+        guard !factors.contains(where: { $0.localizedCaseInsensitiveCompare(name) == .orderedSame }) else {
+            return
+        }
+        factors.append(name)
+        setSleepFactors(factors, on: date)
+        guard Calendar.autoupdatingCurrent.isDateInToday(date) else { return }
         UserDefaults.standard.set(name, forKey: lastSleepFactorKey)
         UserDefaults.standard.set(Date(), forKey: lastSleepFactorDateKey)
+    }
+
+    private static func entry(
+        _ entry: SleepFactorLogEntry,
+        matches definition: SleepFactorDefinition
+    ) -> Bool {
+        if let factorID = entry.factorID { return factorID == definition.id }
+        return entry.factor.localizedCaseInsensitiveCompare(definition.title) == .orderedSame
+    }
+
+    private static func persistSleepFactorLog(_ log: [SleepFactorLogEntry]) {
+        let sorted = log.sorted { $0.date > $1.date }
+        guard let data = try? JSONEncoder().encode(sorted) else { return }
+        UserDefaults.standard.set(data, forKey: sleepFactorLogKey)
+    }
+
+    private static func persistCustomDefinitions(_ definitions: [SleepFactorDefinition]) {
+        let sorted = definitions.sorted {
+            $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+        }
+        guard let data = try? JSONEncoder().encode(sorted) else { return }
+        UserDefaults.standard.set(data, forKey: customFactorDefinitionsKey)
+        UserDefaults.standard.set(sorted.map(\.title), forKey: customFactorsKey)
+    }
+
+    private static func refreshLastSleepFactorCache(
+        log: [SleepFactorLogEntry],
+        changedDate: Date,
+        calendar: Calendar
+    ) {
+        guard calendar.isDateInToday(changedDate) else { return }
+        let todayEntries = log.filter { calendar.isDateInToday($0.date) }
+        if let last = todayEntries.last {
+            UserDefaults.standard.set(last.factor, forKey: lastSleepFactorKey)
+            UserDefaults.standard.set(Date(), forKey: lastSleepFactorDateKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: lastSleepFactorKey)
+            UserDefaults.standard.removeObject(forKey: lastSleepFactorDateKey)
+        }
+    }
+
+    private static func legacyCustomFactorID(for name: String) -> String {
+        let scalars = name.lowercased().unicodeScalars
+            .map { String($0.value, radix: 16) }
+            .joined(separator: "-")
+        return "custom.legacy.\(scalars)"
     }
 
     static func startWorkout(type: String) {
         UserDefaults.standard.set(type, forKey: lastWorkoutTypeKey)
         UserDefaults.standard.set(Date(), forKey: lastWorkoutDateKey)
     }
-}
-
-@MainActor
-final class SleepFactorPickerViewController: UITableViewController {
-    var onLogged: ((String) -> Void)?
-
-    private var suggestedFactors: [String] {
-        [
-            L10n.text("sleep.factor.nap"),
-            L10n.text("sleep.factor.heavy_dinner"),
-            L10n.text("sleep.factor.alcohol"),
-            L10n.text("sleep.factor.late_training"),
-            L10n.text("sleep.factor.stress"),
-            L10n.text("sleep.factor.screen_time")
-        ]
-    }
-
-    private var customFactors: [String] { WellnessLocalStore.customSleepFactors }
-
-    init() {
-        super.init(style: .insetGrouped)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        title = L10n.text("sleep.factor.add.title")
-        view.backgroundColor = WellnarioPalette.background
-        view.accessibilityIdentifier = "sleep.factor.picker"
-        tableView.backgroundColor = .clear
-        tableView.tintColor = WellnarioPalette.cyan
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            title: L10n.Common.cancel,
-            style: .plain,
-            target: self,
-            action: #selector(cancel)
-        )
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "plus"),
-            style: .plain,
-            target: self,
-            action: #selector(addCustomFactor)
-        )
-        navigationItem.rightBarButtonItem?.accessibilityIdentifier = "sleep.factor.add_custom"
-    }
-
-    override func numberOfSections(in tableView: UITableView) -> Int { 2 }
-
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        section == 0 ? suggestedFactors.count : customFactors.count
-    }
-
-    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        section == 0 ? L10n.text("sleep.factor.suggested") : L10n.text("sleep.factor.custom")
-    }
-
-    override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        guard section == 1, customFactors.isEmpty else { return nil }
-        return L10n.text("sleep.factor.custom.empty")
-    }
-
-    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let identifier = "SleepFactorCell"
-        let cell = tableView.dequeueReusableCell(withIdentifier: identifier)
-            ?? UITableViewCell(style: .default, reuseIdentifier: identifier)
-        let title = indexPath.section == 0 ? suggestedFactors[indexPath.row] : customFactors[indexPath.row]
-        var content = cell.defaultContentConfiguration()
-        content.text = title
-        content.textProperties.color = WellnarioPalette.textPrimary
-        content.textProperties.font = WellnarioTypography.font(for: .body)
-        content.image = UIImage(systemName: indexPath.section == 0 ? "sparkles" : "person.crop.circle.badge.plus")
-        content.imageProperties.tintColor = indexPath.section == 0 ? WellnarioPalette.violet : WellnarioPalette.cyan
-        cell.contentConfiguration = content
-        cell.backgroundColor = WellnarioPalette.surface
-        cell.accessoryType = .disclosureIndicator
-        return cell
-    }
-
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let factor = indexPath.section == 0 ? suggestedFactors[indexPath.row] : customFactors[indexPath.row]
-        WellnessLocalStore.logSleepFactor(factor)
-        UIImpactFeedbackGenerator.wellnarioSuccess()
-        onLogged?(factor)
-        dismiss(animated: true)
-    }
-
-    @objc private func addCustomFactor() {
-        let alert = UIAlertController(
-            title: L10n.text("sleep.factor.custom.add.title"),
-            message: L10n.text("sleep.factor.custom.add.message"),
-            preferredStyle: .alert
-        )
-        alert.addTextField { field in
-            field.placeholder = L10n.text("sleep.factor.custom.placeholder")
-            field.clearButtonMode = .whileEditing
-            field.accessibilityIdentifier = "sleep.factor.custom.name"
-        }
-        alert.addAction(UIAlertAction(title: L10n.Common.cancel, style: .cancel))
-        alert.addAction(UIAlertAction(title: L10n.Common.add, style: .default) { [weak self, weak alert] _ in
-            guard let name = alert?.textFields?.first?.text else { return }
-            WellnessLocalStore.addCustomSleepFactor(name)
-            self?.tableView.reloadSections(IndexSet(integer: 1), with: .automatic)
-        })
-        present(alert, animated: true)
-    }
-
-    @objc private func cancel() { dismiss(animated: true) }
 }
 
 @MainActor

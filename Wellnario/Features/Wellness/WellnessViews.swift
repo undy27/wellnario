@@ -660,6 +660,19 @@ enum WellnessTrendReferenceLine: Int, CaseIterable {
 }
 
 @MainActor
+struct WellnessTrendIntervalHighlight {
+    let startPosition: CGFloat
+    let endPosition: CGFloat
+    let color: UIColor
+    let symbolName: String
+}
+
+struct WellnessTrendXAxisLabel {
+    let position: CGFloat
+    let text: String
+}
+
+@MainActor
 final class WellnessTrendChartView: UIView {
     var values: [Double?] = [] {
         didSet {
@@ -668,15 +681,30 @@ final class WellnessTrendChartView: UIView {
         }
     }
     var labels: [String] = [] { didSet { setNeedsDisplay() } }
+    /// Explicit labels for the horizontal axis. These are useful for time
+    /// series with irregularly spaced samples, where a label need not match a
+    /// data point exactly.
+    var xAxisLabels: [WellnessTrendXAxisLabel] = [] { didSet { setNeedsDisplay() } }
     var selectionLabels: [String] = [] { didSet { setNeedsDisplay() } }
+    /// Normalized horizontal positions for irregularly spaced time series.
+    /// When omitted, chart values continue to use equal spacing.
+    var xPositions: [CGFloat] = [] { didSet { setNeedsDisplay() } }
+    /// Translucent time bands, drawn behind the chart data.
+    var intervalHighlights: [WellnessTrendIntervalHighlight] = [] { didSet { setNeedsDisplay() } }
     var lineColor = WellnarioPalette.violet { didSet { setNeedsDisplay() } }
     var lineColors: [UIColor?] = [] { didSet { setNeedsDisplay() } }
+    /// Use when a metric has a meaningful absolute scale (for example a
+    /// 0–100 score) rather than a range derived from the displayed samples.
+    var fixedBounds: WellnessTrendBounds? { didSet { setNeedsDisplay() } }
     var targetRanges: [ClosedRange<Double>?] = [] { didSet { setNeedsDisplay() } }
     var targetBandColor = WellnarioPalette.fuchsia { didSet { setNeedsDisplay() } }
     var emptyText = "" { didSet { setNeedsDisplay() } }
     var smoothingWindow = 1 { didSet { setNeedsDisplay() } }
     var averageTitle = "" { didSet { setNeedsDisplay() } }
     var averageColor = WellnarioPalette.cyan { didSet { setNeedsDisplay() } }
+    /// Shows the average value on the Y axis instead of adding a label over
+    /// the chart's data area.
+    var showsAverageValueOnYAxis = false { didSet { setNeedsDisplay() } }
     var linearTrend: WellnessLinearTrend? { didSet { setNeedsDisplay() } }
     var referenceLine = WellnessTrendReferenceLine.linearTrend { didSet { setNeedsDisplay() } }
     var linearTrendColor: UIColor {
@@ -688,6 +716,10 @@ final class WellnessTrendChartView: UIView {
     var valueFormatter: (Double) -> String = { String(format: "%.1f", $0) } {
         didSet { setNeedsDisplay() }
     }
+    var axisLabelFont = WellnarioTypography.font(for: .caption) {
+        didSet { setNeedsDisplay() }
+    }
+    var usesStraightLineSegments = false { didSet { setNeedsDisplay() } }
     private(set) var selectedIndex: Int? {
         didSet { setNeedsDisplay() }
     }
@@ -721,6 +753,7 @@ final class WellnessTrendChartView: UIView {
 
     override func draw(_ rect: CGRect) {
         let chartRect = plotRect(in: rect)
+        drawIntervalHighlights(in: chartRect)
         drawGrid(in: chartRect)
         drawLabels(in: chartRect)
 
@@ -733,7 +766,7 @@ final class WellnessTrendChartView: UIView {
         }
         let scaleValues = plottedValues + trendScaleValues + targetScaleValues
         guard plottedValues.contains(where: { $0 != nil }),
-              let bounds = WellnessTrendScale.bounds(for: scaleValues) else {
+              let bounds = fixedBounds ?? WellnessTrendScale.bounds(for: scaleValues) else {
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = .center
             let attributes: [NSAttributedString.Key: Any] = [
@@ -761,7 +794,16 @@ final class WellnessTrendChartView: UIView {
         let range = upper - lower
         let periodValues = values.compactMap { $0 }
         let average = periodValues.reduce(0, +) / Double(periodValues.count)
-        drawYAxisLabels(minimum: lower, maximum: upper, in: chartRect)
+        let additionalYAxisValues: [(value: Double, color: UIColor)] =
+            referenceLine == .average && showsAverageValueOnYAxis
+            ? [(average, averageColor)]
+            : []
+        drawYAxisLabels(
+            minimum: lower,
+            maximum: upper,
+            additionalValues: additionalYAxisValues,
+            in: chartRect
+        )
         drawTargetRanges(lower: lower, range: range, in: chartRect)
 
         let pointCount = max(values.count, 2)
@@ -772,7 +814,7 @@ final class WellnessTrendChartView: UIView {
             indexedPoints.append((
                 index,
                 CGPoint(
-                    x: chartRect.minX + chartRect.width * CGFloat(index) / CGFloat(pointCount - 1),
+                    x: xPosition(for: index, pointCount: pointCount, in: chartRect),
                     y: chartRect.maxY - chartRect.height * CGFloat((value - lower) / range)
                 )
             ))
@@ -795,16 +837,20 @@ final class WellnessTrendChartView: UIView {
         let fillPath = UIBezierPath()
         fillPath.move(to: CGPoint(x: points[0].x, y: chartRect.maxY))
         fillPath.addLine(to: points[0])
-        addSmoothCurve(points: points, to: fillPath)
+        addLineOrSmoothCurve(points: points, to: fillPath)
         fillPath.addLine(to: CGPoint(x: points.last!.x, y: chartRect.maxY))
         fillPath.close()
-        lineColor.withAlphaComponent(0.12).setFill()
-        fillPath.fill()
+        if lineColors.isEmpty {
+            lineColor.withAlphaComponent(0.12).setFill()
+            fillPath.fill()
+        } else {
+            drawColoredArea(fillPath, through: indexedPoints, in: chartRect)
+        }
 
         if lineColors.isEmpty {
             let linePath = UIBezierPath()
             linePath.move(to: points[0])
-            addSmoothCurve(points: points, to: linePath)
+            addLineOrSmoothCurve(points: points, to: linePath)
             lineColor.setStroke()
             linePath.lineWidth = 3
             linePath.lineCapStyle = .round
@@ -838,10 +884,12 @@ final class WellnessTrendChartView: UIView {
         let chartRect = plotRect(in: bounds)
         guard chartRect.width > 0 else { return }
         let relativeX = min(max((locationX - chartRect.minX) / chartRect.width, 0), 1)
-        let targetIndex = Int((relativeX * CGFloat(plottedValues.count - 1)).rounded())
         let newIndex = plottedValues.indices
             .filter { plottedValues[$0] != nil }
-            .min { abs($0 - targetIndex) < abs($1 - targetIndex) }
+            .min {
+                abs(xPosition(for: $0, pointCount: plottedValues.count, in: chartRect) - chartRect.minX - chartRect.width * relativeX)
+                    < abs(xPosition(for: $1, pointCount: plottedValues.count, in: chartRect) - chartRect.minX - chartRect.width * relativeX)
+            }
         selectIndex(newIndex, providesFeedback: true)
     }
 
@@ -906,23 +954,117 @@ final class WellnessTrendChartView: UIView {
         rect.inset(by: UIEdgeInsets(top: 18, left: 42, bottom: 30, right: 7))
     }
 
-    private func drawYAxisLabels(minimum: Double, maximum: Double, in rect: CGRect) {
+    private func xPosition(for index: Int, pointCount: Int, in rect: CGRect) -> CGFloat {
+        let fallback = CGFloat(index) / CGFloat(max(pointCount - 1, 1))
+        let normalized = xPositions.indices.contains(index) ? xPositions[index] : fallback
+        return rect.minX + rect.width * min(max(normalized, 0), 1)
+    }
+
+    private func drawIntervalHighlights(in rect: CGRect) {
+        guard !intervalHighlights.isEmpty else { return }
+        for highlight in intervalHighlights {
+            let start = min(max(highlight.startPosition, 0), 1)
+            let end = min(max(highlight.endPosition, 0), 1)
+            let startX = rect.minX + rect.width * min(start, end)
+            let endX = rect.minX + rect.width * max(start, end)
+            let width = max(endX - startX, 4)
+            let bandRect = CGRect(
+                x: startX,
+                y: rect.minY,
+                width: min(width, rect.maxX - startX),
+                height: rect.height
+            )
+            highlight.color.withAlphaComponent(0.12).setFill()
+            UIBezierPath(roundedRect: bandRect, cornerRadius: 3).fill()
+            highlight.color.withAlphaComponent(0.42).setStroke()
+            let border = UIBezierPath(roundedRect: bandRect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 3)
+            border.lineWidth = 1
+            border.stroke()
+
+            // Keep the badge in the chart's existing top inset, just above
+            // the interval rectangle. It must not change the plot's vertical
+            // layout merely to make room for the icon.
+            let iconSize: CGFloat = 11
+            let iconPadding: CGFloat = 3
+            let badgeSize = iconSize + iconPadding * 2
+            guard bandRect.width >= badgeSize,
+                  let icon = UIImage(
+                    systemName: highlight.symbolName,
+                    withConfiguration: UIImage.SymbolConfiguration(pointSize: iconSize, weight: .semibold)
+                  )?.withTintColor(highlight.color, renderingMode: .alwaysOriginal) else {
+                continue
+            }
+            let iconRect = CGRect(
+                x: bandRect.midX - iconSize / 2,
+                y: rect.minY - badgeSize + iconPadding + 1,
+                width: iconSize,
+                height: iconSize
+            )
+            let badgeRect = CGRect(
+                x: iconRect.minX - iconPadding,
+                y: rect.minY - badgeSize + 1,
+                width: badgeSize,
+                height: badgeSize
+            )
+            WellnarioPalette.surfaceElevated.withAlphaComponent(0.86).setFill()
+            UIBezierPath(roundedRect: badgeRect, cornerRadius: badgeRect.height / 2).fill()
+            icon.draw(in: iconRect)
+        }
+    }
+
+    private func drawYAxisLabels(
+        minimum: Double,
+        maximum: Double,
+        additionalValues: [(value: Double, color: UIColor)],
+        in rect: CGRect
+    ) {
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: WellnarioTypography.font(for: .summaryDetail),
+            // Keep the scale values legible at a glance. These are the primary
+            // numeric anchors of the chart, so they should not use the tiny
+            // secondary-detail style used by supporting metadata elsewhere.
+            .font: axisLabelFont,
             .foregroundColor: WellnarioPalette.textSecondary
         ]
-        let maximumText = valueFormatter(maximum)
-        let minimumText = valueFormatter(minimum)
-        let maximumSize = maximumText.size(withAttributes: attributes)
-        let minimumSize = minimumText.size(withAttributes: attributes)
-        maximumText.draw(
-            at: CGPoint(x: rect.minX - maximumSize.width - 7, y: rect.minY - maximumSize.height / 2),
-            withAttributes: attributes
-        )
-        minimumText.draw(
-            at: CGPoint(x: rect.minX - minimumSize.width - 7, y: rect.maxY - minimumSize.height / 2),
-            withAttributes: attributes
-        )
+        func drawLabel(_ value: Double, y: CGFloat, color: UIColor) -> CGRect {
+            let text = valueFormatter(value)
+            let size = text.size(withAttributes: attributes)
+            let labelRect = CGRect(
+                x: rect.minX - size.width - 7,
+                y: y - size.height / 2,
+                width: size.width,
+                height: size.height
+            )
+            text.draw(
+                at: labelRect.origin,
+                withAttributes: [
+                    .font: axisLabelFont,
+                    .foregroundColor: color
+                ]
+            )
+            return labelRect
+        }
+
+        var occupied = [
+            drawLabel(maximum, y: rect.minY, color: WellnarioPalette.textSecondary),
+            drawLabel(minimum, y: rect.maxY, color: WellnarioPalette.textSecondary)
+        ]
+        let range = maximum - minimum
+        for additional in additionalValues where range > 0 {
+            guard additional.value > minimum, additional.value < maximum else { continue }
+            let y = rect.maxY - rect.height * CGFloat((additional.value - minimum) / range)
+            let text = valueFormatter(additional.value)
+            let size = text.size(withAttributes: attributes)
+            let proposed = CGRect(
+                x: rect.minX - size.width - 7,
+                y: y - size.height / 2,
+                width: size.width,
+                height: size.height
+            )
+            guard !occupied.contains(where: { $0.insetBy(dx: 0, dy: -3).intersects(proposed) }) else {
+                continue
+            }
+            occupied.append(drawLabel(additional.value, y: y, color: additional.color))
+        }
     }
 
     private func drawAverageLine(value: Double, lower: Double, range: Double, in rect: CGRect) {
@@ -938,7 +1080,7 @@ final class WellnessTrendChartView: UIView {
         guard !averageTitle.isEmpty else { return }
         let text = "\(averageTitle) \(valueFormatter(value))"
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: WellnarioTypography.font(for: .summaryDetail),
+            .font: WellnarioTypography.font(for: .caption),
             .foregroundColor: averageColor
         ]
         let size = text.size(withAttributes: attributes)
@@ -991,7 +1133,7 @@ final class WellnessTrendChartView: UIView {
     private func drawLinearTrendEndpointValues(start: CGPoint, end: CGPoint, in rect: CGRect) {
         guard let linearTrend else { return }
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: WellnarioTypography.font(for: .summaryDetail),
+            .font: WellnarioTypography.font(for: .caption),
             .foregroundColor: linearTrendColor
         ]
         let startText = valueFormatter(linearTrend.startValue)
@@ -1070,7 +1212,7 @@ final class WellnessTrendChartView: UIView {
         }
 
         let pointCount = max(values.count, 2)
-        let x = rect.minX + rect.width * CGFloat(selectedIndex) / CGFloat(pointCount - 1)
+        let x = xPosition(for: selectedIndex, pointCount: pointCount, in: rect)
         let y = rect.maxY - rect.height * CGFloat((value - lower) / range)
 
         let guide = UIBezierPath()
@@ -1165,7 +1307,7 @@ final class WellnessTrendChartView: UIView {
             guard targetRanges.indices.contains(index), let targetRange = targetRanges[index] else {
                 return nil
             }
-            let x = rect.minX + rect.width * CGFloat(index) / CGFloat(pointCount - 1)
+            let x = xPosition(for: index, pointCount: pointCount, in: rect)
             var upperY = rect.maxY
                 - rect.height * CGFloat((targetRange.upperBound - lower) / range)
             var lowerY = rect.maxY
@@ -1224,15 +1366,50 @@ final class WellnessTrendChartView: UIView {
             let controlX = (previous.point.x + current.point.x) / 2
             let control1 = CGPoint(x: controlX, y: previous.point.y)
             let control2 = CGPoint(x: controlX, y: current.point.y)
-            let split = splitCubicBezier(
+            let curve: CubicBezier = (
                 start: previous.point,
                 control1: control1,
                 control2: control2,
                 end: current.point
             )
-            strokeCubicBezier(split.left, color: colorForLine(at: previous.index))
-            strokeCubicBezier(split.right, color: colorForLine(at: current.index))
+            strokeGradientCubicBezier(
+                curve,
+                from: colorForLine(at: previous.index),
+                to: colorForLine(at: current.index)
+            )
         }
+    }
+
+    private func drawColoredArea(
+        _ path: UIBezierPath,
+        through points: [(index: Int, point: CGPoint)],
+        in rect: CGRect
+    ) {
+        guard let context = UIGraphicsGetCurrentContext(), points.count > 1 else { return }
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let colors = points.map {
+            colorForLine(at: $0.index)
+                .resolvedColor(with: traitCollection)
+                .withAlphaComponent(0.12)
+                .cgColor
+        }
+        let locations = points.map {
+            CGFloat(($0.point.x - rect.minX) / max(rect.width, .ulpOfOne))
+        }
+        guard let gradient = CGGradient(
+            colorsSpace: colorSpace,
+            colors: colors as CFArray,
+            locations: locations
+        ) else { return }
+        context.saveGState()
+        path.addClip()
+        context.drawLinearGradient(
+            gradient,
+            start: CGPoint(x: rect.minX, y: rect.midY),
+            end: CGPoint(x: rect.maxX, y: rect.midY),
+            options: []
+        )
+        context.restoreGState()
     }
 
     private typealias CubicBezier = (
@@ -1242,41 +1419,86 @@ final class WellnessTrendChartView: UIView {
         end: CGPoint
     )
 
-    private func splitCubicBezier(
-        start: CGPoint,
-        control1: CGPoint,
-        control2: CGPoint,
-        end: CGPoint
-    ) -> (left: CubicBezier, right: CubicBezier) {
-        let startControl = midpoint(start, control1)
-        let controls = midpoint(control1, control2)
-        let controlEnd = midpoint(control2, end)
-        let leftControl = midpoint(startControl, controls)
-        let rightControl = midpoint(controls, controlEnd)
-        let middle = midpoint(leftControl, rightControl)
-        return (
-            (start, startControl, leftControl, middle),
-            (middle, rightControl, controlEnd, end)
-        )
+    /// UIKit cannot stroke a Bezier path with a gradient directly. Sampling
+    /// the curve into short, interpolated segments keeps the gradient glued to
+    /// the curve itself, rather than making a hard colour transition halfway
+    /// through each pair of data points.
+    private func strokeGradientCubicBezier(
+        _ bezier: CubicBezier,
+        from startColor: UIColor,
+        to endColor: UIColor
+    ) {
+        let segmentCount = 20
+        var previousPoint = point(on: bezier, at: 0)
+        for segment in 1...segmentCount {
+            let endProgress = CGFloat(segment) / CGFloat(segmentCount)
+            let currentPoint = point(on: bezier, at: endProgress)
+            let color = interpolatedColor(
+                from: startColor,
+                to: endColor,
+                progress: (CGFloat(segment - 1) + 0.5) / CGFloat(segmentCount)
+            )
+            let path = UIBezierPath()
+            path.move(to: previousPoint)
+            path.addLine(to: currentPoint)
+            color.setStroke()
+            path.lineWidth = 3
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            path.stroke()
+            previousPoint = currentPoint
+        }
     }
 
-    private func midpoint(_ lhs: CGPoint, _ rhs: CGPoint) -> CGPoint {
-        CGPoint(x: (lhs.x + rhs.x) / 2, y: (lhs.y + rhs.y) / 2)
+    private func point(on bezier: CubicBezier, at progress: CGFloat) -> CGPoint {
+        let t = min(max(progress, 0), 1)
+        let inverse = 1 - t
+        let x = inverse * inverse * inverse * bezier.start.x
+            + 3 * inverse * inverse * t * bezier.control1.x
+            + 3 * inverse * t * t * bezier.control2.x
+            + t * t * t * bezier.end.x
+        let y = inverse * inverse * inverse * bezier.start.y
+            + 3 * inverse * inverse * t * bezier.control1.y
+            + 3 * inverse * t * t * bezier.control2.y
+            + t * t * t * bezier.end.y
+        return CGPoint(x: x, y: y)
     }
 
-    private func strokeCubicBezier(_ bezier: CubicBezier, color: UIColor) {
-        let path = UIBezierPath()
-        path.move(to: bezier.start)
-        path.addCurve(
-            to: bezier.end,
-            controlPoint1: bezier.control1,
-            controlPoint2: bezier.control2
+    private func interpolatedColor(
+        from start: UIColor,
+        to end: UIColor,
+        progress: CGFloat
+    ) -> UIColor {
+        let resolvedStart = start.resolvedColor(with: traitCollection)
+        let resolvedEnd = end.resolvedColor(with: traitCollection)
+        var startRed: CGFloat = 0
+        var startGreen: CGFloat = 0
+        var startBlue: CGFloat = 0
+        var startAlpha: CGFloat = 0
+        var endRed: CGFloat = 0
+        var endGreen: CGFloat = 0
+        var endBlue: CGFloat = 0
+        var endAlpha: CGFloat = 0
+        guard resolvedStart.getRed(
+            &startRed,
+            green: &startGreen,
+            blue: &startBlue,
+            alpha: &startAlpha
+        ), resolvedEnd.getRed(
+            &endRed,
+            green: &endGreen,
+            blue: &endBlue,
+            alpha: &endAlpha
+        ) else {
+            return progress < 0.5 ? start : end
+        }
+        let t = min(max(progress, 0), 1)
+        return UIColor(
+            red: startRed + (endRed - startRed) * t,
+            green: startGreen + (endGreen - startGreen) * t,
+            blue: startBlue + (endBlue - startBlue) * t,
+            alpha: startAlpha + (endAlpha - startAlpha) * t
         )
-        color.setStroke()
-        path.lineWidth = 3
-        path.lineCapStyle = .round
-        path.lineJoinStyle = .round
-        path.stroke()
     }
 
     private func drawGrid(in rect: CGRect) {
@@ -1293,16 +1515,28 @@ final class WellnessTrendChartView: UIView {
     }
 
     private func drawLabels(in rect: CGRect) {
-        guard labels.count > 1 else { return }
+        let axisLabels: [(position: CGFloat, text: String)]
+        if !xAxisLabels.isEmpty {
+            axisLabels = xAxisLabels.map { ($0.position, $0.text) }
+        } else {
+            guard labels.count > 1 else { return }
+            axisLabels = labels.enumerated().map {
+                let fallback = CGFloat($0.offset) / CGFloat(max(labels.count - 1, 1))
+                let position = xPositions.indices.contains($0.offset) ? xPositions[$0.offset] : fallback
+                return (position, $0.element)
+            }
+        }
+        guard axisLabels.count > 1 else { return }
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: WellnarioTypography.font(for: .caption),
+            .font: axisLabelFont,
             .foregroundColor: WellnarioPalette.textTertiary
         ]
         var previousLabelMaxX = -CGFloat.greatestFiniteMagnitude
-        for (index, label) in labels.enumerated() {
+        for axisLabel in axisLabels.sorted(by: { $0.position < $1.position }) {
+            let label = axisLabel.text
             guard !label.isEmpty else { continue }
             let size = label.size(withAttributes: attributes)
-            let x = rect.minX + rect.width * CGFloat(index) / CGFloat(labels.count - 1)
+            let x = rect.minX + rect.width * min(max(axisLabel.position, 0), 1)
             let labelX = min(max(rect.minX, x - size.width / 2), rect.maxX - size.width)
             guard labelX >= previousLabelMaxX + 12 else { continue }
             label.draw(
@@ -1323,6 +1557,16 @@ final class WellnessTrendChartView: UIView {
                 controlPoint1: CGPoint(x: controlX, y: previous.y),
                 controlPoint2: CGPoint(x: controlX, y: current.y)
             )
+        }
+    }
+
+    private func addLineOrSmoothCurve(points: [CGPoint], to path: UIBezierPath) {
+        guard usesStraightLineSegments else {
+            addSmoothCurve(points: points, to: path)
+            return
+        }
+        for point in points.dropFirst() {
+            path.addLine(to: point)
         }
     }
 }

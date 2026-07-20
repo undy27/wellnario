@@ -1,9 +1,94 @@
 import Foundation
+import HealthKit
 import UIKit
 import XCTest
 @testable import Wellnario
 
 final class AppleHealthSyncTests: XCTestCase {
+    @MainActor
+    func testAppleHealthRequestsGroupedBloodPressureAuthorization() {
+        let identifiers = Set(
+            AppleHealthSyncService.authorizationReadTypes.map(\.identifier)
+        )
+
+        XCTAssertTrue(
+            identifiers.contains(HKCorrelationTypeIdentifier.bloodPressure.rawValue)
+        )
+        XCTAssertFalse(
+            identifiers.contains(HKQuantityTypeIdentifier.bloodPressureSystolic.rawValue)
+        )
+        XCTAssertFalse(
+            identifiers.contains(HKQuantityTypeIdentifier.bloodPressureDiastolic.rawValue)
+        )
+        XCTAssertTrue(
+            identifiers.contains(HKQuantityTypeIdentifier.vo2Max.rawValue)
+        )
+        XCTAssertTrue(
+            identifiers.contains(HKQuantityTypeIdentifier.timeInDaylight.rawValue)
+        )
+        XCTAssertTrue(
+            identifiers.contains(HKQuantityTypeIdentifier.respiratoryRate.rawValue)
+        )
+
+        XCTAssertEqual(
+            Set(AppleHealthSyncService.daylightAuthorizationReadTypes.map(\.identifier)),
+            [HKQuantityTypeIdentifier.timeInDaylight.rawValue]
+        )
+
+        let sourceIdentifiers = Set(
+            AppleHealthSyncService.sourceDiscoverySampleTypes.map(\.identifier)
+        )
+        XCTAssertFalse(
+            sourceIdentifiers.contains(HKCorrelationTypeIdentifier.bloodPressure.rawValue)
+        )
+        XCTAssertTrue(
+            sourceIdentifiers.contains(HKQuantityTypeIdentifier.bloodPressureSystolic.rawValue)
+        )
+        XCTAssertTrue(
+            sourceIdentifiers.contains(HKQuantityTypeIdentifier.bloodPressureDiastolic.rawValue)
+        )
+        XCTAssertTrue(
+            sourceIdentifiers.contains(HKQuantityTypeIdentifier.vo2Max.rawValue)
+        )
+        XCTAssertTrue(
+            sourceIdentifiers.contains(HKQuantityTypeIdentifier.timeInDaylight.rawValue)
+        )
+        XCTAssertTrue(
+            sourceIdentifiers.contains(HKQuantityTypeIdentifier.respiratoryRate.rawValue)
+        )
+    }
+
+    @MainActor
+    func testIOS265UsesManualBloodPressureAuthorizationWorkaround() {
+        XCTAssertTrue(
+            AppleHealthSyncService.requiresManualBloodPressureAuthorization(
+                for: OperatingSystemVersion(
+                    majorVersion: 26,
+                    minorVersion: 5,
+                    patchVersion: 1
+                )
+            )
+        )
+        XCTAssertFalse(
+            AppleHealthSyncService.requiresManualBloodPressureAuthorization(
+                for: OperatingSystemVersion(
+                    majorVersion: 26,
+                    minorVersion: 4,
+                    patchVersion: 2
+                )
+            )
+        )
+        XCTAssertFalse(
+            AppleHealthSyncService.requiresManualBloodPressureAuthorization(
+                for: OperatingSystemVersion(
+                    majorVersion: 26,
+                    minorVersion: 6,
+                    patchVersion: 0
+                )
+            )
+        )
+    }
+
     func testSleepAggregationMergesOverlappingSourcesWithoutDoubleCounting() throws {
         let start = try utcDate(2026, 7, 9, hour: 22)
         let segments = [
@@ -371,7 +456,7 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertEqual(cache.load(), snapshot)
     }
 
-    func testSnapshotCacheIgnoresPreviouslyStoredBiologicalSexField() throws {
+    func testSnapshotCacheRestoresBiologicalSexField() throws {
         let suiteName = "AppleHealthLegacyProfileCacheTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -386,7 +471,415 @@ final class AppleHealthSyncTests: XCTestCase {
             forKey: "appleHealth.snapshot.v1"
         )
 
-        XCTAssertEqual(AppleHealthSnapshotCache(defaults: defaults).load(), snapshot)
+        let restored = AppleHealthSnapshotCache(defaults: defaults).load()
+        XCTAssertEqual(restored.biologicalSex, .female)
+        var expected = snapshot
+        expected.biologicalSex = .female
+        XCTAssertEqual(restored, expected)
+    }
+
+    func testPhenoAgeMatchesPublishedEquation() throws {
+        let age = 50.0
+        let values: [BiologicalAgeMarker: Double] = [
+            .albumin: 4.226953289734269,
+            .creatinine: 0.9697135482476471,
+            .glucose: 100.44731697827484,
+            .cReactiveProtein: 0.38586679139567104,
+            .lymphocytePercentage: 32.19410516919884,
+            .meanCorpuscularVolume: 90.11153198164081,
+            .redCellDistributionWidth: 13.15434649408602,
+            .alkalinePhosphatase: 88.26031137857636,
+            .whiteBloodCellCount: 7.1494361522629575
+        ]
+
+        XCTAssertEqual(
+            try XCTUnwrap(BiologicalAgeCalculator.phenoAge(
+                chronologicalAge: age,
+                values: values
+            )),
+            48.87685162364575,
+            accuracy: 0.000001
+        )
+    }
+
+    func testBioAgeReturnsChronologicalAgeAtSexSpecificRegressionMeans() throws {
+        let values: [BiologicalAgeMarker: Double] = [
+            .forcedExpiratoryVolume: 3366.7121462920027,
+            .systolicBloodPressure: 128.958782256862,
+            .totalCholesterol: 209.572894712767,
+            .glycatedHemoglobin: 5.597982252007,
+            .albumin: 4.21441607654,
+            .creatinine: 0.957237843698,
+            .cReactiveProtein: 0.3418632019018708,
+            .alkalinePhosphatase: 87.181596140564,
+            .bloodUreaNitrogen: 15.1642835805515
+        ]
+
+        XCTAssertEqual(
+            try XCTUnwrap(BiologicalAgeCalculator.bioAge(
+                chronologicalAge: 50,
+                sex: .male,
+                values: values
+            )),
+            50,
+            accuracy: 0.000001
+        )
+    }
+
+    func testBiologicalAgeAverageWeightsAlgorithmsByFreshAnalysisCoverage() throws {
+        let freshMarkers: Set<BiologicalAgeMarker> = [
+            .glucose,
+            .lymphocytePercentage,
+            .meanCorpuscularVolume,
+            .redCellDistributionWidth,
+            .totalCholesterol
+        ]
+        let oldMarkers: Set<BiologicalAgeMarker> = [.whiteBloodCellCount]
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let values = Dictionary(
+            uniqueKeysWithValues: BiologicalAgeMarker.allCases.map { marker in
+                let source: BiologicalAgeValueSource
+                if freshMarkers.contains(marker) {
+                    source = .analysis(date: date, isOlderThanTwoYears: false)
+                } else if oldMarkers.contains(marker) {
+                    source = .analysis(date: date, isOlderThanTwoYears: true)
+                } else if marker == .systolicBloodPressure {
+                    source = .appleHealthSystolicAverage(asOf: date)
+                } else {
+                    source = .populationAverage
+                }
+                return (
+                    marker,
+                    BiologicalAgeResolvedValue(
+                        marker: marker,
+                        value: 1,
+                        populationAverage: 1,
+                        source: source,
+                        isCreatinineAdjusted: false
+                    )
+                )
+            }
+        )
+        let profile = BiologicalAgeProfile(
+            chronologicalAge: 50,
+            biologicalSex: .male,
+            values: values,
+            estimate: BiologicalAgeEstimate(phenoAge: 40, bioAge: 70)
+        )
+
+        let weighted = profile.weightedEstimate
+
+        XCTAssertEqual(
+            weighted.phenoAgeFreshAnalysisCoverage,
+            4.0 / 9.0,
+            accuracy: 0.000001
+        )
+        XCTAssertEqual(
+            weighted.bioAgeFreshAnalysisCoverage,
+            1.0 / 9.0,
+            accuracy: 0.000001
+        )
+        XCTAssertEqual(try XCTUnwrap(weighted.age), 46, accuracy: 0.000001)
+    }
+
+    func testBiologicalAgeAverageFallsBackToEqualWeightsWithoutFreshAnalyses() throws {
+        let values = Dictionary(
+            uniqueKeysWithValues: BiologicalAgeMarker.allCases.map { marker in
+                (
+                    marker,
+                    BiologicalAgeResolvedValue(
+                        marker: marker,
+                        value: 1,
+                        populationAverage: 1,
+                        source: .populationAverage,
+                        isCreatinineAdjusted: false
+                    )
+                )
+            }
+        )
+        let profile = BiologicalAgeProfile(
+            chronologicalAge: 50,
+            biologicalSex: .male,
+            values: values,
+            estimate: BiologicalAgeEstimate(phenoAge: 40, bioAge: 70)
+        )
+
+        XCTAssertEqual(
+            try XCTUnwrap(profile.weightedEstimate.age),
+            55,
+            accuracy: 0.000001
+        )
+    }
+
+    @MainActor
+    func testBiologicalAgeResolverRecalculatesWhenChronologicalAgeChanges() throws {
+        let suiteName = "BiologicalAgeChronologicalAgeTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = BiologicalAgePreferences(defaults: defaults)
+        let store = HealthDataStore()
+        var snapshot = AppleHealthSnapshot.empty
+        snapshot.dateOfBirthComponents = DateComponents(
+            calendar: Calendar(identifier: .gregorian),
+            timeZone: TimeZone(secondsFromGMT: 0),
+            year: 1976,
+            month: 7,
+            day: 20
+        )
+        snapshot.biologicalSex = .male
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let beforeBirthday = try utcDate(2026, 7, 19, hour: 12)
+        let afterBirthday = try utcDate(2026, 7, 20, hour: 12)
+
+        let before = BiologicalAgeProfileResolver.resolve(
+            store: store,
+            snapshot: snapshot,
+            preferences: preferences,
+            now: beforeBirthday,
+            calendar: calendar
+        )
+        let after = BiologicalAgeProfileResolver.resolve(
+            store: store,
+            snapshot: snapshot,
+            preferences: preferences,
+            now: afterBirthday,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(before.chronologicalAge, 49)
+        XCTAssertEqual(after.chronologicalAge, 50)
+        XCTAssertNotEqual(before.estimate, after.estimate)
+    }
+
+    func testBiologicalAgeRingUsesLargerAgeAsFullCircumference() {
+        let favorable = BiologicalAgeRingComparison(
+            biologicalAge: 40,
+            chronologicalAge: 50
+        )
+        XCTAssertEqual(favorable.coloredArcProportion, 0.8, accuracy: 0.000001)
+        XCTAssertTrue(favorable.usesGreen)
+
+        let unfavorable = BiologicalAgeRingComparison(
+            biologicalAge: 60,
+            chronologicalAge: 50
+        )
+        XCTAssertEqual(
+            unfavorable.coloredArcProportion,
+            5.0 / 6.0,
+            accuracy: 0.000001
+        )
+        XCTAssertFalse(unfavorable.usesGreen)
+    }
+
+    @MainActor
+    func testBiologicalAgeResolverFlagsOldValuesAndAdjustsCreatinineWithoutChangingAnalysis() throws {
+        let suiteName = "BiologicalAgeResolverTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = BiologicalAgePreferences(defaults: defaults)
+        let store = HealthDataStore()
+        let creatinine = try XCTUnwrap(
+            store.biomarkers().first {
+                $0.nameKey == "health.biomarker.catalog.creatinine"
+            }
+        )
+        let analysisDate = try utcDate(2024, 7, 18, hour: 8)
+        try store.saveAnalysis(
+            LabAnalysis(
+                id: UUID(),
+                collectedAt: analysisDate,
+                laboratory: "Test",
+                notes: nil,
+                results: [
+                    LabResult(
+                        id: UUID(),
+                        biomarkerID: creatinine.id,
+                        value: 2,
+                        unit: "mg/dL",
+                        referenceLower: nil,
+                        referenceUpper: nil
+                    )
+                ]
+            )
+        )
+        var snapshot = AppleHealthSnapshot.empty
+        snapshot.dateOfBirthComponents = DateComponents(
+            calendar: Calendar(identifier: .gregorian),
+            timeZone: TimeZone(secondsFromGMT: 0),
+            year: 1976,
+            month: 7,
+            day: 19
+        )
+        snapshot.biologicalSex = .male
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let now = try utcDate(2026, 7, 19, hour: 12)
+        preferences.setManualValues([
+            .creatinine: (5, .populationAverage)
+        ])
+
+        let original = BiologicalAgeProfileResolver.resolve(
+            store: store,
+            snapshot: snapshot,
+            preferences: preferences,
+            now: now,
+            calendar: calendar
+        )
+        let originalCreatinine = try XCTUnwrap(original.values[.creatinine])
+        XCTAssertEqual(originalCreatinine.value, 2, accuracy: 0.000001)
+        XCTAssertEqual(
+            originalCreatinine.source,
+            .analysis(date: analysisDate, isOlderThanTwoYears: true)
+        )
+        XCTAssertEqual(original.values[.albumin]?.source, .populationAverage)
+
+        preferences.creatineOrStrengthTraining = true
+        let adjusted = BiologicalAgeProfileResolver.resolve(
+            store: store,
+            snapshot: snapshot,
+            preferences: preferences,
+            now: now,
+            calendar: calendar
+        )
+        let adjustedCreatinine = try XCTUnwrap(adjusted.values[.creatinine])
+        XCTAssertTrue(adjustedCreatinine.isCreatinineAdjusted)
+        XCTAssertEqual(
+            adjustedCreatinine.value,
+            (2 + adjustedCreatinine.populationAverage) / 2,
+            accuracy: 0.000001
+        )
+        XCTAssertEqual(store.analyses().first?.results.first?.value, 2)
+    }
+
+    @MainActor
+    func testBiologicalAgeResolverUsesAppleHealthSixMonthSystolicAverage() throws {
+        let suiteName = "BiologicalAgeSystolicAverageTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = BiologicalAgePreferences(defaults: defaults)
+        let store = HealthDataStore()
+        let systolic = try XCTUnwrap(
+            store.biomarkers().first {
+                $0.nameKey == "health.biomarker.catalog.systolic_blood_pressure"
+            }
+        )
+        let now = try utcDate(2026, 7, 19, hour: 12)
+        try store.saveAnalysis(
+            LabAnalysis(
+                id: UUID(),
+                collectedAt: now,
+                laboratory: "Test",
+                notes: nil,
+                results: [
+                    LabResult(
+                        id: UUID(),
+                        biomarkerID: systolic.id,
+                        value: 180,
+                        unit: "mmHg",
+                        referenceLower: nil,
+                        referenceUpper: nil
+                    )
+                ]
+            )
+        )
+        var snapshot = AppleHealthSnapshot.empty
+        snapshot.dateOfBirthComponents = DateComponents(
+            calendar: Calendar(identifier: .gregorian),
+            timeZone: TimeZone(secondsFromGMT: 0),
+            year: 1976,
+            month: 7,
+            day: 19
+        )
+        snapshot.biologicalSex = .male
+        snapshot.systolicBloodPressureSixMonthAverage = AppleHealthMeasurement(
+            value: 124,
+            date: now,
+            sourceName: "Apple Health"
+        )
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+
+        let profile = BiologicalAgeProfileResolver.resolve(
+            store: store,
+            snapshot: snapshot,
+            preferences: preferences,
+            now: now,
+            calendar: calendar
+        )
+        let resolvedSystolic = try XCTUnwrap(profile.values[.systolicBloodPressure])
+
+        XCTAssertEqual(resolvedSystolic.value, 124, accuracy: 0.000001)
+        XCTAssertEqual(
+            resolvedSystolic.source,
+            .appleHealthSystolicAverage(asOf: now)
+        )
+    }
+
+    @MainActor
+    func testHealthBiologicalAgeRefreshesWhenAnalysisResultsChange() throws {
+        let suiteName = "HealthBiologicalAgeAnalysisRefreshTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = HealthDataStore()
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        service.snapshot.dateOfBirthComponents = DateComponents(
+            calendar: Calendar(identifier: .gregorian),
+            timeZone: TimeZone(secondsFromGMT: 0),
+            year: 1976,
+            month: 7,
+            day: 19
+        )
+        service.snapshot.biologicalSex = .male
+        let controller = HealthViewController(
+            appleHealthService: service,
+            healthDataStore: store,
+            defaults: defaults
+        )
+        controller.loadViewIfNeeded()
+        let card = try XCTUnwrap(descendant(
+            of: PremiumCardView.self,
+            identifier: "health.biological_age",
+            in: controller.view
+        ))
+        let initialValue = card.accessibilityValue
+        let albumin = try XCTUnwrap(
+            store.biomarkers().first {
+                $0.nameKey == "health.biomarker.catalog.albumin"
+            }
+        )
+        let analysisID = UUID()
+        let now = try utcDate(2026, 7, 19, hour: 12)
+        var analysis = LabAnalysis(
+            id: analysisID,
+            collectedAt: now,
+            laboratory: "Test",
+            notes: nil,
+            results: [
+                LabResult(
+                    id: UUID(),
+                    biomarkerID: albumin.id,
+                    value: 2,
+                    unit: "g/dL",
+                    referenceLower: nil,
+                    referenceUpper: nil
+                )
+            ]
+        )
+
+        try store.saveAnalysis(analysis)
+        let valueAfterAddition = card.accessibilityValue
+        XCTAssertNotEqual(valueAfterAddition, initialValue)
+
+        analysis.results[0].value = 5.8
+        try store.saveAnalysis(analysis)
+        let valueAfterModification = card.accessibilityValue
+        XCTAssertNotEqual(valueAfterModification, valueAfterAddition)
+
+        try store.deleteAnalysis(id: analysisID)
+        XCTAssertEqual(card.accessibilityValue, initialValue)
     }
 
     func testManualSleepOverridePersistsAndReplacesOnlySelectedFields() throws {
@@ -674,6 +1167,25 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertEqual(preferences.loadDisabledSourceSelections(), disabledSelections)
     }
 
+    func testShortcutAutomationPreferencesPersistScheduleDraft() throws {
+        let suiteName = "AppleHealthShortcutAutomationPreferencesTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = AppleHealthShortcutAutomationPreferences(defaults: defaults)
+
+        preferences.cadence = .weekly
+        preferences.weekdays = [2, 4, 6]
+        let calendar = Calendar.autoupdatingCurrent
+        let date = try XCTUnwrap(calendar.date(bySettingHour: 7, minute: 45, second: 0, of: Date()))
+        preferences.time = date
+
+        let restored = AppleHealthShortcutAutomationPreferences(defaults: defaults)
+        XCTAssertEqual(restored.cadence, .weekly)
+        XCTAssertEqual(restored.weekdays, [2, 4, 6])
+        XCTAssertEqual(calendar.component(.hour, from: restored.time), 7)
+        XCTAssertEqual(calendar.component(.minute, from: restored.time), 45)
+    }
+
     func testSourcePreferencesMigrateLegacyGlobalExclusionsToEveryCategory() throws {
         let suiteName = "AppleHealthLegacySourcePreferencesTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -921,6 +1433,71 @@ final class AppleHealthSyncTests: XCTestCase {
     }
 
     @MainActor
+    func testLatestSleepCardShowsCalculatedScoreBreakdown() throws {
+        let suiteName = "LatestSleepScoreBreakdownTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        let calendar = Calendar.autoupdatingCurrent
+        let today = calendar.startOfDay(for: Date())
+        let history = try (0..<7).map { offset -> AppleHealthSleepDay in
+            let day = try XCTUnwrap(calendar.date(byAdding: .day, value: offset - 6, to: today))
+            let end = try XCTUnwrap(calendar.date(byAdding: .hour, value: 8, to: day))
+            let hours = offset == 6 ? 7.5 : 8.0
+            let awakeHours = offset == 6 ? 0.25 : 0.0
+            return AppleHealthSleepDay(
+                date: end,
+                hours: hours,
+                sleepStartDate: end.addingTimeInterval(-hours * 3_600),
+                awakeHours: awakeHours,
+                sleepPeriodHours: hours + awakeHours
+            )
+        }
+        let latest = try XCTUnwrap(history.last)
+        service.snapshot.sleepTrend = history
+        service.snapshot.latestSleepSession = AppleHealthSleepSession(
+            startDate: try XCTUnwrap(latest.sleepStartDate),
+            endDate: latest.date,
+            asleepSeconds: 7.5 * 3_600,
+            inBedSeconds: 7.75 * 3_600,
+            awakeSeconds: 0.25 * 3_600,
+            coreSeconds: 4 * 3_600,
+            deepSeconds: 1.5 * 3_600,
+            remSeconds: 2 * 3_600,
+            sourceNames: ["Apple Watch"]
+        )
+
+        let controller = SleepViewController(appleHealthService: service, defaults: defaults)
+        controller.loadViewIfNeeded()
+
+        let breakdown = try XCTUnwrap(descendant(
+            of: UIStackView.self,
+            identifier: "sleep.latest.quality.breakdown",
+            in: controller.view
+        ))
+        XCTAssertTrue(
+            breakdown.accessibilityLabel?.contains(
+                L10n.text("settings.advanced.sleep.quality.weight.duration")
+            ) == true
+        )
+        XCTAssertNotNil(descendant(
+            of: UIStackView.self,
+            identifier: "sleep.latest.quality.duration",
+            in: controller.view
+        ))
+        XCTAssertNotNil(descendant(
+            of: UIStackView.self,
+            identifier: "sleep.latest.quality.regularity",
+            in: controller.view
+        ))
+        XCTAssertNotNil(descendant(
+            of: UIStackView.self,
+            identifier: "sleep.latest.quality.interruptions",
+            in: controller.view
+        ))
+    }
+
+    @MainActor
     func testManualSleepEditorLoadsCalculatedQualityForSelectedHealthDay() throws {
         let suiteName = "ManualSleepCalculatedQualityTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -1124,51 +1701,202 @@ final class AppleHealthSyncTests: XCTestCase {
     }
 
     @MainActor
-    func testHealthViewUsesStoredCardVisibilityAndOrder() throws {
-        let suiteName = "HealthCardViewTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let preferences = HealthCardLayoutPreferences(defaults: defaults)
-        preferences.moveCard(from: 2, to: 0)
-        preferences.setVisible(false, card: .biologicalAge)
+    func testHealthViewUsesThreeRequestedTabs() async throws {
         let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
-        let controller = HealthViewController(appleHealthService: service, defaults: defaults)
+        let controller = HealthViewController(appleHealthService: service)
+        let navigationController = UINavigationController(rootViewController: controller)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = navigationController
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
 
         controller.loadViewIfNeeded()
+        navigationController.view.frame = window.bounds
+        navigationController.view.layoutIfNeeded()
 
+        let tabs = try XCTUnwrap(descendant(
+            of: UISegmentedControl.self,
+            identifier: "health.tabs",
+            in: controller.view
+        ))
+        XCTAssertEqual(tabs.numberOfSegments, 3)
         XCTAssertEqual(
-            controller.contentStack.arrangedSubviews.compactMap(\.accessibilityIdentifier),
+            (0..<tabs.numberOfSegments).compactMap { tabs.titleForSegment(at: $0) },
             [
-                "health.card.section.medicalReviews",
-                "health.card.section.biomarkers",
-                "health.import_lab"
+                L10n.text("health.tabs.reviews"),
+                L10n.text("health.tabs.biomarkers"),
+                L10n.text("health.tabs.analytics")
             ]
         )
+
+        for modeIndex in [1, 2] {
+            tabs.selectedSegmentIndex = modeIndex
+            tabs.sendActions(for: .valueChanged)
+
+            let trendsItem = try XCTUnwrap(
+                controller.navigationItem.rightBarButtonItems?.first {
+                    $0.accessibilityIdentifier == "health.biomarker_trends.open"
+                }
+            )
+            XCTAssertTrue(trendsItem.customView is BreathingNavigationButton)
+        }
+
+        let transitionCompleted = expectation(description: "Health tab transition completes")
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + WellnarioScreenTransition.effectiveDuration + 0.1
+        ) {
+            transitionCompleted.fulfill()
+        }
+        await fulfillment(of: [transitionCompleted], timeout: 2)
     }
 
     @MainActor
-    func testBiologicalAgeTitleIsOutsideItsCard() throws {
+    func testBiologicalAgeAppearsBeforeHealthTabsAndNotInBiomarkerList() throws {
         let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
         let controller = HealthViewController(appleHealthService: service)
 
         controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.layoutIfNeeded()
 
         let section = try XCTUnwrap(descendant(
-            of: UIStackView.self,
+            of: UIView.self,
             identifier: "health.card.section.biologicalAge",
             in: controller.view
         ))
-        XCTAssertEqual(section.arrangedSubviews.count, 2)
-        let titleRow = try XCTUnwrap(section.arrangedSubviews.first as? UIStackView)
-        let titleLabel = try XCTUnwrap(titleRow.arrangedSubviews.first as? UILabel)
+        let titleLabel = try XCTUnwrap(descendant(
+            of: UILabel.self,
+            identifier: "health.biological_age.title",
+            in: section
+        ))
         let card = try XCTUnwrap(descendant(
             of: PremiumCardView.self,
             identifier: "health.biological_age",
             in: section
         ))
+        let placeholder = try XCTUnwrap(descendant(
+            of: UIImageView.self,
+            identifier: "health.biological_age.placeholder",
+            in: section
+        ))
+        let detail = try XCTUnwrap(descendant(
+            of: UILabel.self,
+            identifier: "health.biological_age.detail",
+            in: section
+        ))
+        let tabs = try XCTUnwrap(descendant(
+            of: UISegmentedControl.self,
+            identifier: "health.tabs",
+            in: controller.view
+        ))
 
         XCTAssertEqual(titleLabel.text, L10n.text("health.biological_age.estimate"))
         XCTAssertFalse(titleLabel.isDescendant(of: card))
+        XCTAssertEqual(card.bounds.height, 94, accuracy: 0.01)
+        XCTAssertTrue(card.isPressable)
+        XCTAssertEqual(placeholder.bounds.width, 70, accuracy: 0.01)
+        XCTAssertEqual(detail.numberOfLines, 5)
+        XCTAssertLessThan(section.frame.maxY, tabs.frame.minY)
+
+        let biomarkers = BiomarkersViewController(store: HealthDataStore())
+        biomarkers.loadViewIfNeeded()
+        let list = try XCTUnwrap(descendant(
+            of: UITableView.self,
+            identifier: "health.biomarkers.list",
+            in: biomarkers.view
+        ))
+        XCTAssertNil(list.tableHeaderView)
+    }
+
+    @MainActor
+    func testBiologicalAgeCardOpensEstimationScreen() throws {
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        let controller = HealthViewController(appleHealthService: service)
+        let navigationController = UINavigationController(rootViewController: controller)
+        controller.loadViewIfNeeded()
+
+        let card = try XCTUnwrap(descendant(
+            of: PremiumCardView.self,
+            identifier: "health.biological_age",
+            in: controller.view
+        ))
+        card.sendActions(for: .touchUpInside)
+
+        _ = try XCTUnwrap(
+            navigationController.topViewController as? BiologicalAgeEstimationViewController
+        )
+    }
+
+    @MainActor
+    func testSavingBiologicalAgeEstimateReturnsToHealthScreen() throws {
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        let controller = HealthViewController(appleHealthService: service)
+        let navigationController = UINavigationController(rootViewController: controller)
+        controller.loadViewIfNeeded()
+
+        let card = try XCTUnwrap(descendant(
+            of: PremiumCardView.self,
+            identifier: "health.biological_age",
+            in: controller.view
+        ))
+        card.sendActions(for: .touchUpInside)
+
+        let estimation = try XCTUnwrap(
+            navigationController.topViewController as? BiologicalAgeEstimationViewController
+        )
+        estimation.loadViewIfNeeded()
+        let saveButton = try XCTUnwrap(descendant(
+            of: PrimaryButton.self,
+            identifier: "health.biological_age.save",
+            in: estimation.view
+        ))
+
+        saveButton.sendActions(for: .touchUpInside)
+
+        XCTAssertTrue(navigationController.topViewController === controller)
+    }
+
+    @MainActor
+    func testBiologicalAgeAuditListsPhenoAgeAndBioAgeParameters() throws {
+        let now = Date(timeIntervalSince1970: 1_750_000_000)
+        let values = Dictionary(uniqueKeysWithValues: BiologicalAgeMarker.allCases.map { marker in
+            (
+                marker,
+                BiologicalAgeResolvedValue(
+                    marker: marker,
+                    value: 1,
+                    populationAverage: 1,
+                    source: .populationAverage,
+                    isCreatinineAdjusted: false
+                )
+            )
+        })
+        let profile = BiologicalAgeProfile(
+            chronologicalAge: 50,
+            biologicalSex: .male,
+            values: values,
+            estimate: BiologicalAgeEstimate(phenoAge: 49, bioAge: 51)
+        )
+        let controller = BiologicalAgeAuditViewController(profile: profile, referenceDate: now)
+        controller.loadViewIfNeeded()
+
+        XCTAssertNotNil(descendant(
+            of: PremiumCardView.self,
+            identifier: "health.biological_age.audit.phenoAge",
+            in: controller.view
+        ))
+        XCTAssertNotNil(descendant(
+            of: PremiumCardView.self,
+            identifier: "health.biological_age.audit.bioAge",
+            in: controller.view
+        ))
+        BiologicalAgeMarker.allCases.forEach { marker in
+            XCTAssertNotNil(descendant(
+                of: UIStackView.self,
+                identifier: "health.biological_age.audit.parameter.\(marker.rawValue)",
+                in: controller.view
+            ))
+        }
     }
 
     @MainActor
@@ -1310,7 +2038,11 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertTrue(banner.superview === controller.view)
         XCTAssertFalse(banner.isDescendant(of: controller.scrollView))
         XCTAssertEqual(banner.bounds.height, 76, accuracy: 0.01)
-        XCTAssertGreaterThan(controller.scrollView.contentInset.top, banner.bounds.height)
+        let scrollFrame = controller.scrollView.convert(
+            controller.scrollView.bounds,
+            to: controller.view
+        )
+        XCTAssertGreaterThan(scrollFrame.minY, banner.frame.maxY)
         XCTAssertEqual(controller.navigationItem.largeTitleDisplayMode, .never)
         XCTAssertEqual(banner.actionButton.titleLabel?.numberOfLines, 2)
         XCTAssertEqual(
@@ -2114,7 +2846,7 @@ final class AppleHealthSyncTests: XCTestCase {
     }
 
     @MainActor
-    func testHealthIncludesMedicalReviewsCard() throws {
+    func testHealthOpensWithMedicalReviewsList() throws {
         let suiteName = "MedicalReviewHealthCardTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -2127,13 +2859,12 @@ final class AppleHealthSyncTests: XCTestCase {
 
         controller.loadViewIfNeeded()
 
-        let button = try XCTUnwrap(descendant(
-            of: UIButton.self,
-            identifier: "health.medical_reviews.open",
+        let reviewsRoot = try XCTUnwrap(descendant(
+            of: UIView.self,
+            identifier: "health.medical_reviews.root",
             in: controller.view
         ))
-        XCTAssertEqual(button.accessibilityLabel, "Revisiones médicas")
-        XCTAssertTrue(button.accessibilityValue?.contains("0") == true)
+        XCTAssertFalse(reviewsRoot.isHidden)
     }
 
     @MainActor
@@ -2144,6 +2875,683 @@ final class AppleHealthSyncTests: XCTestCase {
         controller.loadViewIfNeeded()
 
         XCTAssertEqual(controller.navigationItem.largeTitleDisplayMode, .never)
+    }
+
+    @MainActor
+    func testSleepFactorsCardsAreShownDirectlyOnSleepScreen() throws {
+        let suiteName = "SleepFactorsNavigationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        let sleepController = SleepViewController(appleHealthService: service, defaults: defaults)
+        let navigationController = WellnarioNavigationController(rootViewController: sleepController)
+        navigationController.loadViewIfNeeded()
+        sleepController.loadViewIfNeeded()
+
+        let configuration = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "sleep.factors.configure",
+            in: sleepController.view
+        ))
+        XCTAssertNotNil(descendant(
+            of: UIButton.self,
+            identifier: "sleep.factors.daily_log",
+            in: sleepController.view
+        ))
+        XCTAssertNotNil(descendant(
+            of: UIButton.self,
+            identifier: "sleep.factors.analysis",
+            in: sleepController.view
+        ))
+        XCTAssertNil(descendant(
+            of: PremiumCardView.self,
+            identifier: "sleep.factor.summary",
+            in: sleepController.view
+        ))
+
+        configuration.sendActions(for: .touchUpInside)
+        XCTAssertTrue(navigationController.topViewController is SleepFactorConfigurationViewController)
+    }
+
+    @MainActor
+    func testSleepFactorSelectionUsesAllRequestedCategoryTabs() {
+        let controller = SleepFactorConfigurationViewController()
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(
+            SleepFactorCategory.allCases.map(\.rawValue),
+            [
+                "automatic",
+                "vitalState",
+                "lifestyle",
+                "medication",
+                "nutrition",
+                "sleep",
+                "wellbeing",
+                "custom"
+            ]
+        )
+        SleepFactorCategory.allCases.forEach { category in
+            XCTAssertNotNil(descendant(
+                of: ChipButton.self,
+                identifier: "sleep.factors.category.\(category.rawValue)",
+                in: controller.view
+            ))
+        }
+    }
+
+    @MainActor
+    func testSleepAnalysisGroupsInsufficientFactorsInOneExpandableCard() throws {
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        let controller = SleepFactorAnalysisViewController(appleHealthService: service)
+        controller.loadViewIfNeeded()
+
+        XCTAssertNotNil(descendant(
+            of: PremiumCardView.self,
+            identifier: "sleep.factors.analysis.insufficient_group",
+            in: controller.view
+        ))
+        XCTAssertNil(descendant(
+            of: PremiumCardView.self,
+            identifier: "sleep.factors.analysis.factor.automatic.steps",
+            in: controller.view
+        ))
+
+        let toggle = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "sleep.factors.analysis.insufficient_group.toggle",
+            in: controller.view
+        ))
+        toggle.sendActions(for: .touchUpInside)
+
+        let expandedToggle = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "sleep.factors.analysis.insufficient_group.toggle",
+            in: controller.view
+        ))
+        XCTAssertEqual(expandedToggle.accessibilityValue, L10n.text("accessibility.collapse"))
+    }
+
+    func testSleepFactorStatisticsSelectsLinearAndQuadraticModels() throws {
+        let linearPoints = (0...9).map {
+            SleepFactorDataPoint(x: Double($0), y: 6 + Double($0) * 0.2)
+        }
+        guard case let .numeric(linear) = SleepFactorStatistics.analyzeNumeric(
+            linearPoints,
+            analysisStep: 1
+        ) else {
+            return XCTFail("Expected a numeric linear result")
+        }
+        XCTAssertEqual(linear.model, .linear)
+        XCTAssertGreaterThan(linear.effectPercentPerStep, 0)
+
+        let quadraticPoints = (0...10).map { index in
+            let x = Double(index)
+            return SleepFactorDataPoint(x: x, y: 30 - pow(x - 5, 2))
+        }
+        guard case let .numeric(quadratic) = SleepFactorStatistics.analyzeNumeric(
+            quadraticPoints,
+            analysisStep: 1
+        ) else {
+            return XCTFail("Expected a numeric quadratic result")
+        }
+        XCTAssertEqual(quadratic.model, .quadratic)
+        XCTAssertEqual(try XCTUnwrap(quadratic.optimumX), 5, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testDaylightIsExplainedPerHourAndStrengthIsBinary() throws {
+        let definitions = SleepFactorCatalog.predefined
+        let daylight = try XCTUnwrap(definitions.first {
+            $0.id == SleepFactorCatalog.automaticDaylightMinutesID
+        })
+        let earlyDaylight = try XCTUnwrap(definitions.first {
+            $0.id == SleepFactorCatalog.automaticEarlyDaylightMinutesID
+        })
+        let strength = try XCTUnwrap(definitions.first {
+            $0.id == SleepFactorCatalog.automaticStrengthMinutesID
+        })
+
+        XCTAssertEqual(daylight.analysisStep, 60)
+        XCTAssertEqual(earlyDaylight.analysisStep, 60)
+        XCTAssertFalse(strength.isNumeric)
+        XCTAssertEqual(strength.valueKind, .discrete)
+        XCTAssertEqual(daylight.analysisStepLabel, L10n.text("sleep.factor.analysis_unit.hour"))
+        XCTAssertEqual(earlyDaylight.analysisStepLabel, L10n.text("sleep.factor.analysis_unit.hour"))
+    }
+
+    @MainActor
+    func testNonNegativeSleepFactorsDoNotShowNegativeChartAxisValues() throws {
+        let daylight = try XCTUnwrap(SleepFactorCatalog.predefined.first {
+            $0.id == SleepFactorCatalog.automaticDaylightMinutesID
+        })
+        XCTAssertEqual(daylight.chartMinimumValue, 0)
+
+        let domain = SleepFactorRelationshipChartView.xDomain(
+            minimum: 0,
+            maximum: 120,
+            lowerBound: daylight.chartMinimumValue,
+            upperBound: daylight.chartMaximumValue
+        )
+        XCTAssertEqual(domain.lowerBound, 0)
+        XCTAssertGreaterThan(domain.upperBound, 120)
+
+        let custom = SleepFactorDefinition(
+            id: "custom.temperature",
+            category: .custom,
+            title: "Temperatura",
+            valueKind: .numeric(unit: "°C"),
+            source: .manual,
+            symbolName: "thermometer",
+            analysisStep: 1,
+            analysisStepLabel: "grado"
+        )
+        XCTAssertNil(custom.chartMinimumValue)
+        XCTAssertLessThan(
+            SleepFactorRelationshipChartView.xDomain(
+                minimum: 0,
+                maximum: 120,
+                lowerBound: custom.chartMinimumValue,
+                upperBound: custom.chartMaximumValue
+            ).lowerBound,
+            0
+        )
+
+        let stress = try XCTUnwrap(SleepFactorCatalog.predefined.first {
+            $0.id == SleepFactorCatalog.automaticPreSleepStressID
+        })
+        XCTAssertEqual(stress.chartMinimumValue, 0)
+        XCTAssertEqual(stress.chartMaximumValue, 100)
+        let stressDomain = SleepFactorRelationshipChartView.xDomain(
+            minimum: 10,
+            maximum: 80,
+            lowerBound: stress.chartMinimumValue,
+            upperBound: stress.chartMaximumValue
+        )
+        XCTAssertEqual(stressDomain.lowerBound, 0)
+        XCTAssertEqual(stressDomain.upperBound, 100)
+        let stressNearMaximumDomain = SleepFactorRelationshipChartView.xDomain(
+            minimum: 10,
+            maximum: 97,
+            lowerBound: stress.chartMinimumValue,
+            upperBound: stress.chartMaximumValue
+        )
+        XCTAssertEqual(stressNearMaximumDomain.upperBound, 100)
+    }
+
+    func testSleepFactorDiscreteAnalysisUsesPresentAndAbsentGroups() {
+        let impact = SleepFactorStatistics.analyzeDiscrete(
+            presentValues: [7.4, 7.6, 7.8, 8.0, 7.5, 7.7, 7.9],
+            absentValues: [5.8, 6.0, 6.1, 6.2, 5.9, 6.3, 6.0]
+        )
+        guard case let .discrete(result) = impact else {
+            return XCTFail("Expected a discrete result")
+        }
+        XCTAssertGreaterThan(result.effectPercent, 20)
+        XCTAssertGreaterThan(result.confidence, 0.95)
+        XCTAssertEqual(result.presentSampleCount, 7)
+        XCTAssertEqual(result.absentSampleCount, 7)
+    }
+
+    @MainActor
+    func testAutomaticStrengthAnalysisUsesPresenceAndAbsenceGroups() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let start = try utcDate(2026, 7, 1, hour: 7)
+        let days = (0..<14).map { offset in
+            start.addingTimeInterval(Double(offset) * 86_400)
+        }
+        var snapshot = AppleHealthSnapshot.empty
+        snapshot.sleepTrend = days.enumerated().map { index, date in
+            AppleHealthSleepDay(
+                date: date,
+                hours: index < 7 ? 8 : 6
+            )
+        }
+        snapshot.automaticSleepFactors = days.enumerated().map { index, date in
+            AppleHealthAutomaticSleepFactors(
+                date: date,
+                steps: nil,
+                strengthTrainingMinutes: index < 7 ? 1 : 0,
+                daylightMinutes: nil,
+                earlyDaylightMinutes: nil,
+                preSleepStressScore: nil
+            )
+        }
+        let strength = try XCTUnwrap(SleepFactorCatalog.predefined.first {
+            $0.id == SleepFactorCatalog.automaticStrengthMinutesID
+        })
+
+        let impact = SleepFactorAnalysisDataBuilder.impact(
+            for: strength,
+            outcome: .duration,
+            snapshot: snapshot,
+            log: [],
+            calendar: calendar
+        )
+
+        guard case let .discrete(result) = impact else {
+            return XCTFail("Expected a discrete result")
+        }
+        XCTAssertEqual(result.presentSampleCount, 7)
+        XCTAssertEqual(result.absentSampleCount, 7)
+        XCTAssertGreaterThan(result.effectPercent, 30)
+    }
+
+    func testAutomaticSleepFactorsAlignActivityWithFollowingNight() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let previousStart = try utcDate(2026, 7, 8, hour: 23)
+        let previousEnd = try utcDate(2026, 7, 9, hour: 7)
+        let currentStart = try utcDate(2026, 7, 9, hour: 23)
+        let currentEnd = try utcDate(2026, 7, 10, hour: 7)
+        let sessions = [
+            AppleHealthSleepSession(
+                startDate: previousStart,
+                endDate: previousEnd,
+                asleepSeconds: 8 * 3_600,
+                inBedSeconds: 8 * 3_600,
+                awakeSeconds: 0,
+                coreSeconds: 5 * 3_600,
+                deepSeconds: 1.5 * 3_600,
+                remSeconds: 1.5 * 3_600,
+                sourceNames: ["Test"]
+            ),
+            AppleHealthSleepSession(
+                startDate: currentStart,
+                endDate: currentEnd,
+                asleepSeconds: 8 * 3_600,
+                inBedSeconds: 8 * 3_600,
+                awakeSeconds: 0,
+                coreSeconds: 5 * 3_600,
+                deepSeconds: 1.5 * 3_600,
+                remSeconds: 1.5 * 3_600,
+                sourceNames: ["Test"]
+            )
+        ]
+        let activityDay = LocalDay(containing: currentStart, in: calendar.timeZone)
+        let workoutStart = try utcDate(2026, 7, 9, hour: 18)
+        let workout = AppleHealthWorkout(
+            id: UUID(),
+            kind: .strength,
+            startDate: workoutStart,
+            endDate: workoutStart.addingTimeInterval(3_600),
+            durationSeconds: 3_600,
+            activeEnergyKilocalories: nil,
+            sourceName: "Test"
+        )
+        let daylightStart = try utcDate(2026, 7, 9, hour: 7)
+            .addingTimeInterval(30 * 60)
+        let history = AppleHealthAutomaticSleepFactorBuilder.build(
+            sessions: sessions,
+            stepsByDay: [activityDay: 8_000],
+            workouts: [workout],
+            daylightByDay: [activityDay: 90],
+            daylightSamples: [AppleHealthTimedQuantity(
+                startDate: daylightStart,
+                endDate: daylightStart.addingTimeInterval(30 * 60),
+                value: 30
+            )],
+            hrvSamples: [
+                AppleHealthTimedQuantity(
+                    startDate: previousStart.addingTimeInterval(-1_800),
+                    endDate: previousStart,
+                    value: 60
+                ),
+                AppleHealthTimedQuantity(
+                    startDate: currentStart.addingTimeInterval(-1_800),
+                    endDate: currentStart,
+                    value: 20
+                )
+            ],
+            calendar: calendar
+        )
+
+        let current = try XCTUnwrap(history.last)
+        XCTAssertEqual(try XCTUnwrap(current.steps), 8_000, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(current.strengthTrainingMinutes), 1, accuracy: 0.001)
+        XCTAssertEqual(
+            current.value(for: SleepFactorCatalog.automaticStrengthMinutesID),
+            1
+        )
+        XCTAssertEqual(try XCTUnwrap(current.daylightMinutes), 90, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(current.earlyDaylightMinutes), 30, accuracy: 0.001)
+        // A score is deliberately not inferred from HRV alone. The robust
+        // model waits until the four proposed signals have enough history.
+        XCTAssertNil(current.preSleepStressScore)
+    }
+
+    func testStressScoreUsesRobustBaselinesAndActivityAdjustedHRV() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let start = try utcDate(2026, 6, 1, hour: 22)
+        let hrvOffsets = [-6.0, 5, -2, 8, -8, 3, 0, 6, -4, 2, -1, 7, -7, 4, -3, 1]
+        let heartRateOffsets = [3.0, -2, 4, -4, 1, -3, 2, -1, 5, -5, 0, 3, -4, 4, -2, 1]
+        let respiratoryOffsets = [-0.8, 0.5, -0.3, 0.9, -0.9, 0.2, -0.1, 0.6, -0.5, 0.4, -0.2, 0.7, -0.7, 0.3, -0.4, 0.1]
+        let sleepOffsets = [-6.0, 4, -2, 7, -7, 3, -1, 5, -4, 2, 0, 6, -5, 3, -3, 1]
+
+        let history = (0..<16).map { index in
+            AppleHealthStressObservation(
+                date: start.addingTimeInterval(Double(index) * 86_400),
+                heartRateVariability: 52 + hrvOffsets[index],
+                restingHeartRate: 58 + heartRateOffsets[index],
+                respiratoryRate: 14 + respiratoryOffsets[index],
+                sleepQuality: 80 + sleepOffsets[index],
+                hadActivityInPreviousTwoHours: false
+            )
+        }
+        let highStressDate = start.addingTimeInterval(16 * 86_400)
+        let highStress = AppleHealthStressObservation(
+            date: highStressDate,
+            heartRateVariability: 20,
+            restingHeartRate: 58,
+            respiratoryRate: 14,
+            sleepQuality: 80,
+            hadActivityInPreviousTwoHours: false
+        )
+        let afterActivity = AppleHealthStressObservation(
+            date: highStressDate,
+            heartRateVariability: 20,
+            restingHeartRate: 58,
+            respiratoryRate: 14,
+            sleepQuality: 80,
+            hadActivityInPreviousTwoHours: true
+        )
+
+        let untreatedScore = try XCTUnwrap(
+            AppleHealthStressScoreCalculator.scores(
+                for: history + [highStress],
+                calendar: calendar
+            )[highStressDate]
+        )
+        let activityAdjustedScore = try XCTUnwrap(
+            AppleHealthStressScoreCalculator.scores(
+                for: history + [afterActivity],
+                calendar: calendar
+            )[highStressDate]
+        )
+
+        XCTAssertGreaterThan(untreatedScore, 75)
+        XCTAssertLessThan(activityAdjustedScore, untreatedScore)
+        XCTAssertTrue(
+            [
+                "apple_health.stress.level.high",
+                "apple_health.stress.level.very_high"
+            ].contains(AppleHealthStressScoreCalculator.levelLocalizationKey(for: untreatedScore))
+        )
+    }
+
+    func testStressScoreRendersWithStableHistoricalMetrics() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let start = try utcDate(2026, 5, 1, hour: 22)
+        let history = (0..<16).map { index in
+            AppleHealthStressObservation(
+                date: start.addingTimeInterval(Double(index) * 86_400),
+                heartRateVariability: 52,
+                restingHeartRate: 58,
+                respiratoryRate: 14,
+                sleepQuality: 80,
+                hadActivityInPreviousTwoHours: false
+            )
+        }
+
+        let latest = try XCTUnwrap(history.last)
+        let score = AppleHealthStressScoreCalculator.scores(
+            for: history,
+            calendar: calendar
+        )[latest.date]
+
+        XCTAssertEqual(try XCTUnwrap(score), 50, accuracy: 0.000_001)
+    }
+
+    func testHistoricalStressTimelineScoresRawPersistedSleepTrendBeforeRendering() throws {
+        let suiteName = "HistoricalStressTimelineTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let firstStart = try utcDate(2026, 5, 1, hour: 23)
+        let sessions = (0..<18).map { index in
+            let start = firstStart.addingTimeInterval(Double(index) * 86_400)
+            return AppleHealthSleepSession(
+                startDate: start,
+                endDate: start.addingTimeInterval(8 * 3_600),
+                asleepSeconds: 8 * 3_600,
+                inBedSeconds: 8 * 3_600,
+                awakeSeconds: 0,
+                coreSeconds: 5 * 3_600,
+                deepSeconds: 1.5 * 3_600,
+                remSeconds: 1.5 * 3_600,
+                sourceNames: ["Test"]
+            )
+        }
+        let rawTrend = sessions.map { session in
+            AppleHealthSleepDay(
+                date: calendar.startOfDay(for: session.endDate),
+                hours: 8,
+                sleepStartDate: session.startDate,
+                awakeHours: 0,
+                sleepPeriodHours: 8
+            )
+        }
+        XCTAssertTrue(rawTrend.allSatisfy { $0.qualityScore == nil })
+        let effectiveTrend = SleepManualOverrideStore(defaults: defaults).applying(
+            to: rawTrend,
+            calendar: calendar
+        )
+        let qualityByDay = Dictionary(uniqueKeysWithValues: effectiveTrend.compactMap { entry in
+            entry.qualityScore.map {
+                (LocalDay(containing: entry.date, in: calendar.timeZone), $0)
+            }
+        })
+        XCTAssertEqual(qualityByDay.count, sessions.count)
+
+        func samples(value: Double) -> [AppleHealthTimedQuantity] {
+            sessions.map { session in
+                AppleHealthTimedQuantity(
+                    startDate: session.startDate.addingTimeInterval(-35 * 60),
+                    endDate: session.startDate.addingTimeInterval(-30 * 60),
+                    value: value
+                )
+            }
+        }
+        let targetDayStart = calendar.startOfDay(
+            for: try XCTUnwrap(sessions.last).endDate
+        )
+        let targetDate = targetDayStart.addingTimeInterval(12 * 3_600)
+        let targetSample = { (value: Double) in
+            AppleHealthTimedQuantity(
+                startDate: targetDate.addingTimeInterval(-5 * 60),
+                endDate: targetDate,
+                value: value
+            )
+        }
+        let timeline = AppleHealthAutomaticSleepFactorBuilder.stressTimeline(
+            for: DateInterval(
+                start: targetDayStart,
+                end: targetDayStart.addingTimeInterval(86_400)
+            ),
+            sessions: sessions,
+            workouts: [],
+            hrvSamples: samples(value: 52) + [targetSample(52)],
+            restingHeartRateSamples: samples(value: 58) + [targetSample(58)],
+            respiratoryRateSamples: samples(value: 14) + [targetSample(14)],
+            sleepQualityByDay: qualityByDay,
+            calendar: calendar
+        )
+
+        XCTAssertFalse(try XCTUnwrap(timeline).points.compactMap(\.score).isEmpty)
+    }
+
+    func testStressScoreUsesRetrospectiveHealthSamplesOutsideThePreBedHour() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let start = try utcDate(2026, 5, 1, hour: 23)
+        let hrvOffsets = [-6.0, 5, -2, 8, -8, 3, 0, 6, -4, 2, -1, 7, -7, 4, -3, 1, -5, 5]
+        let heartRateOffsets = [3.0, -2, 4, -4, 1, -3, 2, -1, 5, -5, 0, 3, -4, 4, -2, 1, -3, 2]
+        let respiratoryOffsets = [-0.8, 0.5, -0.3, 0.9, -0.9, 0.2, -0.1, 0.6, -0.5, 0.4, -0.2, 0.7, -0.7, 0.3, -0.4, 0.1, -0.6, 0.5]
+        let sleepOffsets = [-6.0, 4, -2, 7, -7, 3, -1, 5, -4, 2, 0, 6, -5, 3, -3, 1, -4, 4]
+        let sessions = (0..<18).map { index in
+            let sessionStart = start.addingTimeInterval(Double(index) * 86_400)
+            return AppleHealthSleepSession(
+                startDate: sessionStart,
+                endDate: sessionStart.addingTimeInterval(8 * 3_600),
+                asleepSeconds: 8 * 3_600,
+                inBedSeconds: 8 * 3_600,
+                awakeSeconds: 0,
+                coreSeconds: 5 * 3_600,
+                deepSeconds: 1.5 * 3_600,
+                remSeconds: 1.5 * 3_600,
+                sourceNames: ["Test"]
+            )
+        }
+        let hrvSamples = sessions.enumerated().map { index, session in
+            AppleHealthTimedQuantity(
+                startDate: session.startDate.addingTimeInterval(-9 * 3_600),
+                endDate: session.startDate.addingTimeInterval(-8 * 3_600),
+                value: 52 + hrvOffsets[index]
+            )
+        }
+        let restingHeartRateSamples = sessions.enumerated().map { index, session in
+            AppleHealthTimedQuantity(
+                startDate: session.startDate.addingTimeInterval(-9 * 3_600),
+                endDate: session.startDate.addingTimeInterval(-8 * 3_600),
+                value: 58 + heartRateOffsets[index]
+            )
+        }
+        let respiratoryRateSamples = sessions.enumerated().map { index, session in
+            AppleHealthTimedQuantity(
+                startDate: session.startDate.addingTimeInterval(-9 * 3_600),
+                endDate: session.startDate.addingTimeInterval(-8 * 3_600),
+                value: 14 + respiratoryOffsets[index]
+            )
+        }
+        let sleepQualityByDay = Dictionary(uniqueKeysWithValues: sessions.enumerated().map {
+            index,
+            session in (
+                LocalDay(containing: session.endDate, in: calendar.timeZone),
+                80 + sleepOffsets[index]
+            )
+        })
+
+        let factors = AppleHealthAutomaticSleepFactorBuilder.build(
+            sessions: sessions,
+            stepsByDay: [:],
+            workouts: [],
+            daylightByDay: [:],
+            daylightSamples: [],
+            hrvSamples: hrvSamples,
+            restingHeartRateSamples: restingHeartRateSamples,
+            respiratoryRateSamples: respiratoryRateSamples,
+            sleepQualityByDay: sleepQualityByDay,
+            calendar: calendar
+        )
+
+        XCTAssertNotNil(factors.last?.preSleepStressScore)
+    }
+
+    func testLatestStressTimelineIncludesEveryRecentMeasurementAndCurrentEstimate() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let start = try utcDate(2026, 5, 1, hour: 23)
+        let hrvOffsets = [-6.0, 5, -2, 8, -8, 3, 0, 6, -4, 2, -1, 7, -7, 4, -3, 1, -5, 5]
+        let heartRateOffsets = [3.0, -2, 4, -4, 1, -3, 2, -1, 5, -5, 0, 3, -4, 4, -2, 1, -3, 2]
+        let respiratoryOffsets = [-0.8, 0.5, -0.3, 0.9, -0.9, 0.2, -0.1, 0.6, -0.5, 0.4, -0.2, 0.7, -0.7, 0.3, -0.4, 0.1, -0.6, 0.5]
+        let sleepOffsets = [-6.0, 4, -2, 7, -7, 3, -1, 5, -4, 2, 0, 6, -5, 3, -3, 1, -4, 4]
+        let sessions = (0..<18).map { index in
+            let sessionStart = start.addingTimeInterval(Double(index) * 86_400)
+            return AppleHealthSleepSession(
+                startDate: sessionStart,
+                endDate: sessionStart.addingTimeInterval(8 * 3_600),
+                asleepSeconds: 8 * 3_600,
+                inBedSeconds: 8 * 3_600,
+                awakeSeconds: 0,
+                coreSeconds: 5 * 3_600,
+                deepSeconds: 1.5 * 3_600,
+                remSeconds: 1.5 * 3_600,
+                sourceNames: ["Test"]
+            )
+        }
+        let hrvSamples = sessions.enumerated().flatMap { index, session in
+            let baseline = AppleHealthTimedQuantity(
+                startDate: session.startDate.addingTimeInterval(-30 * 60),
+                endDate: session.startDate.addingTimeInterval(-25 * 60),
+                value: 52 + hrvOffsets[index]
+            )
+            guard index == sessions.index(before: sessions.endIndex) else { return [baseline] }
+            return [
+                baseline,
+                AppleHealthTimedQuantity(
+                    startDate: session.startDate.addingTimeInterval(-10 * 60),
+                    endDate: session.startDate.addingTimeInterval(-5 * 60),
+                    value: 44
+                )
+            ]
+        }
+        let restingHeartRateSamples = sessions.enumerated().map { index, session in
+            AppleHealthTimedQuantity(
+                startDate: session.startDate.addingTimeInterval(-30 * 60),
+                endDate: session.startDate.addingTimeInterval(-25 * 60),
+                value: 58 + heartRateOffsets[index]
+            )
+        }
+        let respiratoryRateSamples = sessions.enumerated().map { index, session in
+            AppleHealthTimedQuantity(
+                startDate: session.startDate.addingTimeInterval(-30 * 60),
+                endDate: session.startDate.addingTimeInterval(-25 * 60),
+                value: 14 + respiratoryOffsets[index]
+            )
+        }
+        let sleepQualityByDay = Dictionary(uniqueKeysWithValues: sessions.enumerated().map {
+            index,
+            session in (
+                LocalDay(containing: session.endDate, in: calendar.timeZone),
+                80 + sleepOffsets[index]
+            )
+        })
+
+        let currentDate = try XCTUnwrap(sessions.last?.endDate).addingTimeInterval(2 * 3_600)
+        let history = AppleHealthAutomaticSleepFactorBuilder.buildHistory(
+            sessions: sessions,
+            stepsByDay: [:],
+            workouts: [],
+            daylightByDay: [:],
+            daylightSamples: [],
+            hrvSamples: hrvSamples,
+            restingHeartRateSamples: restingHeartRateSamples,
+            respiratoryRateSamples: respiratoryRateSamples,
+            sleepQualityByDay: sleepQualityByDay,
+            calendar: calendar,
+            currentDate: currentDate
+        )
+
+        let timeline = try XCTUnwrap(history.latestStressTimeline)
+        let latestMeasurementDate = try XCTUnwrap(hrvSamples.last?.endDate)
+        XCTAssertTrue(timeline.points.contains { $0.date == latestMeasurementDate })
+        XCTAssertEqual(timeline.points.last?.date, currentDate)
+        let finalTimelineScore = try XCTUnwrap(timeline.points.last?.score)
+        let finalCurrentScore = try XCTUnwrap(history.currentStressDetails?.score)
+        XCTAssertEqual(
+            finalTimelineScore,
+            finalCurrentScore,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(history.currentStressDetails?.date, currentDate)
+    }
+
+    func testDiscreteSleepAnalysisRequiresSevenNightsInEachGroup() {
+        let impact = SleepFactorStatistics.analyzeDiscrete(
+            presentValues: [7.1, 7.2, 7.3, 7.4, 7.5, 7.6],
+            absentValues: [6.1, 6.2, 6.3, 6.4, 6.5, 6.6]
+        )
+
+        guard case let .insufficient(total, present, absent) = impact else {
+            return XCTFail("Expected insufficient result")
+        }
+        XCTAssertEqual(total, 12)
+        XCTAssertEqual(present, 6)
+        XCTAssertEqual(absent, 6)
     }
 
     @MainActor

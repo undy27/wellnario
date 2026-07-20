@@ -18,9 +18,11 @@ final class SupplementEditorViewController: EditorViewController, PHPickerViewCo
     private let basisField = FormFieldView()
     private let componentsStack = UIStackView()
     private let addComponentButton = PrimaryButton(style: .secondary)
+    private let favoriteActivesHint = UILabel()
 
     private var presentations: [PresentationType] = []
     private var actives: [Active] = []
+    private var favoriteActives: [Active] = []
     private var selectedPresentationID: UUID?
     private var basisUnit: DoseUnit = .capsule
     private var componentRows: [ComponentEditorRow] = []
@@ -165,9 +167,12 @@ final class SupplementEditorViewController: EditorViewController, PHPickerViewCo
         do {
             presentations = try repository.fetchPresentationTypes()
             let existingActiveIDs = Set(supplement?.components.map(\.activeID) ?? [])
-            actives = try repository
-                .fetchActives(includeArchived: supplement != nil)
-                .filter { !$0.isArchived || existingActiveIDs.contains($0.id) }
+            let availableActives = try repository.fetchActives(includeArchived: supplement != nil)
+            favoriteActives = availableActives.filter { !$0.isArchived && $0.isFavorite }
+            actives = availableActives.filter {
+                (!$0.isArchived || existingActiveIDs.contains($0.id))
+                    && ($0.isFavorite || existingActiveIDs.contains($0.id))
+            }
             if selectedPresentationID == nil {
                 selectedPresentationID = presentations.first?.id
                 basisUnit = presentations.first?.defaultUnit ?? .capsule
@@ -274,7 +279,15 @@ final class SupplementEditorViewController: EditorViewController, PHPickerViewCo
         addComponentButton.setImage(UIImage(systemName: "plus.circle.fill"), for: .normal)
         addComponentButton.tintColor = WellnarioPalette.cyan
         addComponentButton.addTarget(self, action: #selector(addComponent), for: .touchUpInside)
-        addSection(title: L10n.Supplements.composition, views: [componentsStack, addComponentButton])
+        favoriteActivesHint.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
+        favoriteActivesHint.text = L10n.text("supplements.component.requires_favorite")
+        favoriteActivesHint.numberOfLines = 0
+        favoriteActivesHint.isHidden = !favoriteActives.isEmpty || supplement != nil
+        addComponentButton.isHidden = favoriteActives.isEmpty
+        addSection(
+            title: L10n.Supplements.composition,
+            views: [componentsStack, favoriteActivesHint, addComponentButton]
+        )
         addSaveButton()
     }
 
@@ -283,25 +296,25 @@ final class SupplementEditorViewController: EditorViewController, PHPickerViewCo
             supplement.components.forEach { component in
                 appendComponent(activeID: component.activeID, amount: component.amount, unit: component.unit)
             }
-        } else if let first = actives.first {
+        } else if let first = favoriteActives.first {
             appendComponent(activeID: first.id, amount: nil, unit: first.baseUnit)
         }
         updateComponentRemoveButtons()
     }
 
     @objc private func addComponent() {
-        guard !actives.isEmpty else {
-            let alert = UIAlertController(title: L10n.Actives.noItemsTitle, message: L10n.text("supplements.component.requires_active"), preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: L10n.Common.cancel, style: .cancel))
-            alert.addAction(UIAlertAction(title: L10n.Actives.add, style: .default) { [weak self] _ in
-                guard let self else { return }
-                self.presentSheet(ActiveEditorViewController(repository: self.repository), largeOnly: true)
-            })
+        guard !favoriteActives.isEmpty else {
+            let alert = UIAlertController(
+                title: L10n.Actives.noItemsTitle,
+                message: L10n.text("supplements.component.requires_favorite"),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: L10n.Common.done, style: .default))
             present(alert, animated: true)
             return
         }
-        let unused = actives.first { active in !componentRows.contains { $0.selectedActiveID == active.id } }
-        let selected = unused ?? actives[0]
+        let unused = favoriteActives.first { active in !componentRows.contains { $0.selectedActiveID == active.id } }
+        let selected = unused ?? favoriteActives[0]
         appendComponent(activeID: selected.id, amount: nil, unit: selected.baseUnit)
         updateComponentRemoveButtons()
         let row = componentRows.last!
@@ -309,7 +322,11 @@ final class SupplementEditorViewController: EditorViewController, PHPickerViewCo
     }
 
     private func appendComponent(activeID: UUID?, amount: Decimal?, unit: DoseUnit) {
-        let row = ComponentEditorRow(actives: actives, language: catalogLanguage)
+        let row = ComponentEditorRow(
+            actives: actives,
+            selectableActives: favoriteActives,
+            language: catalogLanguage
+        )
         row.configure(activeID: activeID, amount: amount, unit: unit)
         row.onRemove = { [weak self, weak row] in
             guard let self, let row else { return }
@@ -425,14 +442,20 @@ final class ComponentEditorRow: UIView {
     let removeButton = UIButton(type: .system)
     private let activeField = SelectionFieldView(title: L10n.Form.active)
     private let actives: [Active]
+    private let selectableActives: [Active]
     private let language: CatalogLanguage
 
     var selectedActiveID: UUID?
     var selectedUnit: DoseUnit = .milligram
     var onRemove: (() -> Void)?
 
-    init(actives: [Active], language: CatalogLanguage) {
+    init(
+        actives: [Active],
+        selectableActives: [Active]? = nil,
+        language: CatalogLanguage
+    ) {
         self.actives = actives
+        self.selectableActives = selectableActives ?? actives
         self.language = language
         super.init(frame: .zero)
         setUp()
@@ -476,7 +499,7 @@ final class ComponentEditorRow: UIView {
     private func rebuildMenus() {
         activeField.value = active?.localizedName(language: language) ?? L10n.Common.required
         activeField.leadingImage = activeIcon(for: active)
-        activeField.menu = UIMenu(children: actives.map { active in
+        activeField.menu = UIMenu(children: selectableActives.map { active in
             UIAction(
                 title: active.localizedName(language: language),
                 image: activeIcon(for: active),

@@ -9,26 +9,36 @@
 /* Begin PBXBuildFile section */
 		021BBF30BAFC953B341C8366 /* TrendsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0D0E0B9003E1C25B755FCD /* TrendsViewController.swift */; };
 		03139FA281C37036380E3B79 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2C14E9292D7FB3ECDF40050 /* SettingsViewController.swift */; };
+		039274F112DB3405A44DDAF5 /* SleepWidgetSnapshotUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DD3614810C63C6848769C04 /* SleepWidgetSnapshotUpdater.swift */; };
 		03E4F64429612000F1AF912F /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = E1212BDF28F0932A5AAB1775 /* README.md */; };
 		0447C56F7ED13661C2BDF6CA /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 3AA5764D8FBDD37ACF3C9126 /* PrivacyInfo.xcprivacy */; };
 		053B277664390B972890EA9F /* SleepCardEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74580C31440AEBF88DDC378A /* SleepCardEditorViewController.swift */; };
 		09CDCB88B5284A54C5208BA9 /* FloatingTabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5893B61719D0D872B6BE8E36 /* FloatingTabBarView.swift */; };
+		0A23B3D64506AD4CE5650FB0 /* SleepSupplementFactors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 862EEA92796855B750D36734 /* SleepSupplementFactors.swift */; };
 		1293D72AB5D173796A705A82 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B4FA1FA593AA18507C24737 /* AppDelegate.swift */; };
 		12CC524BC6A0ADF366BF983F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CDF92964DE0149CDFEA4246F /* Assets.xcassets */; };
 		1367A6D455AC096E1652C16A /* TodayViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED89A282729B7462F37E4F82 /* TodayViewController.swift */; };
 		15275CCBC362A569CD50DCEA /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = ED227AA318BDE4EBEAA28E49 /* Localizable.strings */; };
+		1772214F924EE1D518D39F07 /* HealthDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16C8A52761CEB193C84A8A04 /* HealthDataStore.swift */; };
 		1D12EA62BC414B4089E2C2B8 /* WellnarioStateViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B61E62F90E3C1939114F9E0B /* WellnarioStateViews.swift */; };
 		23D989C6E5A718327FDFF40D /* SupplementEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E3CABD1CAC280DB0958A83D /* SupplementEditorViewController.swift */; };
+		27456B5CD2B8141AAF6954C5 /* LabImportReviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901CD067B6879A88DFB00B4F /* LabImportReviewViewController.swift */; };
 		2B32C88D026D26E2FC38DB60 /* IntakeEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C91DB98B8BC4D2E2EB540DD /* IntakeEditorViewController.swift */; };
+		2C07023ECBA1B3BE2B127699 /* SupplementWidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BD978A968E430B3C525B395 /* SupplementWidgetData.swift */; };
+		3AB16DEE69D17B3FC207EA8B /* SupplementWidgetSnapshotUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE962CBB0BD6F653AA8C6053 /* SupplementWidgetSnapshotUpdater.swift */; };
 		3F16EB13F1E1AFC25C7A0DDB /* AppleHealthSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00945DDC66558C4B4ADA38C6 /* AppleHealthSyncService.swift */; };
 		4482FC147136972133ED6A57 /* WellnarioFormatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E52EC0814FF611585C88373 /* WellnarioFormatters.swift */; };
 		454A356639B10577A8BE8716 /* Supplement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B510384592730A0D7147E58 /* Supplement.swift */; };
+		46011162806B3B01610D6BC1 /* SleepWidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F5B95F0D079889D385FFA4C /* SleepWidgetData.swift */; };
 		4647F02D9CE9CC4CBC378B45 /* WellnarioControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BB901ADA513E7E6F7751AA /* WellnarioControls.swift */; };
 		4AED4666635BF678D6479245 /* UIView+Wellnario.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BA13CCC95421D209AF59016 /* UIView+Wellnario.swift */; };
 		4C6F57C1800E3875FC2DC595 /* SchemaMigrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75AA826B78C53FF24EADBDD1 /* SchemaMigrator.swift */; };
+		51C6AB7E8E4B34E71418B049 /* LabAnalysesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E2C88BAF411B159393E0ED /* LabAnalysesViewController.swift */; };
 		548009BD2ECC697639BDA4F3 /* RepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63001F551897AE5B827BBE22 /* RepositoryTests.swift */; };
+		58AC356DB94AA6AC22CFAE5D /* WellnarioWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 621DA910DD237C4FD1AB75B4 /* WellnarioWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		6276ABDC1346F63EBFED00D4 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008F62E6C25A0243668FE670 /* AppEnvironment.swift */; };
 		662D2C7FC736F0BC3402D58B /* SQLiteDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B8AC46C6567906FAD3CFF2 /* SQLiteDatabase.swift */; };
+		670A657E4B95CA87B1E83270 /* SleepFactorAnalysisViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 297D846426B81E2135A85197 /* SleepFactorAnalysisViewController.swift */; };
 		6D368FFA29CECD9F509A54B9 /* InstanceEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81E8C2E0047B5EEBFD4FE9D /* InstanceEditorViewController.swift */; };
 		73391A8133D20D498865CE7E /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 5F305B591F074A4D46639502 /* libsqlite3.tbd */; };
 		7864D87CE3AEE3898A1C3D19 /* MoreCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCDEF7F63B385FEE10A71F5E /* MoreCoordinator.swift */; };
@@ -42,6 +52,7 @@
 		850A83A82AFCBEEF8536E0BC /* MedicalReviewsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57B39B3DEE92C3893ACD9EBA /* MedicalReviewsViewController.swift */; };
 		8E9849A11F89E49A9F4C6434 /* AppleHealthUIFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAB51551B10530185BFD564 /* AppleHealthUIFormatting.swift */; };
 		9077BED6BDEC4EEE8ACDA00E /* Active.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC46152DBDD22C5FB71B29E6 /* Active.swift */; };
+		94F1C0926D7016DC633A9DC3 /* BiologicalAgeEstimationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D11EF2D8D4F53EF6B666AA3 /* BiologicalAgeEstimationViewController.swift */; };
 		977A9F7AE69935AD6B06C42E /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 97794118639E8EB885517A67 /* HealthKit.framework */; };
 		983A4C70D9152E3B29B015F0 /* ActiveEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5ED68B35AC5355A130EA6EB /* ActiveEditorViewController.swift */; };
 		99254C9785C561DF9E38436C /* WellnarioMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF4565A4E620DF87B3B00F07 /* WellnarioMetrics.swift */; };
@@ -54,31 +65,52 @@
 		A7E2F036C318747E3D62CBF1 /* FeatureSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1670B04FCD03A5EA8E19E3B4 /* FeatureSupport.swift */; };
 		A8BB2110A69A19E8BB46A3CD /* QuickActionViewControllers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A678CC41876F69746A469CA1 /* QuickActionViewControllers.swift */; };
 		A8E95AA9FFB90A68A3B45B4A /* SupplementDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE19802AB1A2B26824FE1028 /* SupplementDetailViewController.swift */; };
+		A8F6A41DD8FE987A664BB677 /* BiomarkersViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10C09174E7F9227F13832FAF /* BiomarkersViewController.swift */; };
 		AAE17958C835AF3B0C4D02CD /* LocalizationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDF5A375CBCE12A49F38C0D3 /* LocalizationManager.swift */; };
 		ADDD2C13698B6D0A792C4E99 /* Consumption.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA8E3A61C72C4B3E09B25CD0 /* Consumption.swift */; };
 		AF68E5D7A1C8DDDD3371105A /* WellnessViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 700DC00A048C2D25BAB73DF6 /* WellnessViews.swift */; };
+		B219F59A9EBEFB709E98700C /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8CC83A0E85661C3E0F84FD68 /* WidgetKit.framework */; };
+		B5DF2CD69820B23BB6ED3401 /* AppleHealthSyncShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABA2802D68EEF1A2565EE3D4 /* AppleHealthSyncShortcut.swift */; };
+		B6AACFA9BF3483027E593BDB /* SleepFactorsViewControllers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A224A95E4FFC03ACBAF691E0 /* SleepFactorsViewControllers.swift */; };
 		B9ABA4EAAEDD0CE9B40FB070 /* PremiumCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F89630E973D453E6E7654C9 /* PremiumCardView.swift */; };
+		BA594A739162E6F65C084FEB /* AppleHealthShortcutAutomationPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77F8C9C7BE73315C4C757FB0 /* AppleHealthShortcutAutomationPreferences.swift */; };
+		BDDF1048F5F37883712CFE91 /* SleepWidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F5B95F0D079889D385FFA4C /* SleepWidgetData.swift */; };
 		C136BAA3750870D507E5B0CE /* RepositoryMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D659352650DE6315F544F9D /* RepositoryMapping.swift */; };
 		C27A1DDA25BD61B6EEC47C3B /* MoreFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C6849EA49DEA349D544DE1D /* MoreFeature.swift */; };
 		C5D0BCC8C5857589CB935EC6 /* ActiveRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAFE1D3FA1C495DD8D250435 /* ActiveRepository.swift */; };
+		C686ECCA15F426B45A171DC7 /* SupplementWidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BD978A968E430B3C525B395 /* SupplementWidgetData.swift */; };
 		C6FBD3B68904B5666445B379 /* SupplementRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F43B812B503B178B38AC3F3F /* SupplementRepository.swift */; };
 		CDD38E488DFB981D84CECBC4 /* AppLaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AF49D4573211603C1FB7E0B /* AppLaunchConfiguration.swift */; };
 		D14FEF0F4E8CBD5F4FD58C9F /* PresentationArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3C56AA21E0E8F60D3AA9A2 /* PresentationArtworkView.swift */; };
+		D21F0FD0605341869791B548 /* AppleHealthShortcutAutomationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0E0350CAAA6D2585A9DBBD /* AppleHealthShortcutAutomationViewController.swift */; };
+		D2826093BD604C8FA6D4BF5F /* SleepWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6568B9B0F35AD4F4C4C600 /* SleepWidget.swift */; };
 		D2D2C4D49113A0B7C2100CE9 /* ProductPackageWizardViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2A771CF2915313C61397B1D /* ProductPackageWizardViewController.swift */; };
 		D3CC330B5B35061E65FDE1BE /* MoreViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09C643AA3DC070D505358029 /* MoreViewController.swift */; };
 		D62F01B8EB8D9B021C919527 /* WellnarioRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F80873A72A781EB3D6BEDFA /* WellnarioRepository.swift */; };
+		DADBADBA3D5B91066576E538 /* HealthDataStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A1FD270FF8BA7C7848B9F28 /* HealthDataStoreTests.swift */; };
 		DC5416B9CA4B075AE3405202 /* WellnarioNavigationUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD8C330B7E3D760DD9559F57 /* WellnarioNavigationUITests.swift */; };
 		DF52CA97DB43170F4AA06334 /* WellnarioTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C87E0FCB8413368507D4E05 /* WellnarioTokens.swift */; };
+		E249856BF731D2B88A372FC4 /* LabPDFImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B357538FD6BE6E791ABA8BFD /* LabPDFImportService.swift */; };
 		E51BE79CADAF42B350EC6954 /* EditorSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAC82015A0F90402551D4A16 /* EditorSupport.swift */; };
+		E7249F8A20BCF4DD8664F9BE /* WellnarioWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ED2D88DD18322AD8235840C /* WellnarioWidgets.swift */; };
 		E8582C356B916EC134C92868 /* HealthViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 846C762D3896FE4920A77055 /* HealthViewController.swift */; };
 		E884DB48F1B32D5745C6F158 /* WellnarioTypography.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBC6F29D7D23D56AF57E1260 /* WellnarioTypography.swift */; };
+		EC53FFC06B72746960F2D24C /* SleepFactorModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09D205914DFE2E3656EC95E7 /* SleepFactorModels.swift */; };
 		ED54D80726E94653FA07205B /* ConsumptionRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69E1E0AF4271DD5640AA100 /* ConsumptionRepository.swift */; };
 		F19833B2E4BA4A1E57562B0B /* AppleHealthSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EAD06E62C8F8078938C06B8 /* AppleHealthSyncTests.swift */; };
 		F85F75A540DAC3432800AB1F /* SupplementsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9218DDB4325018A500790ED1 /* SupplementsViewController.swift */; };
 		F8D3E1A6FDB556ABF718C582 /* WellnarioNavigationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 756A916CE1EC3B9021CED0CA /* WellnarioNavigationController.swift */; };
+		FA95AB1DB9CA8D442E605C43 /* BiomarkerTrendsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74A4848B9A86059AA5CA65D /* BiomarkerTrendsViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		44A7354541DB2FB618F7EC00 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1154F8635BE468D70BAE292A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 45D3989B6138E0196C2A048A;
+			remoteInfo = WellnarioWidgets;
+		};
 		5B19FADA5292A2EACE732897 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 1154F8635BE468D70BAE292A /* Project object */;
@@ -95,53 +127,90 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		56FB274E91FF8903A76F72C5 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				58AC356DB94AA6AC22CFAE5D /* WellnarioWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		008F62E6C25A0243668FE670 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		00945DDC66558C4B4ADA38C6 /* AppleHealthSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleHealthSyncService.swift; sourceTree = "<group>"; };
+		017C471E05E3044246A23AAA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		09C643AA3DC070D505358029 /* MoreViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreViewController.swift; sourceTree = "<group>"; };
+		09D205914DFE2E3656EC95E7 /* SleepFactorModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepFactorModels.swift; sourceTree = "<group>"; };
 		0A6AD04DC713B007295D95A9 /* WellnarioUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = WellnarioUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		10C09174E7F9227F13832FAF /* BiomarkersViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiomarkersViewController.swift; sourceTree = "<group>"; };
 		1670B04FCD03A5EA8E19E3B4 /* FeatureSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureSupport.swift; sourceTree = "<group>"; };
+		16C8A52761CEB193C84A8A04 /* HealthDataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataStore.swift; sourceTree = "<group>"; };
+		18E2C88BAF411B159393E0ED /* LabAnalysesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabAnalysesViewController.swift; sourceTree = "<group>"; };
+		1A0E0350CAAA6D2585A9DBBD /* AppleHealthShortcutAutomationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleHealthShortcutAutomationViewController.swift; sourceTree = "<group>"; };
 		1BA13CCC95421D209AF59016 /* UIView+Wellnario.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIView+Wellnario.swift"; sourceTree = "<group>"; };
+		1BD978A968E430B3C525B395 /* SupplementWidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementWidgetData.swift; sourceTree = "<group>"; };
 		1C87E0FCB8413368507D4E05 /* WellnarioTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioTokens.swift; sourceTree = "<group>"; };
+		297D846426B81E2135A85197 /* SleepFactorAnalysisViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepFactorAnalysisViewController.swift; sourceTree = "<group>"; };
+		2A1FD270FF8BA7C7848B9F28 /* HealthDataStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataStoreTests.swift; sourceTree = "<group>"; };
 		2B4FA1FA593AA18507C24737 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		2F89630E973D453E6E7654C9 /* PremiumCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumCardView.swift; sourceTree = "<group>"; };
 		3AA5764D8FBDD37ACF3C9126 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		3C6849EA49DEA349D544DE1D /* MoreFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreFeature.swift; sourceTree = "<group>"; };
 		3D659352650DE6315F544F9D /* RepositoryMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryMapping.swift; sourceTree = "<group>"; };
+		3DD3614810C63C6848769C04 /* SleepWidgetSnapshotUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepWidgetSnapshotUpdater.swift; sourceTree = "<group>"; };
 		3EAD06E62C8F8078938C06B8 /* AppleHealthSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleHealthSyncTests.swift; sourceTree = "<group>"; };
 		4072DD4D15D9CB0B2DC88EE8 /* DiaryViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiaryViewController.swift; sourceTree = "<group>"; };
 		44B51114C44A91B1137B7A26 /* IntegrationSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationSettingsViewController.swift; sourceTree = "<group>"; };
+		4E6568B9B0F35AD4F4C4C600 /* SleepWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepWidget.swift; sourceTree = "<group>"; };
 		57B39B3DEE92C3893ACD9EBA /* MedicalReviewsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicalReviewsViewController.swift; sourceTree = "<group>"; };
 		5893B61719D0D872B6BE8E36 /* FloatingTabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingTabBarView.swift; sourceTree = "<group>"; };
 		5B510384592730A0D7147E58 /* Supplement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Supplement.swift; sourceTree = "<group>"; };
 		5C085E4E5BD1AFAC010B03D1 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		5C91DB98B8BC4D2E2EB540DD /* IntakeEditorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntakeEditorViewController.swift; sourceTree = "<group>"; };
+		5D11EF2D8D4F53EF6B666AA3 /* BiologicalAgeEstimationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiologicalAgeEstimationViewController.swift; sourceTree = "<group>"; };
 		5D2B459C56B7990782E0D625 /* RootTabBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabBarController.swift; sourceTree = "<group>"; };
 		5F305B591F074A4D46639502 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
+		621DA910DD237C4FD1AB75B4 /* WellnarioWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = WellnarioWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		626E14AC87F29C63184B9FD0 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		62BB901ADA513E7E6F7751AA /* WellnarioControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioControls.swift; sourceTree = "<group>"; };
 		63001F551897AE5B827BBE22 /* RepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryTests.swift; sourceTree = "<group>"; };
 		6E3CABD1CAC280DB0958A83D /* SupplementEditorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementEditorViewController.swift; sourceTree = "<group>"; };
+		6ED2D88DD18322AD8235840C /* WellnarioWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioWidgets.swift; sourceTree = "<group>"; };
 		6F80873A72A781EB3D6BEDFA /* WellnarioRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioRepository.swift; sourceTree = "<group>"; };
 		700DC00A048C2D25BAB73DF6 /* WellnessViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnessViews.swift; sourceTree = "<group>"; };
 		74580C31440AEBF88DDC378A /* SleepCardEditorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepCardEditorViewController.swift; sourceTree = "<group>"; };
 		756A916CE1EC3B9021CED0CA /* WellnarioNavigationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioNavigationController.swift; sourceTree = "<group>"; };
 		75AA826B78C53FF24EADBDD1 /* SchemaMigrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaMigrator.swift; sourceTree = "<group>"; };
+		77F8C9C7BE73315C4C757FB0 /* AppleHealthShortcutAutomationPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleHealthShortcutAutomationPreferences.swift; sourceTree = "<group>"; };
 		7C7B1C42F345CC0B4C020717 /* SleepViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepViewController.swift; sourceTree = "<group>"; };
+		7F5B95F0D079889D385FFA4C /* SleepWidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepWidgetData.swift; sourceTree = "<group>"; };
 		846C762D3896FE4920A77055 /* HealthViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthViewController.swift; sourceTree = "<group>"; };
+		862EEA92796855B750D36734 /* SleepSupplementFactors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepSupplementFactors.swift; sourceTree = "<group>"; };
+		8CC83A0E85661C3E0F84FD68 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		901CD067B6879A88DFB00B4F /* LabImportReviewViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabImportReviewViewController.swift; sourceTree = "<group>"; };
 		9218DDB4325018A500790ED1 /* SupplementsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementsViewController.swift; sourceTree = "<group>"; };
 		97283BDF005691C38A8E1DAF /* FitnessViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FitnessViewController.swift; sourceTree = "<group>"; };
 		97794118639E8EB885517A67 /* HealthKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = HealthKit.framework; path = System/Library/Frameworks/HealthKit.framework; sourceTree = SDKROOT; };
 		9AF49D4573211603C1FB7E0B /* AppLaunchConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLaunchConfiguration.swift; sourceTree = "<group>"; };
 		9E52EC0814FF611585C88373 /* WellnarioFormatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioFormatters.swift; sourceTree = "<group>"; };
+		A224A95E4FFC03ACBAF691E0 /* SleepFactorsViewControllers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepFactorsViewControllers.swift; sourceTree = "<group>"; };
 		A4B8AC46C6567906FAD3CFF2 /* SQLiteDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteDatabase.swift; sourceTree = "<group>"; };
 		A57015E2CBCF39B308C1F980 /* DomainTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainTypes.swift; sourceTree = "<group>"; };
 		A678CC41876F69746A469CA1 /* QuickActionViewControllers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickActionViewControllers.swift; sourceTree = "<group>"; };
 		A786C39C5ACBD63E42686FCC /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		AA8E3A61C72C4B3E09B25CD0 /* Consumption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Consumption.swift; sourceTree = "<group>"; };
+		ABA2802D68EEF1A2565EE3D4 /* AppleHealthSyncShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleHealthSyncShortcut.swift; sourceTree = "<group>"; };
 		AE19802AB1A2B26824FE1028 /* SupplementDetailViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementDetailViewController.swift; sourceTree = "<group>"; };
 		B2A771CF2915313C61397B1D /* ProductPackageWizardViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductPackageWizardViewController.swift; sourceTree = "<group>"; };
+		B357538FD6BE6E791ABA8BFD /* LabPDFImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabPDFImportService.swift; sourceTree = "<group>"; };
 		B61E62F90E3C1939114F9E0B /* WellnarioStateViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioStateViews.swift; sourceTree = "<group>"; };
+		B74A4848B9A86059AA5CA65D /* BiomarkerTrendsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiomarkerTrendsViewController.swift; sourceTree = "<group>"; };
 		B83F44EB6C7CF97D47824996 /* Wellnario.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Wellnario.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B9324B5E5B9957A44156A3AD /* ArchivedItemsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchivedItemsViewController.swift; sourceTree = "<group>"; };
 		BDF5A375CBCE12A49F38C0D3 /* LocalizationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationManager.swift; sourceTree = "<group>"; };
@@ -155,6 +224,7 @@
 		DB7025380F51EE9D1E1F87EF /* WellnarioTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = WellnarioTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DBC6F29D7D23D56AF57E1260 /* WellnarioTypography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioTypography.swift; sourceTree = "<group>"; };
 		DC0D0E0B9003E1C25B755FCD /* TrendsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendsViewController.swift; sourceTree = "<group>"; };
+		DE962CBB0BD6F653AA8C6053 /* SupplementWidgetSnapshotUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementWidgetSnapshotUpdater.swift; sourceTree = "<group>"; };
 		DEAB51551B10530185BFD564 /* AppleHealthUIFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleHealthUIFormatting.swift; sourceTree = "<group>"; };
 		DF3C56AA21E0E8F60D3AA9A2 /* PresentationArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresentationArtworkView.swift; sourceTree = "<group>"; };
 		E1212BDF28F0932A5AAB1775 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
@@ -182,6 +252,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BB016BB8A64B0B0D33C7429E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B219F59A9EBEFB709E98700C /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -192,6 +270,7 @@
 				2B4FA1FA593AA18507C24737 /* AppDelegate.swift */,
 				008F62E6C25A0243668FE670 /* AppEnvironment.swift */,
 				9AF49D4573211603C1FB7E0B /* AppLaunchConfiguration.swift */,
+				ABA2802D68EEF1A2565EE3D4 /* AppleHealthSyncShortcut.swift */,
 				5D2B459C56B7990782E0D625 /* RootTabBarController.swift */,
 				626E14AC87F29C63184B9FD0 /* SceneDelegate.swift */,
 				756A916CE1EC3B9021CED0CA /* WellnarioNavigationController.swift */,
@@ -202,6 +281,7 @@
 		098FDE73DD3AF560970582A9 /* More */ = {
 			isa = PBXGroup;
 			children = (
+				1A0E0350CAAA6D2585A9DBBD /* AppleHealthShortcutAutomationViewController.swift */,
 				E485D87376ED3F0A39A25862 /* ComingSoonViewController.swift */,
 				44B51114C44A91B1137B7A26 /* IntegrationSettingsViewController.swift */,
 				FCDEF7F63B385FEE10A71F5E /* MoreCoordinator.swift */,
@@ -210,6 +290,15 @@
 				F2C14E9292D7FB3ECDF40050 /* SettingsViewController.swift */,
 			);
 			path = More;
+			sourceTree = "<group>";
+		};
+		0E286A0475EE87D6ED9F2E2C /* WidgetsShared */ = {
+			isa = PBXGroup;
+			children = (
+				7F5B95F0D079889D385FFA4C /* SleepWidgetData.swift */,
+				1BD978A968E430B3C525B395 /* SupplementWidgetData.swift */,
+			);
+			path = WidgetsShared;
 			sourceTree = "<group>";
 		};
 		1AA2BCE7D94FEED89D64282A /* Wellnario */ = {
@@ -222,6 +311,8 @@
 				86C14B185E61B64894579AEB /* Models */,
 				1D3284ABDF21F9D2B6B77CB2 /* Resources */,
 				7529612EC3C3845434B0BE43 /* Services */,
+				F9A1F7D0A1BB3AB21746405A /* Widgets */,
+				0E286A0475EE87D6ED9F2E2C /* WidgetsShared */,
 			);
 			path = Wellnario;
 			sourceTree = "<group>";
@@ -230,6 +321,7 @@
 			isa = PBXGroup;
 			children = (
 				3EAD06E62C8F8078938C06B8 /* AppleHealthSyncTests.swift */,
+				2A1FD270FF8BA7C7848B9F28 /* HealthDataStoreTests.swift */,
 				63001F551897AE5B827BBE22 /* RepositoryTests.swift */,
 			);
 			path = WellnarioTests;
@@ -297,11 +389,22 @@
 			isa = PBXGroup;
 			children = (
 				DEAB51551B10530185BFD564 /* AppleHealthUIFormatting.swift */,
+				5D11EF2D8D4F53EF6B666AA3 /* BiologicalAgeEstimationViewController.swift */,
+				10C09174E7F9227F13832FAF /* BiomarkersViewController.swift */,
+				B74A4848B9A86059AA5CA65D /* BiomarkerTrendsViewController.swift */,
 				97283BDF005691C38A8E1DAF /* FitnessViewController.swift */,
+				16C8A52761CEB193C84A8A04 /* HealthDataStore.swift */,
 				846C762D3896FE4920A77055 /* HealthViewController.swift */,
+				18E2C88BAF411B159393E0ED /* LabAnalysesViewController.swift */,
+				901CD067B6879A88DFB00B4F /* LabImportReviewViewController.swift */,
+				B357538FD6BE6E791ABA8BFD /* LabPDFImportService.swift */,
 				57B39B3DEE92C3893ACD9EBA /* MedicalReviewsViewController.swift */,
 				A678CC41876F69746A469CA1 /* QuickActionViewControllers.swift */,
 				74580C31440AEBF88DDC378A /* SleepCardEditorViewController.swift */,
+				297D846426B81E2135A85197 /* SleepFactorAnalysisViewController.swift */,
+				09D205914DFE2E3656EC95E7 /* SleepFactorModels.swift */,
+				A224A95E4FFC03ACBAF691E0 /* SleepFactorsViewControllers.swift */,
+				862EEA92796855B750D36734 /* SleepSupplementFactors.swift */,
 				7C7B1C42F345CC0B4C020717 /* SleepViewController.swift */,
 				700DC00A048C2D25BAB73DF6 /* WellnessViews.swift */,
 			);
@@ -313,6 +416,7 @@
 			children = (
 				97794118639E8EB885517A67 /* HealthKit.framework */,
 				5F305B591F074A4D46639502 /* libsqlite3.tbd */,
+				8CC83A0E85661C3E0F84FD68 /* WidgetKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -334,6 +438,7 @@
 				B83F44EB6C7CF97D47824996 /* Wellnario.app */,
 				DB7025380F51EE9D1E1F87EF /* WellnarioTests.xctest */,
 				0A6AD04DC713B007295D95A9 /* WellnarioUITests.xctest */,
+				621DA910DD237C4FD1AB75B4 /* WellnarioWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -366,6 +471,7 @@
 		B7EC77546865B8979C021FE9 /* AppleHealth */ = {
 			isa = PBXGroup;
 			children = (
+				77F8C9C7BE73315C4C757FB0 /* AppleHealthShortcutAutomationPreferences.swift */,
 				00945DDC66558C4B4ADA38C6 /* AppleHealthSyncService.swift */,
 			);
 			path = AppleHealth;
@@ -386,6 +492,7 @@
 				1AA2BCE7D94FEED89D64282A /* Wellnario */,
 				1B466C5BA08970D41A379837 /* WellnarioTests */,
 				C84FA302D4A3FB2D6670291E /* WellnarioUITests */,
+				F4155BEF508AE4CDAE30A67F /* WellnarioWidgets */,
 				817287D3462EE5E0FCAE3BF8 /* Frameworks */,
 				8AFDA7073D9BCED1701DDB65 /* Products */,
 			);
@@ -423,6 +530,25 @@
 			path = Diary;
 			sourceTree = "<group>";
 		};
+		F4155BEF508AE4CDAE30A67F /* WellnarioWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				017C471E05E3044246A23AAA /* Info.plist */,
+				4E6568B9B0F35AD4F4C4C600 /* SleepWidget.swift */,
+				6ED2D88DD18322AD8235840C /* WellnarioWidgets.swift */,
+			);
+			path = WellnarioWidgets;
+			sourceTree = "<group>";
+		};
+		F9A1F7D0A1BB3AB21746405A /* Widgets */ = {
+			isa = PBXGroup;
+			children = (
+				3DD3614810C63C6848769C04 /* SleepWidgetSnapshotUpdater.swift */,
+				DE962CBB0BD6F653AA8C6053 /* SupplementWidgetSnapshotUpdater.swift */,
+			);
+			path = Widgets;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -433,10 +559,12 @@
 				E79F064D817570902E378BEC /* Sources */,
 				5DFBCFEF60AB42186B0E9380 /* Resources */,
 				0D46AE1EBD98A08E19AA66AA /* Frameworks */,
+				56FB274E91FF8903A76F72C5 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				C6FB6352C67D7661DB5677D7 /* PBXTargetDependency */,
 			);
 			name = Wellnario;
 			packageProductDependencies = (
@@ -444,6 +572,24 @@
 			productName = Wellnario;
 			productReference = B83F44EB6C7CF97D47824996 /* Wellnario.app */;
 			productType = "com.apple.product-type.application";
+		};
+		45D3989B6138E0196C2A048A /* WellnarioWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 23DE5B2A83B1A55AC1DD4FE3 /* Build configuration list for PBXNativeTarget "WellnarioWidgets" */;
+			buildPhases = (
+				D2CD629F4D27CC99267E6F09 /* Sources */,
+				BB016BB8A64B0B0D33C7429E /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WellnarioWidgets;
+			packageProductDependencies = (
+			);
+			productName = WellnarioWidgets;
+			productReference = 621DA910DD237C4FD1AB75B4 /* WellnarioWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		9B957CE25999AC80D768561C /* WellnarioUITests */ = {
 			isa = PBXNativeTarget;
@@ -494,6 +640,10 @@
 						DevelopmentTeam = 73ZVWQPH3Z;
 						ProvisioningStyle = Automatic;
 					};
+					45D3989B6138E0196C2A048A = {
+						DevelopmentTeam = 73ZVWQPH3Z;
+						ProvisioningStyle = Automatic;
+					};
 					9B957CE25999AC80D768561C = {
 						DevelopmentTeam = 73ZVWQPH3Z;
 						ProvisioningStyle = Automatic;
@@ -523,6 +673,7 @@
 				3E2F6DCC0FC645851714A542 /* Wellnario */,
 				A3F1E89A0E72E5F7FA661C2A /* WellnarioTests */,
 				9B957CE25999AC80D768561C /* WellnarioUITests */,
+				45D3989B6138E0196C2A048A /* WellnarioWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -557,7 +708,19 @@
 			buildActionMask = 2147483647;
 			files = (
 				F19833B2E4BA4A1E57562B0B /* AppleHealthSyncTests.swift in Sources */,
+				DADBADBA3D5B91066576E538 /* HealthDataStoreTests.swift in Sources */,
 				548009BD2ECC697639BDA4F3 /* RepositoryTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D2CD629F4D27CC99267E6F09 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D2826093BD604C8FA6D4BF5F /* SleepWidget.swift in Sources */,
+				46011162806B3B01610D6BC1 /* SleepWidgetData.swift in Sources */,
+				C686ECCA15F426B45A171DC7 /* SupplementWidgetData.swift in Sources */,
+				E7249F8A20BCF4DD8664F9BE /* WellnarioWidgets.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -572,9 +735,15 @@
 				1293D72AB5D173796A705A82 /* AppDelegate.swift in Sources */,
 				6276ABDC1346F63EBFED00D4 /* AppEnvironment.swift in Sources */,
 				CDD38E488DFB981D84CECBC4 /* AppLaunchConfiguration.swift in Sources */,
+				BA594A739162E6F65C084FEB /* AppleHealthShortcutAutomationPreferences.swift in Sources */,
+				D21F0FD0605341869791B548 /* AppleHealthShortcutAutomationViewController.swift in Sources */,
 				3F16EB13F1E1AFC25C7A0DDB /* AppleHealthSyncService.swift in Sources */,
+				B5DF2CD69820B23BB6ED3401 /* AppleHealthSyncShortcut.swift in Sources */,
 				8E9849A11F89E49A9F4C6434 /* AppleHealthUIFormatting.swift in Sources */,
 				829F9C7D8DF95B8A736A19A9 /* ArchivedItemsViewController.swift in Sources */,
+				94F1C0926D7016DC633A9DC3 /* BiologicalAgeEstimationViewController.swift in Sources */,
+				FA95AB1DB9CA8D442E605C43 /* BiomarkerTrendsViewController.swift in Sources */,
+				A8F6A41DD8FE987A664BB677 /* BiomarkersViewController.swift in Sources */,
 				A28A6BFD2090FFECD43CBE82 /* ComingSoonViewController.swift in Sources */,
 				ADDD2C13698B6D0A792C4E99 /* Consumption.swift in Sources */,
 				ED54D80726E94653FA07205B /* ConsumptionRepository.swift in Sources */,
@@ -584,10 +753,14 @@
 				A7E2F036C318747E3D62CBF1 /* FeatureSupport.swift in Sources */,
 				7B7CA718A47A8D9CB65351C7 /* FitnessViewController.swift in Sources */,
 				09CDCB88B5284A54C5208BA9 /* FloatingTabBarView.swift in Sources */,
+				1772214F924EE1D518D39F07 /* HealthDataStore.swift in Sources */,
 				E8582C356B916EC134C92868 /* HealthViewController.swift in Sources */,
 				6D368FFA29CECD9F509A54B9 /* InstanceEditorViewController.swift in Sources */,
 				2B32C88D026D26E2FC38DB60 /* IntakeEditorViewController.swift in Sources */,
 				83C8D08AAC1DDD696CD8441A /* IntegrationSettingsViewController.swift in Sources */,
+				51C6AB7E8E4B34E71418B049 /* LabAnalysesViewController.swift in Sources */,
+				27456B5CD2B8141AAF6954C5 /* LabImportReviewViewController.swift in Sources */,
+				E249856BF731D2B88A372FC4 /* LabPDFImportService.swift in Sources */,
 				AAE17958C835AF3B0C4D02CD /* LocalizationManager.swift in Sources */,
 				850A83A82AFCBEEF8536E0BC /* MedicalReviewsViewController.swift in Sources */,
 				7864D87CE3AEE3898A1C3D19 /* MoreCoordinator.swift in Sources */,
@@ -605,11 +778,19 @@
 				786970C03229CBAC32A95DEE /* SeedData.swift in Sources */,
 				03139FA281C37036380E3B79 /* SettingsViewController.swift in Sources */,
 				053B277664390B972890EA9F /* SleepCardEditorViewController.swift in Sources */,
+				670A657E4B95CA87B1E83270 /* SleepFactorAnalysisViewController.swift in Sources */,
+				EC53FFC06B72746960F2D24C /* SleepFactorModels.swift in Sources */,
+				B6AACFA9BF3483027E593BDB /* SleepFactorsViewControllers.swift in Sources */,
+				0A23B3D64506AD4CE5650FB0 /* SleepSupplementFactors.swift in Sources */,
 				9C269273D4115C5CA866353A /* SleepViewController.swift in Sources */,
+				BDDF1048F5F37883712CFE91 /* SleepWidgetData.swift in Sources */,
+				039274F112DB3405A44DDAF5 /* SleepWidgetSnapshotUpdater.swift in Sources */,
 				454A356639B10577A8BE8716 /* Supplement.swift in Sources */,
 				A8E95AA9FFB90A68A3B45B4A /* SupplementDetailViewController.swift in Sources */,
 				23D989C6E5A718327FDFF40D /* SupplementEditorViewController.swift in Sources */,
 				C6FBD3B68904B5666445B379 /* SupplementRepository.swift in Sources */,
+				2C07023ECBA1B3BE2B127699 /* SupplementWidgetData.swift in Sources */,
+				3AB16DEE69D17B3FC207EA8B /* SupplementWidgetSnapshotUpdater.swift in Sources */,
 				F85F75A540DAC3432800AB1F /* SupplementsViewController.swift in Sources */,
 				1367A6D455AC096E1652C16A /* TodayViewController.swift in Sources */,
 				021BBF30BAFC953B341C8366 /* TrendsViewController.swift in Sources */,
@@ -638,6 +819,11 @@
 			isa = PBXTargetDependency;
 			target = 3E2F6DCC0FC645851714A542 /* Wellnario */;
 			targetProxy = B36E592F4FD7404031201DAE /* PBXContainerItemProxy */;
+		};
+		C6FB6352C67D7661DB5677D7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 45D3989B6138E0196C2A048A /* WellnarioWidgets */;
+			targetProxy = 44A7354541DB2FB618F7EC00 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -824,6 +1010,24 @@
 			};
 			name = Debug;
 		};
+		D067D9348AAA7E684B244381 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = WellnarioWidgets/WellnarioWidgets.entitlements;
+				INFOPLIST_FILE = WellnarioWidgets/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.dtigl.wellnario.ios.widgets;
+				PRODUCT_NAME = "Wellnario Widgets";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
 		DE0D010FE99243EFF3337F3D /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -885,6 +1089,24 @@
 			};
 			name = Release;
 		};
+		F2A55B762F96440556CFD694 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = WellnarioWidgets/WellnarioWidgets.entitlements;
+				INFOPLIST_FILE = WellnarioWidgets/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.dtigl.wellnario.ios.widgets;
+				PRODUCT_NAME = "Wellnario Widgets";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 		FCF0EB4D18092CBCFF090484 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -910,6 +1132,15 @@
 			buildConfigurations = (
 				5500F027BF2B74B8A1087508 /* Debug */,
 				DE0D010FE99243EFF3337F3D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		23DE5B2A83B1A55AC1DD4FE3 /* Build configuration list for PBXNativeTarget "WellnarioWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D067D9348AAA7E684B244381 /* Debug */,
+				F2A55B762F96440556CFD694 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

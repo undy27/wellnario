@@ -1,5 +1,129 @@
 import UIKit
 
+/// Shared navigation-bar indicator used while Apple Health is synchronizing.
+///
+/// The indicator deliberately lives in the navigation bar instead of in the
+/// scrollable content, so switching between the main sections does not move
+/// the content or show a transient status card.
+@MainActor
+final class AppleHealthSyncNavigationIndicator {
+    private let service: AppleHealthSyncing
+    private weak var navigationItem: UINavigationItem?
+    private var baseItems: [UIBarButtonItem] = []
+    private let container = UIView()
+    private let imageView = UIImageView()
+    private lazy var barButtonItem = UIBarButtonItem(customView: container)
+    private let animationKey = "wellnario.appleHealthSync"
+
+    init(service: AppleHealthSyncing) {
+        self.service = service
+        container.backgroundColor = .clear
+        container.accessibilityIdentifier = "apple_health.syncing"
+        container.accessibilityLabel = L10n.text("apple_health.sync_now")
+        container.isAccessibilityElement = true
+        container.accessibilityTraits = [.button]
+        container.isUserInteractionEnabled = true
+        container.addGestureRecognizer(UITapGestureRecognizer(
+            target: self,
+            action: #selector(syncTapped)
+        ))
+        container.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            container.widthAnchor.constraint(equalToConstant: 36),
+            container.heightAnchor.constraint(equalToConstant: 44)
+        ])
+
+        imageView.image = UIImage(systemName: "arrow.triangle.2.circlepath")
+        imageView.tintColor = WellnarioPalette.orange
+        imageView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 20,
+            weight: .semibold
+        )
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(imageView)
+        NSLayoutConstraint.activate([
+            imageView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: container.centerYAnchor)
+        ])
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(syncStateDidChange),
+            name: .appleHealthSyncDidChange,
+            object: service
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    func install(on navigationItem: UINavigationItem, baseItems: [UIBarButtonItem]) {
+        self.navigationItem = navigationItem
+        let incomingItems = baseItems.filter { $0 !== barButtonItem }
+        if !incomingItems.isEmpty || self.baseItems.isEmpty {
+            self.baseItems = incomingItems
+        }
+        apply(animated: false)
+    }
+
+    func setBaseItems(_ items: [UIBarButtonItem]) {
+        baseItems = items.filter { $0 !== barButtonItem }
+        apply(animated: false)
+    }
+
+    /// Re-applies the current HealthKit state after a tab becomes visible.
+    /// This covers the case where synchronization started while this tab was
+    /// off-screen and therefore no state-change notification was observed by
+    /// its navigation bar.
+    func refresh() {
+        apply(animated: false)
+    }
+
+    @objc private func syncStateDidChange() {
+        apply(animated: true)
+    }
+
+    @objc private func syncTapped() {
+        guard service.state != .syncing else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            try? await service.sync()
+        }
+    }
+
+    private func apply(animated: Bool) {
+        guard let navigationItem else { return }
+        let syncing = service.state == .syncing
+
+        container.isHidden = false
+        container.alpha = 1
+        container.accessibilityLabel = L10n.text(
+            syncing ? "apple_health.status.syncing" : "apple_health.sync_now"
+        )
+        imageView.tintColor = WellnarioPalette.orange
+        navigationItem.rightBarButtonItems = baseItems + [barButtonItem]
+        if syncing {
+            startRotationIfNeeded()
+        } else {
+            imageView.layer.removeAnimation(forKey: animationKey)
+        }
+    }
+
+    private func startRotationIfNeeded() {
+        guard WellnarioMotion.animationsEnabled,
+              imageView.layer.animation(forKey: animationKey) == nil else { return }
+        let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
+        rotation.fromValue = 0
+        rotation.toValue = Double.pi * 2
+        rotation.duration = 0.9
+        rotation.repeatCount = .infinity
+        rotation.timingFunction = CAMediaTimingFunction(name: .linear)
+        imageView.layer.add(rotation, forKey: animationKey)
+    }
+}
+
 @MainActor
 class FeatureViewController: UIViewController {
     let repository: WellnarioRepositoryProtocol

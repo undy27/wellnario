@@ -109,6 +109,214 @@ final class RepositoryTests: XCTestCase {
         XCTAssertFalse(restored.isFavorite)
     }
 
+    @MainActor
+    func testFavoriteSupplementSleepFactorsTrackDailyAndWeeklyTargetCompliance() throws {
+        let (repository, _) = try makeRepository()
+        let timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let trackingStart = try LocalDay(year: 2026, month: 7, day: 1)
+        let referenceDay = try LocalDay(year: 2026, month: 7, day: 10)
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.glycine.name" }
+        )
+        _ = try repository.setActiveFavorite(id: active.id, isFavorite: true)
+        _ = try repository.setTarget(
+            activeID: active.id,
+            lowerBound: 100,
+            upperBound: 100,
+            unit: .milligram,
+            effectiveFrom: trackingStart
+        )
+        let capsules = try presentation(repository, key: "presentation.capsule.name")
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Glicina",
+            brand: "",
+            presentationTypeID: capsules.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        let instance = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 30,
+            totalUnit: .capsule
+        ))
+        let firstWeekDay = try referenceDay.adding(days: -6)
+        for offset in 0..<7 {
+            let day = try firstWeekDay.adding(days: offset)
+            let consumedAt = try day.startDate(in: timeZone).addingTimeInterval(12 * 3_600)
+            _ = try repository.createConsumption(ConsumptionDraft(
+                instanceID: instance.id,
+                quantity: 1,
+                unit: .capsule,
+                consumedAt: consumedAt,
+                timeZoneID: timeZone.identifier
+            ))
+        }
+
+        let definitions = SleepSupplementFactorCatalog.definitions(repository: repository)
+        XCTAssertEqual(definitions.count, 2)
+        XCTAssertTrue(definitions.allSatisfy { $0.valueKind == .discrete })
+        XCTAssertTrue(definitions.allSatisfy { $0.title.localizedCaseInsensitiveContains("glicina") })
+        let daily = try XCTUnwrap(definitions.first { $0.id.contains(".daily.") })
+        let weekly = try XCTUnwrap(definitions.first { $0.id.contains(".weekly.") })
+        let nightBeforeTheFirstIntake = try firstWeekDay.adding(days: -1)
+            .startDate(in: timeZone)
+            .addingTimeInterval(23 * 3_600)
+        XCTAssertNil(
+            SleepSupplementFactorCatalog.value(
+                for: daily,
+                sleepDate: nightBeforeTheFirstIntake.addingTimeInterval(8 * 3_600),
+                sleepStartDate: nightBeforeTheFirstIntake,
+                repository: repository,
+                calendar: calendar
+            )
+        )
+        XCTAssertNil(
+            SleepSupplementFactorCatalog.value(
+                for: weekly,
+                sleepDate: nightBeforeTheFirstIntake.addingTimeInterval(8 * 3_600),
+                sleepStartDate: nightBeforeTheFirstIntake,
+                repository: repository,
+                calendar: calendar
+            )
+        )
+        let sleepStart = try referenceDay.startDate(in: timeZone).addingTimeInterval(23 * 3_600)
+        let sleepDate = sleepStart.addingTimeInterval(8 * 3_600)
+
+        XCTAssertEqual(
+            SleepSupplementFactorCatalog.value(
+                for: daily,
+                sleepDate: sleepDate,
+                sleepStartDate: sleepStart,
+                repository: repository,
+                calendar: calendar
+            ),
+            1
+        )
+        XCTAssertEqual(
+            SleepSupplementFactorCatalog.value(
+                for: weekly,
+                sleepDate: sleepDate,
+                sleepStartDate: sleepStart,
+                repository: repository,
+                calendar: calendar
+            ),
+            1
+        )
+
+        _ = try repository.createConsumption(ConsumptionDraft(
+            instanceID: instance.id,
+            quantity: 6,
+            unit: .capsule,
+            consumedAt: try referenceDay.startDate(in: timeZone).addingTimeInterval(18 * 3_600),
+            timeZoneID: timeZone.identifier
+        ))
+
+        XCTAssertEqual(
+            SleepSupplementFactorCatalog.value(
+                for: daily,
+                sleepDate: sleepDate,
+                sleepStartDate: sleepStart,
+                repository: repository,
+                calendar: calendar
+            ),
+            0
+        )
+        XCTAssertEqual(
+            SleepSupplementFactorCatalog.value(
+                for: weekly,
+                sleepDate: sleepDate,
+                sleepStartDate: sleepStart,
+                repository: repository,
+                calendar: calendar
+            ),
+            0
+        )
+    }
+
+    @MainActor
+    func testSupplementSleepAnalysisStartsAtTheFirstRecordedIntake() throws {
+        let (repository, _) = try makeRepository()
+        let timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let startDay = try LocalDay(year: 2026, month: 7, day: 1)
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.glycine.name" }
+        )
+        _ = try repository.setActiveFavorite(id: active.id, isFavorite: true)
+        _ = try repository.setTarget(
+            activeID: active.id,
+            lowerBound: 100,
+            upperBound: 100,
+            unit: .milligram,
+            effectiveFrom: startDay
+        )
+        let capsules = try presentation(repository, key: "presentation.capsule.name")
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Glicina",
+            brand: "",
+            presentationTypeID: capsules.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        let instance = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 30,
+            totalUnit: .capsule
+        ))
+
+        // The app has sleep history from July 1, but the first supplement
+        // intake was not recorded until July 15.
+        for offset in 14..<21 {
+            let day = try startDay.adding(days: offset)
+            _ = try repository.createConsumption(ConsumptionDraft(
+                instanceID: instance.id,
+                quantity: 1,
+                unit: .capsule,
+                consumedAt: try day.startDate(in: timeZone).addingTimeInterval(12 * 3_600),
+                timeZoneID: timeZone.identifier
+            ))
+        }
+
+        var snapshot = AppleHealthSnapshot.empty
+        snapshot.sleepTrend = try (0..<28).map { offset in
+            let day = try startDay.adding(days: offset)
+            let sleepStart = try day.startDate(in: timeZone).addingTimeInterval(23 * 3_600)
+            return AppleHealthSleepDay(
+                date: sleepStart.addingTimeInterval(8 * 3_600),
+                hours: (14..<21).contains(offset) ? 8 : 6,
+                sleepStartDate: sleepStart
+            )
+        }
+        let dailyFactor = try XCTUnwrap(
+            SleepSupplementFactorCatalog.definitions(repository: repository)
+                .first { $0.id.contains(".daily.") }
+        )
+
+        let impact = SleepFactorAnalysisDataBuilder.impact(
+            for: dailyFactor,
+            outcome: .duration,
+            snapshot: snapshot,
+            log: [],
+            repository: repository,
+            calendar: calendar
+        )
+
+        guard case let .discrete(result) = impact else {
+            return XCTFail("Expected a discrete result")
+        }
+        XCTAssertEqual(result.presentSampleCount, 7)
+        XCTAssertEqual(result.absentSampleCount, 7)
+    }
+
     func testTargetPersistsSelectedCompatibleUnit() throws {
         let (repository, url) = try makeRepository()
         let active = try repository.createActive(
@@ -445,6 +653,18 @@ final class RepositoryTests: XCTestCase {
 
         let controller = TrendsViewController(repository: repository, activeID: below.id)
         controller.loadViewIfNeeded()
+        let chart = try XCTUnwrap(descendant(
+            of: WellnessTrendChartView.self,
+            identifier: "trends.chart",
+            in: controller.view
+        ))
+        XCTAssertEqual(chart.referenceLine, .average)
+        XCTAssertNil(chart.linearTrend)
+        XCTAssertNil(descendant(
+            of: UISegmentedControl.self,
+            identifier: "trends.reference.selector",
+            in: controller.view
+        ))
         let card = try XCTUnwrap(descendant(
             of: PremiumCardView.self,
             identifier: "trends.favorites.card",
@@ -935,6 +1155,14 @@ final class RepositoryTests: XCTestCase {
         ))
         let action = try XCTUnwrap(selector.menu?.children.first as? UIAction)
         XCTAssertNotNil(action.image)
+
+        let selectedImage = try XCTUnwrap(descendant(
+            of: UIImageView.self,
+            identifier: "selection.leading_image",
+            in: controller.view
+        ))
+        XCTAssertNotNil(selectedImage.image)
+        XCTAssertFalse(selectedImage.isHidden)
     }
 
     @MainActor
@@ -1388,7 +1616,7 @@ final class RepositoryTests: XCTestCase {
         wait(for: [expectation], timeout: 1)
     }
 
-    func testDefaultReminderPlannerUsesTargetsAndDoesNotRestoreManuallyClearedReminders() throws {
+    func testDefaultReminderPlannerSuggestsSchedulesWithoutPersistingThem() throws {
         let (repository, _) = try makeRepository()
         let suiteName = "WellnarioDefaultReminderTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -1423,20 +1651,15 @@ final class RepositoryTests: XCTestCase {
                 ]
             )
         )
-        let planner = SupplementDefaultReminderPlanner(
-            schedulePreferences: preferences,
-            store: store
-        )
+        let planner = SupplementDefaultReminderPlanner(schedulePreferences: preferences)
 
-        XCTAssertEqual(try planner.seedMissing(in: repository), 1)
+        let calciumSuggestion = try XCTUnwrap(
+            planner.suggestion(for: product, in: repository)
+        )
         XCTAssertEqual(
-            store.reminders(for: product.id).map(\.timeMinutes),
+            calciumSuggestion.timeMinutes,
             [preferences.minutes(for: .breakfast), preferences.minutes(for: .dinner)]
         )
-
-        store.set([], for: product.id)
-        XCTAssertTrue(store.hasConfiguration(for: product.id))
-        XCTAssertEqual(try planner.seedMissing(in: repository), 0)
         XCTAssertTrue(store.reminders(for: product.id).isEmpty)
 
         let quercetin = try XCTUnwrap(
@@ -1465,11 +1688,14 @@ final class RepositoryTests: XCTestCase {
                 ]
             )
         )
-        XCTAssertEqual(try planner.seedMissing(in: repository), 1)
+        let quercetinSuggestion = try XCTUnwrap(
+            planner.suggestion(for: quercetinProduct, in: repository)
+        )
         XCTAssertEqual(
-            store.reminders(for: quercetinProduct.id).map(\.timeMinutes),
+            quercetinSuggestion.timeMinutes,
             [preferences.minutes(for: .breakfast)]
         )
+        XCTAssertTrue(store.reminders(for: quercetinProduct.id).isEmpty)
 
         let sulforaphane = try XCTUnwrap(
             repository.fetchActives().first { $0.nameKey == "active.sulforaphane.name" }
@@ -1497,26 +1723,148 @@ final class RepositoryTests: XCTestCase {
                 ]
             )
         )
+        let sulforaphaneSuggestion = try XCTUnwrap(
+            planner.suggestion(for: sulforaphaneProduct, in: repository)
+        )
+        XCTAssertEqual(sulforaphaneSuggestion.recurrence, .everyDays)
+        XCTAssertEqual(sulforaphaneSuggestion.intervalDays, 17)
+        XCTAssertEqual(
+            sulforaphaneSuggestion.timeMinutes,
+            [preferences.minutes(for: .breakfast)]
+        )
+        XCTAssertTrue(store.reminders(for: sulforaphaneProduct.id).isEmpty)
+
         store.set(
-            [
-                SupplementProductReminder(
-                    supplementID: sulforaphaneProduct.id,
-                    timeMinutes: preferences.minutes(for: .breakfast)
-                )
-            ],
+            [SupplementProductReminder(supplementID: sulforaphaneProduct.id)],
             for: sulforaphaneProduct.id,
             marksUserConfiguration: false
         )
-
-        XCTAssertEqual(try planner.seedMissing(in: repository), 1)
-        let sulforaphaneReminders = store.reminders(for: sulforaphaneProduct.id)
-        XCTAssertEqual(sulforaphaneReminders.count, 1)
-        XCTAssertEqual(sulforaphaneReminders[0].recurrence, .everyDays)
-        XCTAssertEqual(sulforaphaneReminders[0].intervalDays, 17)
-        XCTAssertEqual(
-            sulforaphaneReminders[0].timeMinutes,
-            preferences.minutes(for: .breakfast)
+        let confirmedProductID = UUID()
+        store.set(
+            [SupplementProductReminder(supplementID: confirmedProductID)],
+            for: confirmedProductID
         )
+        XCTAssertEqual(store.removeLegacyUnconfirmedSuggestions(), 1)
+        XCTAssertTrue(store.reminders(for: sulforaphaneProduct.id).isEmpty)
+        XCTAssertEqual(store.reminders(for: confirmedProductID).count, 1)
+    }
+
+    func testSupplementWidgetURLOnlyAcceptsAValidPackageIntakeLink() {
+        let packageID = UUID()
+
+        XCTAssertEqual(
+            SupplementWidgetURL.packageID(from: SupplementWidgetURL.intake(for: packageID.uuidString)),
+            packageID
+        )
+        XCTAssertNil(SupplementWidgetURL.packageID(from: SupplementWidgetURL.home))
+        XCTAssertNil(
+            SupplementWidgetURL.packageID(from: URL(string: "wellnario://widget/intake?package=not-a-uuid")!)
+        )
+        XCTAssertTrue(
+            SupplementWidgetURL.requestsSelectedIntakesConfirmation(
+                from: SupplementWidgetURL.confirmSelectedIntakes
+            )
+        )
+        XCTAssertTrue(
+            SupplementWidgetURL.requestsSleepWidget(from: SupplementWidgetURL.sleepWidget)
+        )
+        XCTAssertTrue(
+            SupplementWidgetURL.requestsSleepWidgetSync(from: SupplementWidgetURL.sleepWidgetSync)
+        )
+    }
+
+    func testSleepWidgetSnapshotRoundTripsThroughTheAppGroupStore() throws {
+        let suiteName = "WellnarioSleepWidgetStoreTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
+        let store = SleepWidgetDataStore(defaults: defaults)
+        let snapshot = SleepWidgetSnapshot(
+            languageCode: "es",
+            detail: "23:00–07:00",
+            qualityScore: 87,
+            qualityText: "87",
+            durationScore: 92,
+            durationText: "7h 45m",
+            regularityScore: 80,
+            regularityText: "6/7",
+            interruptionsScore: 74,
+            interruptionsText: "8%"
+        )
+
+        store.save(snapshot)
+
+        XCTAssertEqual(store.snapshot(), snapshot)
+    }
+
+    func testSupplementWidgetSelectionCanToggleAndDiscardStalePackages() throws {
+        let suiteName = "WellnarioWidgetStoreTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
+        let store = SupplementWidgetDataStore(defaults: defaults)
+
+        store.toggleSelection(for: "first")
+        store.toggleSelection(for: "second")
+        XCTAssertEqual(store.selectedPackageIDs(), ["first", "second"])
+
+        store.toggleSelection(for: "first")
+        XCTAssertEqual(store.selectedPackageIDs(), ["second"])
+
+        store.retainSelections(in: ["third"])
+        XCTAssertTrue(store.selectedPackageIDs().isEmpty)
+    }
+
+    func testSupplementWidgetRejectsContinuousUnits() {
+        XCTAssertFalse(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .microgram))
+        XCTAssertFalse(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .gram))
+        XCTAssertFalse(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .milliliter))
+        XCTAssertFalse(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .liter))
+        XCTAssertTrue(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .capsule))
+        XCTAssertTrue(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .gummy))
+        XCTAssertTrue(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .internationalUnit))
+    }
+
+    func testCreateConsumptionsRegistersTheWholeBatchAndUpdatesEachPackage() throws {
+        let (repository, _) = try makeRepository()
+        let presentation = try presentation(repository, key: "presentation.capsule.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Batch magnesium",
+            brand: "",
+            presentationTypeID: presentation.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        let first = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 10,
+            totalUnit: .capsule
+        ))
+        let second = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 8,
+            totalUnit: .capsule
+        ))
+
+        let created = try repository.createConsumptions([
+            ConsumptionDraft(instanceID: first.id, quantity: 1, unit: .capsule),
+            ConsumptionDraft(instanceID: second.id, quantity: 1, unit: .capsule)
+        ])
+
+        XCTAssertEqual(created.count, 2)
+        XCTAssertEqual(try XCTUnwrap(repository.instance(id: first.id)).totalQuantity, 9)
+        XCTAssertEqual(try XCTUnwrap(repository.instance(id: second.id)).totalQuantity, 7)
+        XCTAssertEqual(try repository.fetchConsumptions(from: nil, through: nil, limit: nil).count, 2)
     }
 
     private func makeRepository() throws -> (WellnarioRepository, URL) {

@@ -26,6 +26,10 @@ final class SupplementsViewController: FeatureViewController {
     private lazy var trendsBarButtonItem = UIBarButtonItem(customView: trendsBarButton)
     private lazy var remindersBarButtonItem = UIBarButtonItem(customView: remindersBarButton)
     private let settingsBarButtonItem = UIBarButtonItem()
+    private let appleHealthService: AppleHealthSyncing?
+    private lazy var syncIndicator = appleHealthService.map {
+        AppleHealthSyncNavigationIndicator(service: $0)
+    }
 
     private var mode: Mode = .products
     private var presentations: [PresentationType] = []
@@ -39,10 +43,27 @@ final class SupplementsViewController: FeatureViewController {
     private var activeFilterButtons: [(filter: ActiveFilter, button: ChipButton)] = []
     private var categoryFilterHeightConstraint: NSLayoutConstraint!
 
+    init(
+        repository: WellnarioRepositoryProtocol,
+        appleHealthService: AppleHealthSyncing? = nil
+    ) {
+        self.appleHealthService = appleHealthService
+        super.init(repository: repository)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         setUpView()
         applyLocalizedCopy()
+        if let syncIndicator {
+            syncIndicator.install(
+                on: navigationItem,
+                baseItems: navigationItem.rightBarButtonItems ?? []
+            )
+        }
         reloadContent()
     }
 
@@ -52,6 +73,7 @@ final class SupplementsViewController: FeatureViewController {
         navigationController?.navigationBar.prefersLargeTitles = false
         navigationItem.largeTitleDisplayMode = .never
         setBreathingButtonsActive(true)
+        syncIndicator?.refresh()
         reloadContent()
     }
 
@@ -169,6 +191,7 @@ final class SupplementsViewController: FeatureViewController {
         definesPresentationContext = true
 
         segmentedControl.selectedSegmentIndex = 0
+        segmentedControl.accessibilityIdentifier = "supplements.tabs"
         segmentedControl.selectedSegmentTintColor = WellnarioPalette.fuchsia
         segmentedControl.backgroundColor = WellnarioPalette.surface
         segmentedControl.setTitleTextAttributes([
@@ -184,6 +207,7 @@ final class SupplementsViewController: FeatureViewController {
 
         categoryFilterScrollView.showsHorizontalScrollIndicator = false
         categoryFilterScrollView.alwaysBounceHorizontal = true
+        categoryFilterScrollView.clipsToBounds = true
         categoryFilterScrollView.isHidden = true
         categoryFilterStack.axis = .horizontal
         categoryFilterStack.alignment = .center
@@ -215,13 +239,26 @@ final class SupplementsViewController: FeatureViewController {
             segmentedControl.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: WellnarioSpacing.xSmall),
             segmentedControl.heightAnchor.constraint(equalToConstant: 40),
 
-            categoryFilterScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            categoryFilterScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            // Keep the filter viewport aligned with the cards below. The
+            // scroll view itself must stop at the cards' 20 pt trailing inset
+            // so clipped chips never reach the screen edge.
+            categoryFilterScrollView.leadingAnchor.constraint(
+                equalTo: view.leadingAnchor,
+                constant: WellnarioSpacing.screenHorizontal
+            ),
+            categoryFilterScrollView.trailingAnchor.constraint(
+                equalTo: view.trailingAnchor,
+                constant: -WellnarioSpacing.screenHorizontal
+            ),
             categoryFilterScrollView.topAnchor.constraint(equalTo: segmentedControl.bottomAnchor, constant: WellnarioSpacing.xxSmall),
             categoryFilterHeightConstraint,
 
-            categoryFilterStack.leadingAnchor.constraint(equalTo: categoryFilterScrollView.contentLayoutGuide.leadingAnchor, constant: WellnarioSpacing.screenHorizontal),
-            categoryFilterStack.trailingAnchor.constraint(equalTo: categoryFilterScrollView.contentLayoutGuide.trailingAnchor, constant: -WellnarioSpacing.screenHorizontal),
+            categoryFilterStack.leadingAnchor.constraint(equalTo: categoryFilterScrollView.contentLayoutGuide.leadingAnchor),
+            categoryFilterStack.trailingAnchor.constraint(equalTo: categoryFilterScrollView.contentLayoutGuide.trailingAnchor),
+            categoryFilterStack.widthAnchor.constraint(
+                greaterThanOrEqualTo: categoryFilterScrollView.frameLayoutGuide.widthAnchor,
+                constant: 0
+            ),
             categoryFilterStack.topAnchor.constraint(equalTo: categoryFilterScrollView.contentLayoutGuide.topAnchor),
             categoryFilterStack.bottomAnchor.constraint(equalTo: categoryFilterScrollView.contentLayoutGuide.bottomAnchor),
             categoryFilterStack.heightAnchor.constraint(equalTo: categoryFilterScrollView.frameLayoutGuide.heightAnchor),
@@ -444,6 +481,13 @@ final class SupplementsViewController: FeatureViewController {
             title: supplement.name,
             subtitle: subtitle,
             detail: componentSummary.isEmpty ? L10n.text("supplements.no_components") : componentSummary,
+            onTap: { [weak self] in
+                guard let self else { return }
+                self.navigationController?.pushViewController(
+                    SupplementDetailViewController(repository: self.repository, supplementID: supplement.id),
+                    animated: true
+                )
+            },
             badge: L10n.text("inventory.count", count),
             tone: count == 0 ? .warning : .success
         )
@@ -473,6 +517,13 @@ final class SupplementsViewController: FeatureViewController {
                 .compactMap { $0 }
                 .joined(separator: " · "),
             highlightedDetail: instance.expirationDay.map { (expirationText, expirationTone($0)) },
+            onTap: { [weak self] in
+                guard let self else { return }
+                self.presentSheet(
+                    InstanceEditorViewController(repository: self.repository, instance: instance),
+                    largeOnly: true
+                )
+            },
             inventoryLevel: remainingLevel,
             badge: nil,
             tone: .neutral
@@ -497,6 +548,7 @@ final class SupplementsViewController: FeatureViewController {
         let progress = todayProgress[active.id]
         let weeklyValues = weeklyConsumption[active.id] ?? Array(repeating: 0, count: 7)
         let weeklyTotal = weeklyValues.reduce(0, +)
+        let showsWeeklyChart = active.isFavorite
         let unit = active.baseUnit.symbol(languageCode: catalogLanguage.rawValue)
         let target = active.currentTarget.map {
             let amount = $0.lowerBound == $0.upperBound
@@ -515,14 +567,57 @@ final class SupplementsViewController: FeatureViewController {
             subtitle: L10n.text("actives.today", consumed),
             detail: L10n.text("actives.target.value", target),
             favoriteStatus: active.isFavorite,
-            weeklyValues: weeklyValues,
-            weeklySummary: L10n.text(
+            onFavorite: { [weak self] isFavorite in
+                self?.toggleFavorite(active, isFavorite: isFavorite) ?? false
+            },
+            onTap: { [weak self] in
+                self?.showActiveDetail(for: active)
+            },
+            weeklyValues: showsWeeklyChart ? weeklyValues : nil,
+            weeklySummary: showsWeeklyChart ? L10n.text(
                 "actives.weekly_consumption.summary",
                 "\(WellnarioFormatters.number(weeklyTotal, maximumFractionDigits: 2)) \(unit)"
-            ),
+            ) : nil,
+            weeklyLineColor: weeklyChartColor(for: active, values: weeklyValues),
             badge: nil,
             tone: .neutral
         )
+    }
+
+    private func weeklyChartColor(for active: Active, values: [Double]) -> UIColor {
+        guard let target = active.currentTarget, !values.isEmpty else {
+            return WellnarioPalette.cyan
+        }
+        do {
+            let lower = try target.unit.convert(target.lowerBound, to: active.baseUnit)
+            let upper = try target.unit.convert(target.upperBound, to: active.baseUnit)
+            let bounds = try ActiveTargetMarginPreferences().adjustedBounds(lower: lower, upper: upper)
+            let total = Decimal(values.reduce(0, +))
+            let average = try DecimalMath.divide(total, Decimal(values.count))
+            if average < bounds.lower { return WellnarioPalette.yellow }
+            if average > bounds.upper { return WellnarioPalette.danger }
+            return WellnarioPalette.success
+        } catch {
+            return WellnarioPalette.cyan
+        }
+    }
+
+    private func toggleFavorite(_ active: Active, isFavorite: Bool) -> Bool {
+        do {
+            let updatedActive = try repository.setActiveFavorite(id: active.id, isFavorite: isFavorite)
+            if let index = actives.firstIndex(where: { $0.id == active.id }) {
+                actives[index] = updatedActive
+            }
+            UISelectionFeedbackGenerator().selectionChanged()
+            // Favoriting changes more than the star: the weekly chart is
+            // only rendered for favorites, so rebuild the visible card too.
+            tableView.reloadData()
+            updateEmptyState()
+            return true
+        } catch {
+            showError(error)
+            return false
+        }
     }
 
     private func expirationTone(_ day: LocalDay) -> WellnarioTone {
@@ -657,7 +752,11 @@ final class SupplementsViewController: FeatureViewController {
         if mode == .actives { items.append(trendsBarButtonItem) }
         if mode == .products { items.append(remindersBarButtonItem) }
         items.append(moreBarButtonItem)
-        navigationItem.rightBarButtonItems = items
+        if let syncIndicator {
+            syncIndicator.setBaseItems(items)
+        } else {
+            navigationItem.rightBarButtonItems = items
+        }
     }
 
     private func configureBreathingBarButton(
@@ -728,14 +827,13 @@ final class SupplementsViewController: FeatureViewController {
     @objc private func addTapped() {
         switch mode {
         case .products:
-            presentSheet(ProductPackageWizardViewController(repository: repository), largeOnly: true)
+            startProductWizard()
         case .inventory:
             guard !supplements.isEmpty else {
                 let alert = UIAlertController(title: L10n.Inventory.noItemsTitle, message: L10n.text("inventory.requires_supplement"), preferredStyle: .alert)
                 alert.addAction(UIAlertAction(title: L10n.Common.cancel, style: .cancel))
                 alert.addAction(UIAlertAction(title: L10n.Supplements.addSupplement, style: .default) { [weak self] _ in
-                    guard let self else { return }
-                    self.presentSheet(ProductPackageWizardViewController(repository: self.repository), largeOnly: true)
+                    self?.startProductWizard()
                 })
                 present(alert, animated: true)
                 return
@@ -743,6 +841,27 @@ final class SupplementsViewController: FeatureViewController {
             presentSheet(InstanceEditorViewController(repository: repository), largeOnly: true)
         case .actives:
             presentSheet(ActiveEditorViewController(repository: repository), largeOnly: true)
+        }
+    }
+
+    private func startProductWizard() {
+        do {
+            let hasFavorite = try repository
+                .fetchActives(includeArchived: false)
+                .contains(where: \.isFavorite)
+            guard hasFavorite else {
+                let alert = UIAlertController(
+                    title: L10n.Actives.noItemsTitle,
+                    message: L10n.text("supplements.component.requires_favorite"),
+                    preferredStyle: .alert
+                )
+                alert.addAction(UIAlertAction(title: L10n.Common.done, style: .default))
+                present(alert, animated: true)
+                return
+            }
+            presentSheet(ProductPackageWizardViewController(repository: repository), largeOnly: true)
+        } catch {
+            showError(error)
         }
     }
 
@@ -757,11 +876,15 @@ final class SupplementsViewController: FeatureViewController {
         }
     }
 
-    private func delete(at indexPath: IndexPath) {
+    private func archive(at indexPath: IndexPath) {
         let confirmationMessage = mode == .products
-            ? L10n.text("supplements.delete.message")
-            : L10n.text("delete.confirmation")
-        showConfirmation(title: L10n.Common.delete, message: confirmationMessage) { [weak self] in
+            ? L10n.text("supplements.archive.confirmation")
+            : L10n.text("archive.confirmation")
+        showConfirmation(
+            title: L10n.text("archive.action"),
+            message: confirmationMessage,
+            destructiveTitle: L10n.text("archive.action")
+        ) { [weak self] in
             guard let self else { return }
             do {
                 switch self.mode {
@@ -772,70 +895,6 @@ final class SupplementsViewController: FeatureViewController {
                 UIImpactFeedbackGenerator.wellnarioSuccess()
             } catch { self.showError(error) }
         }
-    }
-}
-
-@MainActor
-private final class BreathingNavigationButton: UIButton {
-    private let animationKey = "wellnario.supplements.breathing"
-    private var isBreathingActive = false
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        configure()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        updateBreathingAnimation()
-    }
-
-    func setBreathingActive(_ isActive: Bool) {
-        isBreathingActive = isActive
-        updateBreathingAnimation()
-    }
-
-    private func configure() {
-        frame.size = CGSize(width: 36, height: WellnarioLayout.minimumTouchTarget)
-        widthAnchor.constraint(equalToConstant: 36).isActive = true
-        heightAnchor.constraint(equalToConstant: WellnarioLayout.minimumTouchTarget).isActive = true
-        imageView?.contentMode = .scaleAspectFit
-        isAccessibilityElement = true
-        accessibilityTraits = .button
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(reduceMotionDidChange),
-            name: UIAccessibility.reduceMotionStatusDidChangeNotification,
-            object: nil
-        )
-    }
-
-    private func updateBreathingAnimation() {
-        guard isBreathingActive, window != nil, WellnarioMotion.animationsEnabled else {
-            layer.removeAnimation(forKey: animationKey)
-            return
-        }
-        guard layer.animation(forKey: animationKey) == nil else { return }
-
-        let animation = CABasicAnimation(keyPath: "transform.scale")
-        animation.fromValue = 1.0
-        animation.toValue = 1.25
-        animation.duration = 1.15
-        animation.autoreverses = true
-        animation.repeatCount = .infinity
-        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        layer.add(animation, forKey: animationKey)
-    }
-
-    @objc private func reduceMotionDidChange() {
-        updateBreathingAnimation()
     }
 }
 
@@ -898,18 +957,19 @@ extension SupplementsViewController: UITableViewDataSource, UITableViewDelegate 
     }
 
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        let delete = UIContextualAction(style: .destructive, title: L10n.Common.delete) { [weak self] _, _, completion in
-            self?.delete(at: indexPath)
+        let archive = UIContextualAction(style: .normal, title: L10n.text("archive.action")) { [weak self] _, _, completion in
+            self?.archive(at: indexPath)
             completion(true)
         }
-        delete.image = UIImage(systemName: "archivebox")
+        archive.backgroundColor = WellnarioPalette.orange
+        archive.image = UIImage(systemName: "archivebox")
         let edit = UIContextualAction(style: .normal, title: L10n.Common.edit) { [weak self] _, _, completion in
             self?.edit(at: indexPath)
             completion(true)
         }
         edit.backgroundColor = WellnarioPalette.violet
         edit.image = UIImage(systemName: "pencil")
-        let configuration = UISwipeActionsConfiguration(actions: [delete, edit])
+        let configuration = UISwipeActionsConfiguration(actions: [archive, edit])
         configuration.performsFirstActionWithFullSwipe = false
         return configuration
     }
@@ -1033,19 +1093,23 @@ private final class CatalogListCell: UITableViewCell {
     static let reuseIdentifier = "CatalogListCell"
 
     private let card = PremiumCardView()
+    private let cardTapGesture = UITapGestureRecognizer()
     private let artwork = PresentationArtworkView(kind: .capsule)
     private let artworkContainer = UIView()
     private let artworkStack = UIStackView()
     private let inventoryLevelBar = InventoryLevelBar()
     private let activeIconView = UIImageView()
     private let titleLabel = UILabel()
-    private let favoriteImageView = UIImageView()
+    private let favoriteButton = UIButton(type: .system)
     private let subtitleLabel = ContinuousMarqueeLabel()
     private let detailLabel = UILabel()
     private let badgeLabel = UILabel()
     private let weeklyChartLabel = UILabel()
     private let weeklyChartView = SparklineView()
     private let weeklyChartStack = UIStackView()
+    private var favoriteStatus: Bool?
+    private var onFavorite: ((Bool) -> Bool)?
+    private var onTap: (() -> Void)?
     private var artworkSizeConstraint: NSLayoutConstraint!
     private var rowEdgeConstraints: [NSLayoutConstraint] = []
 
@@ -1068,8 +1132,11 @@ private final class CatalogListCell: UITableViewCell {
         detail: String,
         highlightedDetail: (text: String, tone: WellnarioTone)? = nil,
         favoriteStatus: Bool? = nil,
+        onFavorite: ((Bool) -> Bool)? = nil,
+        onTap: (() -> Void)? = nil,
         weeklyValues: [Double]? = nil,
         weeklySummary: String? = nil,
+        weeklyLineColor: UIColor? = nil,
         inventoryLevel: Double? = nil,
         badge: String?,
         tone: WellnarioTone
@@ -1102,26 +1169,28 @@ private final class CatalogListCell: UITableViewCell {
             }
         }
         detailLabel.attributedText = attributedDetail
+        self.onFavorite = onFavorite
+        self.onTap = onTap
+        self.favoriteStatus = favoriteStatus
         if let favoriteStatus {
-            favoriteImageView.image = UIImage(
-                systemName: favoriteStatus ? "star.fill" : "star"
-            )
-            favoriteImageView.tintColor = favoriteStatus
-                ? WellnarioPalette.fuchsia
-                : WellnarioPalette.textTertiary
-            favoriteImageView.isHidden = false
+            configureFavoriteButton(isFavorite: favoriteStatus)
+            favoriteButton.isHidden = false
         } else {
-            favoriteImageView.image = nil
-            favoriteImageView.isHidden = true
+            favoriteButton.setImage(nil, for: .normal)
+            favoriteButton.accessibilityLabel = nil
+            favoriteButton.accessibilityValue = nil
+            favoriteButton.isHidden = true
         }
         if let weeklyValues {
             weeklyChartLabel.text = L10n.Trends.sevenDays
             weeklyChartView.values = weeklyValues
+            weeklyChartView.lineColor = weeklyLineColor ?? WellnarioPalette.fuchsia
             weeklyChartView.accessibilityLabel = L10n.text("actives.weekly_consumption")
             weeklyChartView.accessibilityValue = weeklySummary
             weeklyChartStack.isHidden = false
         } else {
             weeklyChartView.values = []
+            weeklyChartView.lineColor = WellnarioPalette.fuchsia
             weeklyChartView.accessibilityLabel = nil
             weeklyChartView.accessibilityValue = nil
             weeklyChartStack.isHidden = true
@@ -1149,7 +1218,10 @@ private final class CatalogListCell: UITableViewCell {
         selectionStyle = .none
         contentView.addForAutoLayout(card)
         card.pinEdges(to: contentView, insets: NSDirectionalEdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
-        card.isUserInteractionEnabled = false
+        card.isUserInteractionEnabled = true
+        cardTapGesture.addTarget(self, action: #selector(cardTapped))
+        cardTapGesture.delegate = self
+        card.addGestureRecognizer(cardTapGesture)
 
         artworkContainer.addForAutoLayout(artwork)
         artworkContainer.addForAutoLayout(activeIconView)
@@ -1179,14 +1251,15 @@ private final class CatalogListCell: UITableViewCell {
         titleLabel.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textPrimary)
         titleLabel.numberOfLines = 2
         titleLabel.lineBreakMode = .byWordWrapping
-        favoriteImageView.contentMode = .scaleAspectFit
-        favoriteImageView.isHidden = true
-        favoriteImageView.isAccessibilityElement = false
-        favoriteImageView.setContentHuggingPriority(.required, for: .horizontal)
-        favoriteImageView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        favoriteButton.tintColor = WellnarioPalette.fuchsia
+        favoriteButton.addTarget(self, action: #selector(favoriteTapped), for: .touchUpInside)
+        favoriteButton.accessibilityIdentifier = "actives.card.favorite"
+        favoriteButton.isHidden = true
+        favoriteButton.setContentHuggingPriority(.required, for: .horizontal)
+        favoriteButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         NSLayoutConstraint.activate([
-            favoriteImageView.widthAnchor.constraint(equalToConstant: 19),
-            favoriteImageView.heightAnchor.constraint(equalToConstant: 19)
+            favoriteButton.widthAnchor.constraint(equalToConstant: 38),
+            favoriteButton.heightAnchor.constraint(equalToConstant: 44)
         ])
         detailLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)
         detailLabel.numberOfLines = 2
@@ -1219,7 +1292,7 @@ private final class CatalogListCell: UITableViewCell {
         ])
 
         let titleRow = UIStackView(
-            arrangedSubviews: [titleLabel, favoriteImageView, badgeLabel],
+            arrangedSubviews: [titleLabel, badgeLabel],
             axis: .horizontal,
             spacing: 8,
             alignment: .center
@@ -1227,7 +1300,7 @@ private final class CatalogListCell: UITableViewCell {
         let labels = UIStackView(arrangedSubviews: [titleRow, subtitleLabel, detailLabel], axis: .vertical, spacing: 4)
         labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let row = UIStackView(
-            arrangedSubviews: [artworkStack, labels, weeklyChartStack],
+            arrangedSubviews: [artworkStack, labels, weeklyChartStack, favoriteButton],
             axis: .horizontal,
             spacing: 8,
             alignment: .center
@@ -1241,5 +1314,36 @@ private final class CatalogListCell: UITableViewCell {
             card.contentView.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: 14)
         ]
         NSLayoutConstraint.activate(rowEdgeConstraints)
+    }
+
+    @objc private func favoriteTapped() {
+        guard let favoriteStatus else { return }
+        let updatedStatus = !favoriteStatus
+        guard onFavorite?(updatedStatus) == true else { return }
+        self.favoriteStatus = updatedStatus
+        configureFavoriteButton(isFavorite: updatedStatus)
+    }
+
+    @objc private func cardTapped() {
+        onTap?()
+    }
+
+    override func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === cardTapGesture, let touchedView = touch.view else { return true }
+        return touchedView !== favoriteButton && !touchedView.isDescendant(of: favoriteButton)
+    }
+
+    private func configureFavoriteButton(isFavorite: Bool) {
+        favoriteButton.setImage(
+            UIImage(systemName: isFavorite ? "star.fill" : "star"),
+            for: .normal
+        )
+        favoriteButton.tintColor = isFavorite ? WellnarioPalette.fuchsia : WellnarioPalette.textTertiary
+        favoriteButton.accessibilityLabel = isFavorite
+            ? L10n.text("actives.favorite.selected")
+            : L10n.text("actives.favorite.add")
+        favoriteButton.accessibilityValue = isFavorite
+            ? L10n.text("actives.favorite.accessibility.on")
+            : L10n.text("actives.favorite.accessibility.off")
     }
 }
