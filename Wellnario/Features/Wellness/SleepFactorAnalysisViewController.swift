@@ -120,27 +120,41 @@ enum SleepFactorAnalysisDataBuilder {
                 analysisStep: definition.analysisStep
             )
         case .discrete:
-            guard let firstRecordDate = definitionEntries.map(\.date).min() else {
-                return .insufficient(sampleCount: 0)
-            }
             var present: [Double] = []
             var absent: [Double] = []
-            outcomeDays
-                .filter { calendar.startOfDay(for: $0.date) >= calendar.startOfDay(for: firstRecordDate) }
-                .forEach { day in
-                    let isPresent = definitionEntries.contains {
-                        calendar.isDate($0.date, inSameDayAs: day.date)
-                    }
-                    if isPresent {
-                        present.append(day.value)
-                    } else {
-                        absent.append(day.value)
-                    }
+            outcomeDays.forEach { day in
+                guard let entry = definitionEntries.first(where: {
+                    calendar.isDate($0.date, inSameDayAs: day.date)
+                }) else {
+                    return
                 }
+                switch SleepFactorDiscreteState(entry: entry) {
+                case .present:
+                    present.append(day.value)
+                case .absent:
+                    absent.append(day.value)
+                case .unspecified:
+                    break
+                }
+            }
             return SleepFactorStatistics.analyzeDiscrete(
                 presentValues: present,
                 absentValues: absent
             )
+        }
+    }
+}
+
+enum SleepFactorAnalysisPeriod: Int, CaseIterable, Sendable {
+    case month
+    case threeMonths
+    case sixMonths
+
+    func startDate(from date: Date, calendar: Calendar) -> Date? {
+        switch self {
+        case .month: return calendar.date(byAdding: .month, value: -1, to: date)
+        case .threeMonths: return calendar.date(byAdding: .month, value: -3, to: date)
+        case .sixMonths: return calendar.date(byAdding: .month, value: -6, to: date)
         }
     }
 }
@@ -154,9 +168,9 @@ final class SleepFactorAnalysisViewController: WellnessScrollViewController {
     private let tabs = SleepFactorCategoryTabsView()
     private var selectedOutcome = SleepFactorOutcome.quality
     private var selectedCategory = SleepFactorCategory.automatic
-    private var selectedQualityByWeekdayPeriod = AppleHealthSleepTrendPeriod.sevenDays
+    private var selectedPeriod = SleepFactorAnalysisPeriod.threeMonths
     private var areInsufficientFactorsExpanded = false
-    private lazy var qualityByWeekdayPeriodControl = makeQualityByWeekdayPeriodControl()
+    private lazy var periodControl = makePeriodControl()
 
     init(
         appleHealthService: AppleHealthSyncing? = nil,
@@ -220,12 +234,35 @@ final class SleepFactorAnalysisViewController: WellnessScrollViewController {
             self.areInsufficientFactorsExpanded = false
             self.buildContent()
         }
+
+        periodControl.selectedSegmentIndex = selectedPeriod.rawValue
+        periodControl.selectedSegmentTintColor = WellnarioPalette.fuchsia
+        periodControl.backgroundColor = WellnarioPalette.surface
+        periodControl.setTitleTextAttributes([
+            .foregroundColor: WellnarioPalette.textSecondary,
+            .font: WellnarioTypography.font(for: .caption)
+        ], for: .normal)
+        periodControl.setTitleTextAttributes([
+            .foregroundColor: UIColor.white,
+            .font: WellnarioTypography.font(for: .caption)
+        ], for: .selected)
+        periodControl.addTarget(self, action: #selector(periodChanged), for: .valueChanged)
+        periodControl.accessibilityIdentifier = "sleep.factors.analysis.period"
     }
+
 
     private func buildContent() {
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let snapshot = effectiveSnapshot
+        let baseSnapshot = effectiveSnapshot
+        var snapshot = baseSnapshot
+        if let startDate = selectedPeriod.startDate(from: Date(), calendar: .autoupdatingCurrent) {
+            snapshot.sleepTrend = baseSnapshot.sleepTrend.filter { $0.date >= startDate }
+            if let factors = baseSnapshot.automaticSleepFactors {
+                snapshot.automaticSleepFactors = factors.filter { $0.date >= startDate }
+            }
+        }
         contentStack.addArrangedSubview(outcomeControl)
+        contentStack.addArrangedSubview(periodControl)
         contentStack.addArrangedSubview(tabs)
         contentStack.addArrangedSubview(makeDisclaimer())
 
@@ -308,12 +345,11 @@ final class SleepFactorAnalysisViewController: WellnessScrollViewController {
         chart.accessibilityLabel = L10n.text(
             "sleep.analysis.weekday.accessibility",
             sleepMetricByWeekdayTitle,
-            sleepTrendPeriodTitle(selectedQualityByWeekdayPeriod)
+            periodTitle(selectedPeriod)
         )
 
-        qualityByWeekdayPeriodControl.selectedSegmentIndex = selectedQualityByWeekdayPeriod.rawValue
         let stack = UIStackView(
-            arrangedSubviews: [title, chart, qualityByWeekdayPeriodControl],
+            arrangedSubviews: [title, chart],
             axis: .vertical,
             spacing: WellnarioSpacing.small
         )
@@ -323,37 +359,14 @@ final class SleepFactorAnalysisViewController: WellnessScrollViewController {
         )
     }
 
-    private func makeQualityByWeekdayPeriodControl() -> UISegmentedControl {
-        let control = UISegmentedControl(
-            items: AppleHealthSleepTrendPeriod.allCases.map(sleepTrendPeriodTitle)
-        )
-        control.selectedSegmentIndex = selectedQualityByWeekdayPeriod.rawValue
-        control.apportionsSegmentWidthsByContent = true
-        control.selectedSegmentTintColor = WellnarioPalette.fuchsia
-        control.backgroundColor = WellnarioPalette.surface
-        control.setTitleTextAttributes([
-            .foregroundColor: WellnarioPalette.textSecondary,
-            .font: WellnarioTypography.font(for: .caption)
-        ], for: .normal)
-        control.setTitleTextAttributes([
-            .foregroundColor: UIColor.white,
-            .font: WellnarioTypography.font(for: .caption)
-        ], for: .selected)
-        control.accessibilityIdentifier = "sleep.analysis.weekday.period"
-        control.accessibilityLabel = L10n.text(
-            "sleep.analysis.weekday.period.selector.accessibility"
-        )
-        control.addTarget(self, action: #selector(qualityByWeekdayPeriodChanged), for: .valueChanged)
-        return control
-    }
-
     private func sleepMetricByWeekdaySummary(
         from snapshot: AppleHealthSnapshot,
         calendar: Calendar = .autoupdatingCurrent
     ) -> (values: [Double?], labels: [String]) {
+        // We use .allTime here because the snapshot is already filtered by the selected period
         let series = AppleHealthSleepAggregator.trendSeries(
             from: snapshot.sleepTrend,
-            period: selectedQualityByWeekdayPeriod,
+            period: .allTime,
             calendar: calendar
         )
         var valuesByWeekday: [Int: [Double]] = [:]
@@ -416,13 +429,19 @@ final class SleepFactorAnalysisViewController: WellnessScrollViewController {
         }
     }
 
-    private func sleepTrendPeriodTitle(_ period: AppleHealthSleepTrendPeriod) -> String {
+    private func periodTitle(_ period: SleepFactorAnalysisPeriod) -> String {
         switch period {
-        case .sevenDays: L10n.text("sleep.trend.period.7d")
-        case .thirtyDays: L10n.text("sleep.trend.period.30d")
-        case .sixMonths: L10n.text("sleep.trend.period.6m")
-        case .allTime: L10n.text("sleep.trend.period.all")
+        case .month: return L10n.text("sleep.factors.analysis.period.month")
+        case .threeMonths: return L10n.text("sleep.factors.analysis.period.3m")
+        case .sixMonths: return L10n.text("sleep.factors.analysis.period.6m")
         }
+    }
+
+    private func makePeriodControl() -> UISegmentedControl {
+        let control = UISegmentedControl(
+            items: SleepFactorAnalysisPeriod.allCases.map(periodTitle)
+        )
+        return control
     }
 
     private func makeInsufficientFactorsCard(
@@ -694,11 +713,11 @@ final class SleepFactorAnalysisViewController: WellnessScrollViewController {
         buildContent()
     }
 
-    @objc private func qualityByWeekdayPeriodChanged() {
-        guard let period = AppleHealthSleepTrendPeriod(rawValue: qualityByWeekdayPeriodControl.selectedSegmentIndex) else {
+    @objc private func periodChanged() {
+        guard let period = SleepFactorAnalysisPeriod(rawValue: periodControl.selectedSegmentIndex) else {
             return
         }
-        selectedQualityByWeekdayPeriod = period
+        selectedPeriod = period
         buildContent()
     }
 
@@ -707,6 +726,7 @@ final class SleepFactorAnalysisViewController: WellnessScrollViewController {
         buildContent()
     }
 }
+
 
 @MainActor
 final class SleepFactorRelationshipChartView: UIView {

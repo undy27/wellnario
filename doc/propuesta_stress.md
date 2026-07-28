@@ -76,16 +76,23 @@ HRV\_t\^\*\-\\operatorname\{mediana\}\(HRV\)
 \}
 $end:math:display$
 
-### Frecuencia cardíaca en reposo
+### Frecuencia cardíaca
+
+La frecuencia cardíaca instantánea y la frecuencia cardíaca en reposo no se
+mezclan en una misma línea base. Si hay una FC suficientemente reciente, se
+normaliza contra el historial de FC equivalentes:
 
 $begin:math:display$
-z\_\{RHR\}\(t\)\=
+z\_\{FC\}\(t\)\=
 \\frac\{
-RHR\_t\-\\operatorname\{mediana\}\(RHR\)
+FC\_t\-\\operatorname\{mediana\}\(FC\)
 \}\{
-1\.4826\\cdot MAD\(RHR\)
+1\.4826\\cdot MAD\(FC\)
 \}
 $end:math:display$
+
+Cuando no hay una FC reciente se usa el RHR, normalizado únicamente contra el
+historial de RHR con la misma fórmula.
 
 ### Frecuencia respiratoria
 
@@ -115,37 +122,64 @@ $end:math:display$
 
 # 3. Índice fisiológico de estrés
 
-Como una HRV elevada y una buena calidad del sueño indican menor estrés, sus contribuciones se restan.
+El núcleo obligatorio del estrés está compuesto por la HRV y una señal
+cardíaca: FC reciente o, en su ausencia, RHR. Cada señal se normaliza
+exclusivamente contra su propio historial. La respiración y el sueño actúan
+como **factores opcionales**:
 
 $begin:math:display$
-S\_t\=
-\-0\.45z\_\{HRV\}\(t\)
-\+0\.30z\_\{RHR\}\(t\)
-\+0\.10z\_\{Resp\}\(t\)
-\-0\.15z\_\{Sleep\}\(t\)
+S\_t = -0.45 z_{\{HRV\}}(t) + 0.30 z_{\{FC/RHR\}}(t) + 0.10 z_{\{Resp\}}(t)^* - 0.15 z_{\{Sleep\}}(t)^*
 $end:math:display$
+
+*(donde los términos marcados con * se suman únicamente si están disponibles en la lectura).*
 
 Los pesos utilizados son:
 
-| Biomarcador | Peso |
-|-------------|------|
-| HRV | 45% |
-| RHR | 30% |
-| Respiración | 10% |
-| Sueño | 15% |
-
-La suma de los pesos es:
-
-$begin:math:display$
-0\.45\+0\.30\+0\.10\+0\.15\=1
-$end:math:display$
+| Biomarcador | Peso | Carácter |
+|-------------|------|----------|
+| HRV | 45% | Obligatorio |
+| FC reciente o RHR | 30% | Obligatorio |
+| Respiración | 10% | Opcional |
+| Sueño | 15% | Opcional |
 
 Interpretación:
 
 - HRV inferior a la habitual → aumenta el estrés.
-- RHR superior a la habitual → aumenta el estrés.
+- FC o RHR superior a su propia línea base → aumenta el estrés.
 - Respiración superior a la habitual → aumenta el estrés.
 - Sueño peor de lo habitual → aumenta el estrés.
+
+## Contexto durante el sueño
+
+Una observación dentro del sueño no debe compararse con la línea base previa a
+acostarse. Para una lectura tomada en la fracción \(p\) de la sesión actual se
+construye un historial con lecturas tomadas en la misma fracción \(p\) de las
+sesiones anteriores:
+
+$begin:math:display$
+t_{i,p} = inicio_i + p \cdot (fin_i - inicio_i)
+$end:math:display$
+
+Los biomarcadores y los índices compuestos nocturnos se normalizan únicamente
+contra esas observaciones equivalentes. Cuando la noche ya ha finalizado, se
+utiliza su propia calidad de sueño; durante una sesión todavía abierta, ese
+factor permanece ausente hasta que pueda calcularse.
+
+Como \(S_t\) ya combina biomarcadores estandarizados en el mismo contexto
+nocturno, durante el sueño no se aplica la segunda normalización del apartado
+siguiente. Esa segunda capa magnifica diferencias pequeñas entre noches. El
+índice nocturno se transforma directamente con un intercepto contextual:
+
+$begin:math:display$
+StressScore_{sueño} =
+\frac{100}{
+1 + \exp\left(-\left[\ln(20/80) + 1.4S_t\right]\right)
+}
+$end:math:display$
+
+Así, una observación típica de sueño (\(S_t = 0\)) equivale a 20 puntos. Una
+combinación de HRV baja, FC alta y mala calidad sigue elevando el resultado
+hacia la parte alta de la escala.
 
 ---
 
@@ -216,7 +250,7 @@ StressScore\_t\=
 \\frac\{
 \\left\[
 \-0\.45z\_\{HRV\}\(t\)
-\+0\.30z\_\{RHR\}\(t\)
+\+0\.30z\_\{FC/RHR\}\(t\)
 \+0\.10z\_\{Resp\}\(t\)
 \-0\.15z\_\{Sleep\}\(t\)
 \\right\]
@@ -294,3 +328,7 @@ z\_X\^\{clip\}
 $end:math:display$
 
 Este valor truncado sería el utilizado posteriormente para calcular el índice $begin:math:text$S\_t$end:math:text$.
+
+Si `MAD(X)` es cero, un valor igual a la mediana se considera neutral. Si
+difiere, no se calcula el `z-score`: sin dispersión histórica no hay una escala
+válida y no debe saturarse automáticamente a `±3`.

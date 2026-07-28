@@ -26,7 +26,13 @@ final class PrimaryButton: UIButton {
     }
 
     private let gradientLayer = CAGradientLayer()
+    private let beamGlowLayer = CAGradientLayer()
+    private let beamGlowMaskLayer = CAShapeLayer()
+    private let beamLayer = CAGradientLayer()
+    private let beamMaskLayer = CAShapeLayer()
+    private let borderLayer = CAShapeLayer()
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
+    private let beamAnimationKey = "wellnario.primaryButton.beam"
 
     init(title: String? = nil, style: Style = .primary) {
         self.style = style
@@ -40,10 +46,37 @@ final class PrimaryButton: UIButton {
         setUp()
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateBeamAnimation()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
-        gradientLayer.frame = bounds
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+
+        [gradientLayer, beamGlowLayer, beamLayer, borderLayer].forEach {
+            $0.frame = bounds
+        }
         gradientLayer.cornerRadius = WellnarioRadius.button
+
+        let borderInset: CGFloat = 1.2
+        let borderPath = UIBezierPath(
+            roundedRect: bounds.insetBy(dx: borderInset, dy: borderInset),
+            cornerRadius: max(WellnarioRadius.button - borderInset, 0)
+        ).cgPath
+        [beamGlowMaskLayer, beamMaskLayer].forEach {
+            $0.frame = bounds
+            $0.path = borderPath
+        }
+        borderLayer.path = borderPath
+
+        CATransaction.commit()
     }
 
     override var intrinsicContentSize: CGSize {
@@ -62,7 +95,7 @@ final class PrimaryButton: UIButton {
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.primaryButtonHeight).isActive = true
         applyContinuousCorners(WellnarioRadius.button)
-        clipsToBounds = true
+        clipsToBounds = false
 
         titleLabel?.font = WellnarioTypography.font(for: .button)
         titleLabel?.adjustsFontForContentSizeCategory = true
@@ -76,6 +109,29 @@ final class PrimaryButton: UIButton {
         gradientLayer.endPoint = CGPoint(x: 1, y: 0.5)
         layer.insertSublayer(gradientLayer, at: 0)
 
+        configureBeamLayer(
+            beamGlowLayer,
+            mask: beamGlowMaskLayer,
+            lineWidth: 5,
+            opacity: 0.28
+        )
+        beamGlowLayer.shadowOpacity = 0.72
+        beamGlowLayer.shadowRadius = 9
+        beamGlowLayer.shadowOffset = .zero
+        layer.insertSublayer(beamGlowLayer, above: gradientLayer)
+
+        configureBeamLayer(
+            beamLayer,
+            mask: beamMaskLayer,
+            lineWidth: 2.4,
+            opacity: 1
+        )
+        layer.insertSublayer(beamLayer, above: beamGlowLayer)
+
+        borderLayer.fillColor = UIColor.clear.cgColor
+        borderLayer.lineWidth = 1
+        layer.insertSublayer(borderLayer, below: beamGlowLayer)
+
         activityIndicator.color = WellnarioPalette.textPrimary
         activityIndicator.hidesWhenStopped = true
         addForAutoLayout(activityIndicator)
@@ -85,6 +141,12 @@ final class PrimaryButton: UIButton {
         ])
 
         accessibilityTraits.insert(.button)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reduceMotionDidChange),
+            name: UIAccessibility.reduceMotionStatusDidChangeNotification,
+            object: nil
+        )
         updateAppearance()
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
             (self: PrimaryButton, _: UITraitCollection) in
@@ -92,17 +154,66 @@ final class PrimaryButton: UIButton {
         }
     }
 
+    private func configureBeamLayer(
+        _ layer: CAGradientLayer,
+        mask: CAShapeLayer,
+        lineWidth: CGFloat,
+        opacity: Float
+    ) {
+        layer.type = .conic
+        layer.startPoint = CGPoint(x: 0.5, y: 0.5)
+        layer.endPoint = CGPoint(x: 0.5, y: 0)
+        layer.opacity = opacity
+
+        mask.fillColor = UIColor.clear.cgColor
+        mask.strokeColor = UIColor.black.cgColor
+        mask.lineWidth = lineWidth
+        mask.lineCap = .round
+        layer.mask = mask
+    }
+
     private func updateAppearance() {
         gradientLayer.colors = WellnarioPalette.signatureGradient.map {
             $0.resolvedColor(with: traitCollection).cgColor
         }
+        let clear = UIColor.clear.cgColor
+        let cyan = WellnarioPalette.cyan.resolvedColor(with: traitCollection)
+        let violet = WellnarioPalette.violet.resolvedColor(with: traitCollection)
+        let fuchsia = WellnarioPalette.fuchsia.resolvedColor(with: traitCollection)
+        let beamColors = [
+            clear,
+            clear,
+            cyan.withAlphaComponent(0.10).cgColor,
+            cyan.withAlphaComponent(0.92).cgColor,
+            UIColor.white.withAlphaComponent(0.96).cgColor,
+            fuchsia.withAlphaComponent(0.96).cgColor,
+            violet.withAlphaComponent(0.34).cgColor,
+            clear,
+            clear
+        ]
+        let beamLocations: [NSNumber] = [0, 0.53, 0.62, 0.69, 0.73, 0.78, 0.84, 0.91, 1]
+        beamLayer.colors = beamColors
+        beamLayer.locations = beamLocations
+        beamGlowLayer.colors = beamColors
+        beamGlowLayer.locations = beamLocations
+        beamGlowLayer.shadowColor = fuchsia.cgColor
+        borderLayer.strokeColor = UIColor.white.withAlphaComponent(
+            UIAccessibility.isDarkerSystemColorsEnabled ? 0.34 : 0.18
+        ).cgColor
+
         alpha = isEnabled ? 1 : 0.52
         layer.borderWidth = 0
         gradientLayer.isHidden = true
+        beamLayer.isHidden = true
+        beamGlowLayer.isHidden = true
+        borderLayer.isHidden = true
 
         switch style {
         case .primary:
             gradientLayer.isHidden = false
+            beamLayer.isHidden = false
+            beamGlowLayer.isHidden = false
+            borderLayer.isHidden = false
             backgroundColor = WellnarioPalette.violet
             setTitleColor(WellnarioPalette.onAccent, for: .normal)
         case .secondary:
@@ -119,6 +230,7 @@ final class PrimaryButton: UIButton {
             backgroundColor = .clear
             setTitleColor(WellnarioPalette.cyan, for: .normal)
         }
+        updateBeamAnimation()
     }
 
     private func updateLoadingState() {
@@ -139,6 +251,50 @@ final class PrimaryButton: UIButton {
             self.transform = transform
             self.alpha = self.isHighlighted ? 0.84 : (self.isEnabled ? 1 : 0.52)
         }
+    }
+
+    private func updateBeamAnimation() {
+        let shouldAnimate = style == .primary
+            && isEnabled
+            && window != nil
+            && WellnarioMotion.animationsEnabled
+        guard shouldAnimate else {
+            beamLayer.removeAnimation(forKey: beamAnimationKey)
+            beamGlowLayer.removeAnimation(forKey: beamAnimationKey)
+            beamLayer.endPoint = CGPoint(x: 1, y: 0.5)
+            beamGlowLayer.endPoint = CGPoint(x: 1, y: 0.5)
+            return
+        }
+        guard beamLayer.animation(forKey: beamAnimationKey) == nil else { return }
+
+        beamLayer.add(makeBeamAnimation(), forKey: beamAnimationKey)
+        beamGlowLayer.add(makeBeamAnimation(), forKey: beamAnimationKey)
+    }
+
+    private func makeBeamAnimation() -> CAKeyframeAnimation {
+        let animation = CAKeyframeAnimation(keyPath: "endPoint")
+        animation.values = [
+            CGPoint(x: 0.5, y: 0),
+            CGPoint(x: 0.85, y: 0.15),
+            CGPoint(x: 1, y: 0.5),
+            CGPoint(x: 0.85, y: 0.85),
+            CGPoint(x: 0.5, y: 1),
+            CGPoint(x: 0.15, y: 0.85),
+            CGPoint(x: 0, y: 0.5),
+            CGPoint(x: 0.15, y: 0.15),
+            CGPoint(x: 0.5, y: 0)
+        ].map(NSValue.init(cgPoint:))
+        animation.duration = 3.4
+        animation.repeatCount = .infinity
+        animation.calculationMode = .linear
+        animation.timingFunctions = [
+            CAMediaTimingFunction(name: .linear)
+        ]
+        return animation
+    }
+
+    @objc private func reduceMotionDidChange() {
+        updateBeamAnimation()
     }
 }
 

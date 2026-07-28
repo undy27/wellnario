@@ -435,8 +435,9 @@ final class WellnessSummaryCard: PremiumCardView {
         ])
 
         titleLabel.applyWellnarioStyle(.summaryTitle, color: WellnarioPalette.textPrimary)
-        titleLabel.numberOfLines = 2
-        titleLabel.lineBreakMode = .byWordWrapping
+        titleLabel.numberOfLines = 1
+        titleLabel.adjustsFontSizeToFitWidth = true
+        titleLabel.minimumScaleFactor = 0.8
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         valueLabel.applyWellnarioStyle(.summaryMetric, color: WellnarioPalette.textPrimary)
@@ -808,10 +809,17 @@ final class WellnessTrendChartView: UIView {
 
         let pointCount = max(values.count, 2)
 
-        var indexedPoints: [(index: Int, point: CGPoint)] = []
+        var segments: [[(index: Int, point: CGPoint)]] = []
+        var currentSegment: [(index: Int, point: CGPoint)] = []
         for (index, value) in plottedValues.enumerated() {
-            guard let value else { continue }
-            indexedPoints.append((
+            guard let value else {
+                if !currentSegment.isEmpty {
+                    segments.append(currentSegment)
+                    currentSegment = []
+                }
+                continue
+            }
+            currentSegment.append((
                 index,
                 CGPoint(
                     x: xPosition(for: index, pointCount: pointCount, in: chartRect),
@@ -819,9 +827,14 @@ final class WellnessTrendChartView: UIView {
                 )
             ))
         }
-        let points = indexedPoints.map { $0.point }
-        guard points.count > 1 else {
-            if let indexedPoint = indexedPoints.first {
+        if !currentSegment.isEmpty {
+            segments.append(currentSegment)
+        }
+        
+        let allIndexedPoints = segments.flatMap { $0 }
+        
+        guard allIndexedPoints.count > 1 else {
+            if let indexedPoint = allIndexedPoints.first {
                 let point = indexedPoint.point
                 let pointColor = colorForLine(at: indexedPoint.index)
                 pointColor.withAlphaComponent(0.20).setFill()
@@ -835,34 +848,56 @@ final class WellnessTrendChartView: UIView {
         }
 
         let fillPath = UIBezierPath()
-        fillPath.move(to: CGPoint(x: points[0].x, y: chartRect.maxY))
-        fillPath.addLine(to: points[0])
-        addLineOrSmoothCurve(points: points, to: fillPath)
-        fillPath.addLine(to: CGPoint(x: points.last!.x, y: chartRect.maxY))
-        fillPath.close()
+        for segment in segments {
+            guard segment.count > 1 else { continue }
+            let points = segment.map { $0.point }
+            fillPath.move(to: CGPoint(x: points[0].x, y: chartRect.maxY))
+            fillPath.addLine(to: points[0])
+            addLineOrSmoothCurve(points: points, to: fillPath)
+            fillPath.addLine(to: CGPoint(x: points.last!.x, y: chartRect.maxY))
+            fillPath.close()
+        }
         if lineColors.isEmpty {
             lineColor.withAlphaComponent(0.12).setFill()
             fillPath.fill()
         } else {
-            drawColoredArea(fillPath, through: indexedPoints, in: chartRect)
+            drawColoredArea(fillPath, through: allIndexedPoints, in: chartRect)
         }
 
         if lineColors.isEmpty {
             let linePath = UIBezierPath()
-            linePath.move(to: points[0])
-            addLineOrSmoothCurve(points: points, to: linePath)
+            for segment in segments {
+                guard segment.count > 1 else { continue }
+                let points = segment.map { $0.point }
+                linePath.move(to: points[0])
+                addLineOrSmoothCurve(points: points, to: linePath)
+            }
             lineColor.setStroke()
             linePath.lineWidth = 3
             linePath.lineCapStyle = .round
             linePath.lineJoinStyle = .round
             linePath.stroke()
         } else {
-            drawColoredSmoothLine(indexedPoints)
+            for segment in segments {
+                drawColoredSmoothLine(segment)
+            }
+        }
+        
+        for segment in segments {
+            if segment.count == 1 {
+                let indexedPoint = segment[0]
+                let point = indexedPoint.point
+                let pointColor = colorForLine(at: indexedPoint.index)
+                pointColor.withAlphaComponent(0.20).setFill()
+                UIBezierPath(ovalIn: CGRect(x: point.x - 7, y: point.y - 7, width: 14, height: 14)).fill()
+                pointColor.setFill()
+                UIBezierPath(ovalIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)).fill()
+            }
         }
 
         drawReferenceLine(average: average, lower: lower, range: range, in: chartRect)
 
-        if let last = indexedPoints.last {
+        if let last = allIndexedPoints.last {
             let lastColor = colorForLine(at: last.index)
             lastColor.withAlphaComponent(0.20).setFill()
             UIBezierPath(ovalIn: CGRect(x: last.point.x - 7, y: last.point.y - 7, width: 14, height: 14)).fill()
@@ -951,7 +986,34 @@ final class WellnessTrendChartView: UIView {
     }
 
     private func plotRect(in rect: CGRect) -> CGRect {
-        rect.inset(by: UIEdgeInsets(top: 18, left: 42, bottom: 30, right: 7))
+        rect.inset(by: UIEdgeInsets(top: 18, left: yAxisLabelInset(), bottom: 30, right: 7))
+    }
+
+    private func yAxisLabelInset() -> CGFloat {
+        let trendScaleValues: [Double?] = referenceLine == .linearTrend
+            ? [linearTrend?.startValue, linearTrend?.endValue]
+            : []
+        let targetScaleValues: [Double?] = targetRanges.flatMap { targetRange in
+            [targetRange?.lowerBound, targetRange?.upperBound]
+        }
+        let scaleValues = plottedValues + trendScaleValues + targetScaleValues
+        guard let bounds = fixedBounds ?? WellnessTrendScale.bounds(for: scaleValues) else {
+            return 42
+        }
+
+        var axisValues = [bounds.lower, bounds.upper]
+        if referenceLine == .average && showsAverageValueOnYAxis {
+            let values = plottedValues.compactMap { $0 }
+            if !values.isEmpty {
+                axisValues.append(values.reduce(0, +) / Double(values.count))
+            }
+        }
+
+        let attributes: [NSAttributedString.Key: Any] = [.font: axisLabelFont]
+        let widestLabel = axisValues
+            .map { valueFormatter($0).size(withAttributes: attributes).width }
+            .max() ?? 0
+        return max(42, widestLabel + 14)
     }
 
     private func xPosition(for index: Int, pointCount: Int, in rect: CGRect) -> CGFloat {
@@ -987,8 +1049,7 @@ final class WellnessTrendChartView: UIView {
             let iconSize: CGFloat = 11
             let iconPadding: CGFloat = 3
             let badgeSize = iconSize + iconPadding * 2
-            guard bandRect.width >= badgeSize,
-                  let icon = UIImage(
+            guard let icon = UIImage(
                     systemName: highlight.symbolName,
                     withConfiguration: UIImage.SymbolConfiguration(pointSize: iconSize, weight: .semibold)
                   )?.withTintColor(highlight.color, renderingMode: .alwaysOriginal) else {

@@ -64,7 +64,7 @@ public enum DoseUnit: String, CaseIterable, Codable, Hashable, Sendable {
         case .gram: return "g"
         case .milliliter: return "ml"
         case .liter: return "l"
-        case .internationalUnit: return "IU"
+        case .internationalUnit: return languageCode == "en" ? "IU" : "UI"
         case .capsule: return languageCode == "en" ? "caps" : "cáps."
         case .tablet: return languageCode == "en" ? "tabs" : "comp."
         case .drop: return languageCode == "en" ? "drops" : "gotas"

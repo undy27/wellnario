@@ -322,7 +322,7 @@ private final class ProductPackageAmountStepViewController: EditorViewController
     private var selectedUnit: DoseUnit
 
     private let discreteUnits: [DoseUnit] = [.capsule, .tablet, .sachet, .drop, .gummy, .scoop]
-    private let continuousUnits: [DoseUnit] = [.microgram, .milligram, .gram, .milliliter, .liter]
+    private let continuousUnits: [DoseUnit] = [.microgram, .milligram, .gram, .milliliter, .liter, .internationalUnit]
 
     init(repository: WellnarioRepositoryProtocol, state: ProductPackageWizardState) {
         self.state = state

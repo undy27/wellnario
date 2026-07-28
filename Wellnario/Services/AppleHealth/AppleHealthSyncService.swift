@@ -102,6 +102,9 @@ struct AppleHealthSleepDay: Codable, Equatable, Sendable {
     let awakeHours: Double?
     /// Total scored sleep period (asleep plus explicitly awake time).
     let sleepPeriodHours: Double?
+    /// Percentage decrease from the initial sleeping heart rate to the
+    /// stable low heart rate reached later in the same main sleep session.
+    let heartRateDropPercentage: Double?
 
     init(
         date: Date,
@@ -112,7 +115,8 @@ struct AppleHealthSleepDay: Codable, Equatable, Sendable {
         lightHours: Double? = nil,
         sleepStartDate: Date? = nil,
         awakeHours: Double? = nil,
-        sleepPeriodHours: Double? = nil
+        sleepPeriodHours: Double? = nil,
+        heartRateDropPercentage: Double? = nil
     ) {
         self.date = date
         self.hours = hours
@@ -123,6 +127,7 @@ struct AppleHealthSleepDay: Codable, Equatable, Sendable {
         self.sleepStartDate = sleepStartDate
         self.awakeHours = awakeHours
         self.sleepPeriodHours = sleepPeriodHours
+        self.heartRateDropPercentage = heartRateDropPercentage
     }
 }
 
@@ -221,6 +226,10 @@ struct AppleHealthStressObservation: Equatable, Sendable {
     let date: Date
     let heartRateVariability: Double?
     let restingHeartRate: Double?
+    /// A recent ordinary heart-rate sample. This is kept separate from
+    /// HealthKit's daily resting-heart-rate value so each signal can be
+    /// normalized against a baseline made from the same kind of measurement.
+    var heartRate: Double? = nil
     let respiratoryRate: Double?
     let sleepQuality: Double?
     let hadActivityInPreviousTwoHours: Bool
@@ -249,6 +258,13 @@ struct AppleHealthStressCalculationDetails: Codable, Equatable, Sendable {
     let compositeBaselineMAD: Double?
     let compositeZScore: Double?
     let score: Double?
+    /// `true` when `restingHeartRate` contains the detail generated from
+    /// ordinary heart-rate samples rather than HealthKit's daily RHR.
+    var usesInstantaneousHeartRate: Bool? = nil
+    /// Sleep observations already combine phase-matched standardized
+    /// biomarkers, so they use the nocturnal calibration directly instead of
+    /// normalizing that composite a second time.
+    var usesSleepCalibration: Bool? = nil
 }
 
 /// A point on the latest StressScore timeline. Every point is anchored to a
@@ -265,6 +281,13 @@ struct AppleHealthStressTimelinePoint: Codable, Equatable, Sendable {
 struct AppleHealthStressTimeline: Codable, Equatable, Sendable {
     let sleepStartDate: Date
     let points: [AppleHealthStressTimelinePoint]
+
+    /// The value users currently see at the right edge of the chart. Keeping
+    /// this selection in the model prevents summary labels from accidentally
+    /// showing the separate, unsmoothed calculation detail.
+    var latestScoredPoint: AppleHealthStressTimelinePoint? {
+        points.last { $0.score != nil }
+    }
 }
 
 /// The data necessary to render a full historical stress day, including the
@@ -290,12 +313,120 @@ enum AppleHealthStressScoreCalculator {
     /// baseline remains unchanged; deviations from it are simply reflected
     /// more clearly in the visible 0–100 score.
     static let logisticSensitivity = 1.4
+    /// A phase-matched, physiologically typical sleep observation represents
+    /// relaxation rather than medium daytime stress.
+    static let sleepNeutralScore = 20.0
+    private static let sleepLogisticIntercept = log(
+        sleepNeutralScore / (100 - sleepNeutralScore)
+    )
 
     static func scores(
         for observations: [AppleHealthStressObservation],
         calendar: Calendar
     ) -> [Date: Double] {
         details(for: observations, calendar: calendar).compactMapValues(\.score)
+    }
+
+    static func detail(
+        for observation: AppleHealthStressObservation,
+        historicalObservations: [AppleHealthStressObservation],
+        historicalComposites: [(date: Date, value: Double)],
+        calendar: Calendar
+    ) -> AppleHealthStressCalculationDetails {
+        let start = calendar.date(byAdding: .day, value: -baselineDays, to: observation.date) ?? .distantPast
+        let historical = historicalObservations.filter {
+            $0.date >= start && $0.date < observation.date
+        }
+        let hrvBaseline = historical.compactMap(\.heartRateVariability)
+        let restingHeartRateBaseline = historical.compactMap(\.restingHeartRate)
+        let heartRateBaseline = historical.compactMap(\.heartRate)
+        let respiratoryRateBaseline = historical.compactMap(\.respiratoryRate)
+        let sleepQualityBaseline = historical.compactMap(\.sleepQuality)
+        let adjustedHRV = observation.hadActivityInPreviousTwoHours
+            ? average(hrvBaseline)
+            : observation.heartRateVariability
+        let hrv = metricDetails(
+            value: observation.heartRateVariability,
+            adjustedValue: adjustedHRV,
+            baseline: hrvBaseline,
+            weight: -0.45
+        )
+        let usesInstantaneousHeartRate = observation.heartRate != nil
+        let heartRate = metricDetails(
+            value: usesInstantaneousHeartRate
+                ? observation.heartRate
+                : observation.restingHeartRate,
+            baseline: usesInstantaneousHeartRate
+                ? heartRateBaseline
+                : restingHeartRateBaseline,
+            weight: 0.30
+        )
+        let respiratoryRate = metricDetails(
+            value: observation.respiratoryRate,
+            baseline: respiratoryRateBaseline,
+            weight: 0.10
+        )
+        let sleepQuality = metricDetails(
+            value: observation.sleepQuality,
+            baseline: sleepQualityBaseline,
+            weight: -0.15
+        )
+        let composite: Double? = if let hrvContribution = hrv.contribution,
+                                     let heartRateContribution = heartRate.contribution {
+            hrvContribution
+                + heartRateContribution
+                + (respiratoryRate.contribution ?? 0)
+                + (sleepQuality.contribution ?? 0)
+        } else {
+            nil
+        }
+
+        let historicalComposite = historicalComposites
+            .filter { $0.date >= start && $0.date < observation.date }
+            .map(\.value)
+        let compositeStats = robustStatistics(composite, baseline: historicalComposite)
+        let score = compositeStats?.zScore.map { logisticScore($0) }
+        return AppleHealthStressCalculationDetails(
+            date: observation.date,
+            heartRateVariability: hrv,
+            restingHeartRate: heartRate,
+            respiratoryRate: respiratoryRate,
+            sleepQuality: sleepQuality,
+            hadActivityInPreviousTwoHours: observation.hadActivityInPreviousTwoHours,
+            compositeIndex: composite,
+            compositeBaselineMedian: compositeStats?.median,
+            compositeBaselineMAD: compositeStats?.mad,
+            compositeZScore: compositeStats?.zScore,
+            score: score,
+            usesInstantaneousHeartRate: usesInstantaneousHeartRate
+        )
+    }
+
+    /// A nocturnal composite is already a weighted combination of
+    /// phase-matched biomarker z-scores. Applying another robust z-score makes
+    /// tiny night-to-night differences look like large absolute activation.
+    /// The contextual intercept maps an ordinary sleeping state to 20/100.
+    static func calibratedForSleep(
+        _ details: AppleHealthStressCalculationDetails
+    ) -> AppleHealthStressCalculationDetails {
+        let score = details.compositeIndex.map {
+            logisticScore($0, intercept: sleepLogisticIntercept)
+        }
+        return AppleHealthStressCalculationDetails(
+            date: details.date,
+            heartRateVariability: details.heartRateVariability,
+            restingHeartRate: details.restingHeartRate,
+            respiratoryRate: details.respiratoryRate,
+            sleepQuality: details.sleepQuality,
+            hadActivityInPreviousTwoHours: details.hadActivityInPreviousTwoHours,
+            compositeIndex: details.compositeIndex,
+            compositeBaselineMedian: details.compositeBaselineMedian,
+            compositeBaselineMAD: details.compositeBaselineMAD,
+            compositeZScore: details.compositeZScore,
+            score: score,
+            usesInstantaneousHeartRate: details.usesInstantaneousHeartRate,
+            usesSleepCalibration: true
+        )
     }
 
     static func details(
@@ -307,71 +438,17 @@ enum AppleHealthStressScoreCalculator {
         var result: [Date: AppleHealthStressCalculationDetails] = [:]
 
         for observation in ordered {
-            let historical = ordered.filter {
-                isInBaselineWindow($0.date, for: observation.date, calendar: calendar)
-            }
-            let hrvBaseline = historical.compactMap(\.heartRateVariability)
-            let restingHeartRateBaseline = historical.compactMap(\.restingHeartRate)
-            let respiratoryRateBaseline = historical.compactMap(\.respiratoryRate)
-            let sleepQualityBaseline = historical.compactMap(\.sleepQuality)
-            let adjustedHRV = observation.hadActivityInPreviousTwoHours
-                ? average(hrvBaseline)
-                : observation.heartRateVariability
-            let hrv = metricDetails(
-                value: observation.heartRateVariability,
-                adjustedValue: adjustedHRV,
-                baseline: hrvBaseline,
-                weight: -0.45
+            let historical = ordered.filter { $0.date < observation.date }
+            let historicalComposites = compositeHistory.filter { $0.date < observation.date }
+            let detailResult = detail(
+                for: observation,
+                historicalObservations: historical,
+                historicalComposites: historicalComposites,
+                calendar: calendar
             )
-            let restingHeartRate = metricDetails(
-                value: observation.restingHeartRate,
-                baseline: restingHeartRateBaseline,
-                weight: 0.30
-            )
-            let respiratoryRate = metricDetails(
-                value: observation.respiratoryRate,
-                baseline: respiratoryRateBaseline,
-                weight: 0.10
-            )
-            let sleepQuality = metricDetails(
-                value: observation.sleepQuality,
-                baseline: sleepQualityBaseline,
-                weight: -0.15
-            )
-            let composite: Double? = if let hrvContribution = hrv.contribution,
-                                         let restingContribution = restingHeartRate.contribution,
-                                         let respiratoryContribution = respiratoryRate.contribution,
-                                         let sleepContribution = sleepQuality.contribution {
-                hrvContribution + restingContribution + respiratoryContribution + sleepContribution
-            } else {
-                nil
-            }
+            result[observation.date] = detailResult
 
-            let historicalComposite = compositeHistory
-                .filter { isInBaselineWindow($0.date, for: observation.date, calendar: calendar) }
-                .map(\.value)
-            let compositeStats = robustStatistics(composite, baseline: historicalComposite)
-            let score = compositeStats?.zScore.map { normalizedComposite in
-                min(max(
-                    100 / (1 + exp(-logisticSensitivity * normalizedComposite)),
-                    0
-                ), 100)
-            }
-            result[observation.date] = AppleHealthStressCalculationDetails(
-                date: observation.date,
-                heartRateVariability: hrv,
-                restingHeartRate: restingHeartRate,
-                respiratoryRate: respiratoryRate,
-                sleepQuality: sleepQuality,
-                hadActivityInPreviousTwoHours: observation.hadActivityInPreviousTwoHours,
-                compositeIndex: composite,
-                compositeBaselineMedian: compositeStats?.median,
-                compositeBaselineMAD: compositeStats?.mad,
-                compositeZScore: compositeStats?.zScore,
-                score: score
-            )
-
-            if let composite {
+            if let composite = detailResult.compositeIndex {
                 compositeHistory.append((date: observation.date, value: composite))
             }
         }
@@ -421,20 +498,27 @@ enum AppleHealthStressScoreCalculator {
         } else if scale > 0.000_001 {
             zScore = min(max((value - baselineMedian) / scale, -3), 3)
         } else {
-            // A zero MAD is common for slowly changing HealthKit metrics
-            // (especially respiratory rate and calculated sleep quality).
-            // It means "no observed variation", not "no data". Treat a
-            // value equal to that stable baseline as neutral; if it differs,
-            // use the maximum bounded direction because the robust scale is
-            // genuinely zero.
             let difference = value - baselineMedian
             if abs(difference) <= 0.000_001 {
                 zScore = 0
             } else {
-                zScore = difference > 0 ? 3 : -3
+                // A zero MAD provides no defensible scale for a non-zero
+                // difference. Saturating to ±3 would turn even a one-unit
+                // change into the maximum possible deviation.
+                zScore = nil
             }
         }
         return RobustStatistics(median: baselineMedian, mad: mad, zScore: zScore)
+    }
+
+    private static func logisticScore(
+        _ input: Double,
+        intercept: Double = 0
+    ) -> Double {
+        min(max(
+            100 / (1 + exp(-(intercept + logisticSensitivity * input))),
+            0
+        ), 100)
     }
 
     static func levelLocalizationKey(for score: Double) -> String {
@@ -446,82 +530,6 @@ enum AppleHealthStressScoreCalculator {
         case ..<90: return "apple_health.stress.level.high"
         default: return "apple_health.stress.level.very_high"
         }
-    }
-
-    private static func compositeIndex(
-        for observation: AppleHealthStressObservation,
-        in observations: [AppleHealthStressObservation],
-        calendar: Calendar
-    ) -> Double? {
-        let historical = observations.filter {
-            isInBaselineWindow($0.date, for: observation.date, calendar: calendar)
-        }
-        let hrvBaseline = historical.compactMap(\.heartRateVariability)
-        let restingHeartRateBaseline = historical.compactMap(\.restingHeartRate)
-        let respiratoryRateBaseline = historical.compactMap(\.respiratoryRate)
-        let sleepQualityBaseline = historical.compactMap(\.sleepQuality)
-
-        let adjustedHRV: Double?
-        if observation.hadActivityInPreviousTwoHours {
-            adjustedHRV = average(hrvBaseline)
-        } else {
-            adjustedHRV = observation.heartRateVariability
-        }
-
-        guard let adjustedHRV,
-              let restingHeartRate = observation.restingHeartRate,
-              let respiratoryRate = observation.respiratoryRate,
-              let sleepQuality = observation.sleepQuality,
-              let hrvZ = robustZ(adjustedHRV, baseline: hrvBaseline),
-              let restingHeartRateZ = robustZ(
-                restingHeartRate,
-                baseline: restingHeartRateBaseline
-              ),
-              let respiratoryRateZ = robustZ(
-                respiratoryRate,
-                baseline: respiratoryRateBaseline
-              ),
-              let sleepQualityZ = robustZ(
-                sleepQuality,
-                baseline: sleepQualityBaseline
-              ) else {
-            return nil
-        }
-
-        return -0.45 * hrvZ
-            + 0.30 * restingHeartRateZ
-            + 0.10 * respiratoryRateZ
-            - 0.15 * sleepQualityZ
-    }
-
-    private static func isInBaselineWindow(
-        _ candidateDate: Date,
-        for date: Date,
-        calendar: Calendar
-    ) -> Bool {
-        let currentDay = calendar.startOfDay(for: date)
-        let earliestDay = calendar.date(
-            byAdding: .day,
-            value: -baselineDays,
-            to: currentDay
-        ) ?? .distantPast
-        return candidateDate >= earliestDay && candidateDate < currentDay
-    }
-
-    private static func robustZ(_ value: Double, baseline: [Double]) -> Double? {
-        guard baseline.count >= minimumHistoricalSamples,
-              let baselineMedian = median(baseline) else {
-            return nil
-        }
-        let deviations = baseline.map { abs($0 - baselineMedian) }
-        guard let mad = median(deviations) else { return nil }
-        let scale = 1.4826 * mad
-        if scale > 0.000_001 {
-            return min(max((value - baselineMedian) / scale, -3), 3)
-        }
-        let difference = value - baselineMedian
-        if abs(difference) <= 0.000_001 { return 0 }
-        return difference > 0 ? 3 : -3
     }
 
     private static func median(_ values: [Double]) -> Double? {
@@ -550,6 +558,10 @@ struct AppleHealthAutomaticSleepFactorHistory: Equatable, Sendable {
 }
 
 enum AppleHealthAutomaticSleepFactorBuilder {
+    private static let dailyMetricMaximumAge: TimeInterval = 36 * 3_600
+    private static let realtimeHRVMaximumAge: TimeInterval = 12 * 3_600
+    private static let heartRateMaximumAge: TimeInterval = 30 * 60
+
     static func build(
         sessions: [AppleHealthSleepSession],
         stepsByDay: [LocalDay: Double],
@@ -558,6 +570,7 @@ enum AppleHealthAutomaticSleepFactorBuilder {
         daylightSamples: [AppleHealthTimedQuantity],
         hrvSamples: [AppleHealthTimedQuantity],
         restingHeartRateSamples: [AppleHealthTimedQuantity] = [],
+        heartRateSamples: [AppleHealthTimedQuantity] = [],
         respiratoryRateSamples: [AppleHealthTimedQuantity] = [],
         sleepQualityByDay: [LocalDay: Double] = [:],
         calendar: Calendar
@@ -570,6 +583,7 @@ enum AppleHealthAutomaticSleepFactorBuilder {
             daylightSamples: daylightSamples,
             hrvSamples: hrvSamples,
             restingHeartRateSamples: restingHeartRateSamples,
+            heartRateSamples: heartRateSamples,
             respiratoryRateSamples: respiratoryRateSamples,
             sleepQualityByDay: sleepQualityByDay,
             calendar: calendar
@@ -583,9 +597,10 @@ enum AppleHealthAutomaticSleepFactorBuilder {
         daylightByDay: [LocalDay: Double],
         daylightSamples: [AppleHealthTimedQuantity],
         hrvSamples: [AppleHealthTimedQuantity],
-        restingHeartRateSamples: [AppleHealthTimedQuantity] = [],
-        respiratoryRateSamples: [AppleHealthTimedQuantity] = [],
-        sleepQualityByDay: [LocalDay: Double] = [:],
+        restingHeartRateSamples: [AppleHealthTimedQuantity],
+        heartRateSamples: [AppleHealthTimedQuantity],
+        respiratoryRateSamples: [AppleHealthTimedQuantity],
+        sleepQualityByDay: [LocalDay: Double],
         calendar: Calendar,
         currentDate: Date = Date()
     ) -> AppleHealthAutomaticSleepFactorHistory {
@@ -595,6 +610,7 @@ enum AppleHealthAutomaticSleepFactorBuilder {
             workouts: workouts,
             hrvSamples: hrvSamples,
             restingHeartRateSamples: restingHeartRateSamples,
+            heartRateSamples: heartRateSamples,
             respiratoryRateSamples: respiratoryRateSamples,
             sleepQualityByDay: sleepQualityByDay,
             calendar: calendar
@@ -608,21 +624,36 @@ enum AppleHealthAutomaticSleepFactorBuilder {
         let factors = orderedSessions.enumerated().map { index, session in
             let sleepDate = calendar.startOfDay(for: session.endDate)
             let activityDay = LocalDay(containing: session.startDate, in: calendar.timeZone)
+            let previousWake = index > 0 ? orderedSessions[index - 1].endDate : nil
             let hasStrengthTraining = workouts.contains {
                     $0.kind == .strength
                         && LocalDay(containing: $0.startDate, in: calendar.timeZone) == activityDay
                         && $0.startDate < session.startDate
                 }
 
+            // Daylight after waking and total daylight must refer to the same
+            // calendar day. Using the sleep start date breaks that relationship
+            // for nights that begin after midnight.
+            let daylightDay = previousWake.map {
+                LocalDay(containing: $0, in: calendar.timeZone)
+            } ?? activityDay
+            let daylightMinutes = daylightByDay[daylightDay]
             let earlyDaylight: Double?
-            if index > 0 {
-                let previousWake = orderedSessions[index - 1].endDate
+            if let previousWake {
                 let earlyWindowEnd = previousWake.addingTimeInterval(2 * 3_600)
-                earlyDaylight = summedQuantity(
+                let daylightInEarlyWindow = summedQuantity(
                     daylightSamples,
                     from: previousWake,
                     through: earlyWindowEnd
                 )
+                // The two-hour window is part of the daily total. In case
+                // HealthKit's aggregate and individual samples disagree, keep
+                // the presentation internally consistent.
+                if let daylightInEarlyWindow, let daylightMinutes {
+                    earlyDaylight = min(daylightInEarlyWindow, daylightMinutes)
+                } else {
+                    earlyDaylight = daylightInEarlyWindow
+                }
             } else {
                 earlyDaylight = nil
             }
@@ -631,7 +662,7 @@ enum AppleHealthAutomaticSleepFactorBuilder {
                 date: sleepDate,
                 steps: stepsByDay[activityDay],
                 strengthTrainingMinutes: hasStrengthTraining ? 1 : 0,
-                daylightMinutes: daylightByDay[activityDay],
+                daylightMinutes: daylightMinutes,
                 earlyDaylightMinutes: earlyDaylight,
                 preSleepStressScore: stressScores[session.startDate],
                 preSleepStressDetails: stressDetails[session.startDate]
@@ -645,6 +676,7 @@ enum AppleHealthAutomaticSleepFactorBuilder {
                 workouts: workouts,
                 hrvSamples: hrvSamples,
                 restingHeartRateSamples: restingHeartRateSamples,
+                heartRateSamples: heartRateSamples,
                 respiratoryRateSamples: respiratoryRateSamples,
                 sleepQualityByDay: sleepQualityByDay,
                 calendar: calendar,
@@ -657,6 +689,7 @@ enum AppleHealthAutomaticSleepFactorBuilder {
                 workouts: workouts,
                 hrvSamples: hrvSamples,
                 restingHeartRateSamples: restingHeartRateSamples,
+                heartRateSamples: heartRateSamples,
                 respiratoryRateSamples: respiratoryRateSamples,
                 sleepQualityByDay: sleepQualityByDay,
                 calendar: calendar
@@ -673,6 +706,7 @@ enum AppleHealthAutomaticSleepFactorBuilder {
         workouts: [AppleHealthWorkout],
         hrvSamples: [AppleHealthTimedQuantity],
         restingHeartRateSamples: [AppleHealthTimedQuantity],
+        heartRateSamples: [AppleHealthTimedQuantity],
         respiratoryRateSamples: [AppleHealthTimedQuantity],
         sleepQualityByDay: [LocalDay: Double],
         calendar: Calendar
@@ -684,40 +718,65 @@ enum AppleHealthAutomaticSleepFactorBuilder {
             workouts: workouts,
             hrvSamples: hrvSamples,
             restingHeartRateSamples: restingHeartRateSamples,
+            heartRateSamples: heartRateSamples,
             respiratoryRateSamples: respiratoryRateSamples,
             sleepQualityByDay: sleepQualityByDay,
             calendar: calendar
         )
+        let sampledHeartRates = sampleTimedQuantities(heartRateSamples, interval: 10 * 60)
         let measurementDates = Set((
-            hrvSamples + restingHeartRateSamples + respiratoryRateSamples
+            hrvSamples + restingHeartRateSamples + sampledHeartRates + respiratoryRateSamples
         )
         .map(\.endDate)
-        .filter { period.contains($0) || $0 == period.end })
-        let dates = Array(measurementDates.union([period.start, period.end])).sorted()
+        .filter { $0 >= period.start && $0 <= period.end })
+        let initialDates = Array(measurementDates.union([period.start])).sorted()
+        var datesWithGaps = initialDates
+        let wearDates = heartRateSamples.map(\.endDate).filter { $0 >= period.start && $0 <= period.end }.sorted()
+        for i in wearDates.indices.dropFirst() {
+            let previous = wearDates[i - 1]
+            let current = wearDates[i]
+            if current.timeIntervalSince(previous) > 4 * 3600 {
+                datesWithGaps.append(previous.addingTimeInterval(current.timeIntervalSince(previous) / 2))
+            }
+        }
+        if let firstWear = wearDates.first, firstWear.timeIntervalSince(period.start) > 4 * 3600 {
+            datesWithGaps.append(period.start.addingTimeInterval(firstWear.timeIntervalSince(period.start) / 2))
+        }
+        if let lastWear = wearDates.last, period.end.timeIntervalSince(lastWear) > 4 * 3600 {
+            datesWithGaps.append(lastWear.addingTimeInterval(period.end.timeIntervalSince(lastWear) / 2))
+        }
+        if wearDates.isEmpty {
+            datesWithGaps.append(period.start.addingTimeInterval(period.end.timeIntervalSince(period.start) / 2))
+        }
+        let dates = Array(Set(datesWithGaps)).sorted()
+        let precalculatedHistoricalDetails = AppleHealthStressScoreCalculator.details(
+            for: observations,
+            calendar: calendar
+        )
+        let precalculatedComposites = precalculatedHistoricalDetails.compactMap { key, value in
+            value.compositeIndex.map { (date: key, value: $0) }
+        }.sorted { $0.date < $1.date }
+
         let points = dates.map { date -> AppleHealthStressTimelinePoint in
-            // The interval anchors preserve the true 24-hour scale, but are
-            // deliberately not shown as invented physiological readings.
             guard measurementDates.contains(date) else {
                 return AppleHealthStressTimelinePoint(date: date, score: nil)
             }
-            let latestQuality = orderedSessions.last(where: { $0.endDate <= date }).flatMap {
-                sleepQualityByDay[LocalDay(containing: $0.endDate, in: calendar.timeZone)]
-            }
-            let observation = makeStressObservation(
+            let detail = makeTimelineStressDetail(
                 at: date,
-                sleepQuality: latestQuality,
+                sessions: orderedSessions,
+                historicalObservations: observations,
+                historicalComposites: precalculatedComposites,
                 workouts: workouts,
                 hrvSamples: hrvSamples,
                 restingHeartRateSamples: restingHeartRateSamples,
-                respiratoryRateSamples: respiratoryRateSamples
-            )
-            let score = AppleHealthStressScoreCalculator.details(
-                for: observations.filter { $0.date < date } + [observation],
+                heartRateSamples: heartRateSamples,
+                respiratoryRateSamples: respiratoryRateSamples,
+                sleepQualityByDay: sleepQualityByDay,
                 calendar: calendar
-            )[date]?.score
-            return AppleHealthStressTimelinePoint(date: date, score: score)
+            )
+            return AppleHealthStressTimelinePoint(date: date, score: detail.score)
         }
-        return AppleHealthStressTimeline(sleepStartDate: period.start, points: points)
+        return AppleHealthStressTimeline(sleepStartDate: period.start, points: smoothTimelinePoints(points))
     }
 
     private static func makeStressObservations(
@@ -725,11 +784,12 @@ enum AppleHealthAutomaticSleepFactorBuilder {
         workouts: [AppleHealthWorkout],
         hrvSamples: [AppleHealthTimedQuantity],
         restingHeartRateSamples: [AppleHealthTimedQuantity],
+        heartRateSamples: [AppleHealthTimedQuantity],
         respiratoryRateSamples: [AppleHealthTimedQuantity],
         sleepQualityByDay: [LocalDay: Double],
         calendar: Calendar
     ) -> [AppleHealthStressObservation] {
-        sessions.enumerated().map { index, session in
+        return sessions.enumerated().map { index, session in
             let previousSleepQuality = index > 0
                 ? sleepQualityByDay[LocalDay(
                     containing: sessions[index - 1].endDate,
@@ -742,7 +802,9 @@ enum AppleHealthAutomaticSleepFactorBuilder {
                 workouts: workouts,
                 hrvSamples: hrvSamples,
                 restingHeartRateSamples: restingHeartRateSamples,
-                respiratoryRateSamples: respiratoryRateSamples
+                heartRateSamples: heartRateSamples,
+                respiratoryRateSamples: respiratoryRateSamples,
+                usesRealtimeInputs: false
             )
         }
     }
@@ -753,27 +815,36 @@ enum AppleHealthAutomaticSleepFactorBuilder {
         workouts: [AppleHealthWorkout],
         hrvSamples: [AppleHealthTimedQuantity],
         restingHeartRateSamples: [AppleHealthTimedQuantity],
-        respiratoryRateSamples: [AppleHealthTimedQuantity]
+        heartRateSamples: [AppleHealthTimedQuantity] = [],
+        respiratoryRateSamples: [AppleHealthTimedQuantity],
+        usesRealtimeInputs: Bool = false
     ) -> AppleHealthStressObservation {
         AppleHealthStressObservation(
             date: date,
-            // HealthKit does not guarantee a reading in the exact pre-bed
-            // hour. Use the most recent real physiological measurement, but
-            // never one more than 36 hours old.
+            // HealthKit does not guarantee an HRV reading in the exact
+            // pre-bed hour. The admissible age depends on whether this is a
+            // daily retrospective or a real-time calculation.
             heartRateVariability: latestQuantity(
                 hrvSamples,
                 before: date,
-                maximumAge: 36 * 3_600
+                maximumAge: usesRealtimeInputs
+                    ? realtimeHRVMaximumAge
+                    : dailyMetricMaximumAge
             ),
             restingHeartRate: latestQuantity(
                 restingHeartRateSamples,
                 before: date,
-                maximumAge: 36 * 3_600
+                maximumAge: dailyMetricMaximumAge
+            ),
+            heartRate: latestQuantity(
+                heartRateSamples,
+                before: date,
+                maximumAge: heartRateMaximumAge
             ),
             respiratoryRate: latestQuantity(
                 respiratoryRateSamples,
                 before: date,
-                maximumAge: 36 * 3_600
+                maximumAge: dailyMetricMaximumAge
             ),
             sleepQuality: sleepQuality,
             hadActivityInPreviousTwoHours: workouts.contains {
@@ -783,12 +854,56 @@ enum AppleHealthAutomaticSleepFactorBuilder {
         )
     }
 
+    private static func sampleTimedQuantities(
+        _ samples: [AppleHealthTimedQuantity],
+        interval: TimeInterval
+    ) -> [AppleHealthTimedQuantity] {
+        let sorted = samples.sorted { $0.endDate < $1.endDate }
+        var result: [AppleHealthTimedQuantity] = []
+        var lastDate: Date? = nil
+        for s in sorted {
+            if let last = lastDate {
+                if s.endDate.timeIntervalSince(last) >= interval {
+                    result.append(s)
+                    lastDate = s.endDate
+                }
+            } else {
+                result.append(s)
+                lastDate = s.endDate
+            }
+        }
+        return result
+    }
+
+    private static func smoothTimelinePoints(_ points: [AppleHealthStressTimelinePoint]) -> [AppleHealthStressTimelinePoint] {
+        guard points.count > 2 else { return points }
+        var smoothed: [AppleHealthStressTimelinePoint] = []
+        for i in 0..<points.count {
+            let p = points[i]
+            guard let currentScore = p.score else {
+                smoothed.append(p)
+                continue
+            }
+            var windowScores: [Double] = [currentScore]
+            if i > 0, let prev = points[i - 1].score {
+                windowScores.append(prev)
+            }
+            if i < points.count - 1, let next = points[i + 1].score {
+                windowScores.append(next)
+            }
+            let avg = windowScores.reduce(0, +) / Double(windowScores.count)
+            smoothed.append(AppleHealthStressTimelinePoint(date: p.date, score: avg))
+        }
+        return smoothed
+    }
+
     private static func makeLatestStressTimeline(
         sessions: [AppleHealthSleepSession],
         historicalObservations: [AppleHealthStressObservation],
         workouts: [AppleHealthWorkout],
         hrvSamples: [AppleHealthTimedQuantity],
         restingHeartRateSamples: [AppleHealthTimedQuantity],
+        heartRateSamples: [AppleHealthTimedQuantity],
         respiratoryRateSamples: [AppleHealthTimedQuantity],
         sleepQualityByDay: [LocalDay: Double],
         calendar: Calendar,
@@ -798,41 +913,187 @@ enum AppleHealthAutomaticSleepFactorBuilder {
             return nil
         }
         let periodStart = latestSession.startDate.addingTimeInterval(-3_600)
+        let sampledHeartRates = sampleTimedQuantities(heartRateSamples, interval: 10 * 60)
         let measurementDates = Set((
-            hrvSamples + restingHeartRateSamples + respiratoryRateSamples
+            hrvSamples + restingHeartRateSamples + sampledHeartRates + respiratoryRateSamples
         )
         .map(\.endDate)
-        .filter { $0 >= periodStart && $0 <= currentDate })
-        let dates = Array(
+        .filter { $0 >= periodStart && $0 <= currentDate }
+        + [currentDate])
+        let initialDates = Array(
             measurementDates.union([periodStart, latestSession.startDate, currentDate])
         ).sorted()
+        var datesWithGaps = initialDates
+        let wearDates = heartRateSamples.map(\.endDate).filter { $0 >= periodStart && $0 <= currentDate }.sorted()
+        for i in wearDates.indices.dropFirst() {
+            let previous = wearDates[i - 1]
+            let current = wearDates[i]
+            if current.timeIntervalSince(previous) > 4 * 3600 {
+                datesWithGaps.append(previous.addingTimeInterval(current.timeIntervalSince(previous) / 2))
+            }
+        }
+        if let firstWear = wearDates.first, firstWear.timeIntervalSince(periodStart) > 4 * 3600 {
+            datesWithGaps.append(periodStart.addingTimeInterval(firstWear.timeIntervalSince(periodStart) / 2))
+        }
+        if let lastWear = wearDates.last, currentDate.timeIntervalSince(lastWear) > 4 * 3600 {
+            datesWithGaps.append(lastWear.addingTimeInterval(currentDate.timeIntervalSince(lastWear) / 2))
+        }
+        if wearDates.isEmpty {
+            datesWithGaps.append(periodStart.addingTimeInterval(currentDate.timeIntervalSince(periodStart) / 2))
+        }
+        let dates = Array(Set(datesWithGaps)).sorted()
+        let precalculatedHistoricalDetails = AppleHealthStressScoreCalculator.details(
+            for: historicalObservations,
+            calendar: calendar
+        )
+        let precalculatedComposites = precalculatedHistoricalDetails.compactMap { key, value in
+            value.compositeIndex.map { (date: key, value: $0) }
+        }.sorted { $0.date < $1.date }
+
         let points = dates.map { date -> AppleHealthStressTimelinePoint in
-            guard date != periodStart || measurementDates.contains(date) else {
-                // The empty first point keeps the real time scale intact when
-                // no reading exists at the start of the requested period.
+            guard measurementDates.contains(date) else {
+                // The empty points and gap markers keep the real time scale intact
+                // and break the lines when there's no continuous data.
                 return AppleHealthStressTimelinePoint(date: date, score: nil)
             }
-            let latestQuality = sessions.last(where: { $0.endDate <= date }).flatMap {
-                sleepQualityByDay[LocalDay(containing: $0.endDate, in: calendar.timeZone)]
-            }
-            let observation = makeStressObservation(
+            let detail = makeTimelineStressDetail(
                 at: date,
-                sleepQuality: latestQuality,
+                sessions: sessions,
+                historicalObservations: historicalObservations,
+                historicalComposites: precalculatedComposites,
                 workouts: workouts,
                 hrvSamples: hrvSamples,
                 restingHeartRateSamples: restingHeartRateSamples,
-                respiratoryRateSamples: respiratoryRateSamples
-            )
-            let score = AppleHealthStressScoreCalculator.details(
-                for: historicalObservations.filter { $0.date < date } + [observation],
+                heartRateSamples: heartRateSamples,
+                respiratoryRateSamples: respiratoryRateSamples,
+                sleepQualityByDay: sleepQualityByDay,
                 calendar: calendar
-            )[date]?.score
-            return AppleHealthStressTimelinePoint(date: date, score: score)
+            )
+            return AppleHealthStressTimelinePoint(date: date, score: detail.score)
         }
         return AppleHealthStressTimeline(
             sleepStartDate: latestSession.startDate,
-            points: points
+            points: smoothTimelinePoints(points)
         )
+    }
+
+    /// Uses sleep observations only when the requested point falls inside a
+    /// sleep session. A point halfway through the current night is compared
+    /// with points halfway through previous nights, instead of with the
+    /// pre-bed physiological baseline used by the sleep-factor model.
+    private static func makeTimelineStressDetail(
+        at date: Date,
+        sessions: [AppleHealthSleepSession],
+        historicalObservations: [AppleHealthStressObservation],
+        historicalComposites: [(date: Date, value: Double)],
+        workouts: [AppleHealthWorkout],
+        hrvSamples: [AppleHealthTimedQuantity],
+        restingHeartRateSamples: [AppleHealthTimedQuantity],
+        heartRateSamples: [AppleHealthTimedQuantity],
+        respiratoryRateSamples: [AppleHealthTimedQuantity],
+        sleepQualityByDay: [LocalDay: Double],
+        calendar: Calendar
+    ) -> AppleHealthStressCalculationDetails {
+        if let sleepSession = sessions.last(where: {
+            $0.startDate <= date && date <= $0.endDate
+        }),
+           let sleepDetail = makeSleepStressDetail(
+            at: date,
+            in: sleepSession,
+            sessions: sessions,
+            workouts: workouts,
+            hrvSamples: hrvSamples,
+            restingHeartRateSamples: restingHeartRateSamples,
+            heartRateSamples: heartRateSamples,
+            respiratoryRateSamples: respiratoryRateSamples,
+            sleepQualityByDay: sleepQualityByDay,
+            calendar: calendar
+           ) {
+            return sleepDetail
+        }
+
+        let latestQuality = sessions.last(where: { $0.endDate <= date }).flatMap {
+            sleepQualityByDay[LocalDay(containing: $0.endDate, in: calendar.timeZone)]
+        }
+        let observation = makeStressObservation(
+            at: date,
+            sleepQuality: latestQuality,
+            workouts: workouts,
+            hrvSamples: hrvSamples,
+            restingHeartRateSamples: restingHeartRateSamples,
+            heartRateSamples: heartRateSamples,
+            respiratoryRateSamples: respiratoryRateSamples,
+            usesRealtimeInputs: true
+        )
+        return AppleHealthStressScoreCalculator.detail(
+            for: observation,
+            historicalObservations: historicalObservations.filter { $0.date < date },
+            historicalComposites: historicalComposites.filter { $0.date < date },
+            calendar: calendar
+        )
+    }
+
+    private static func makeSleepStressDetail(
+        at date: Date,
+        in sleepSession: AppleHealthSleepSession,
+        sessions: [AppleHealthSleepSession],
+        workouts: [AppleHealthWorkout],
+        hrvSamples: [AppleHealthTimedQuantity],
+        restingHeartRateSamples: [AppleHealthTimedQuantity],
+        heartRateSamples: [AppleHealthTimedQuantity],
+        respiratoryRateSamples: [AppleHealthTimedQuantity],
+        sleepQualityByDay: [LocalDay: Double],
+        calendar: Calendar
+    ) -> AppleHealthStressCalculationDetails? {
+        let targetDuration = sleepSession.endDate.timeIntervalSince(sleepSession.startDate)
+        guard targetDuration > 0 else { return nil }
+        let sleepProgress = min(max(
+            date.timeIntervalSince(sleepSession.startDate) / targetDuration,
+            0
+        ), 1)
+        let minimumComparableSleepDuration: TimeInterval = 2 * 3_600
+        let historicalSessions = sessions
+            .filter {
+                $0.endDate <= sleepSession.startDate
+                    && $0.asleepSeconds >= minimumComparableSleepDuration
+            }
+            .sorted { $0.endDate < $1.endDate }
+
+        let historicalSleepObservations = historicalSessions.map { session in
+            let duration = max(session.endDate.timeIntervalSince(session.startDate), 0)
+            let referenceDate = session.startDate.addingTimeInterval(duration * sleepProgress)
+            return makeStressObservation(
+                at: referenceDate,
+                sleepQuality: sleepQualityByDay[
+                    LocalDay(containing: session.endDate, in: calendar.timeZone)
+                ],
+                workouts: workouts,
+                hrvSamples: hrvSamples,
+                restingHeartRateSamples: restingHeartRateSamples,
+                heartRateSamples: heartRateSamples,
+                respiratoryRateSamples: respiratoryRateSamples,
+                usesRealtimeInputs: true
+            )
+        }
+        let currentObservation = makeStressObservation(
+            at: date,
+            sleepQuality: sleepQualityByDay[
+                LocalDay(containing: sleepSession.endDate, in: calendar.timeZone)
+            ],
+            workouts: workouts,
+            hrvSamples: hrvSamples,
+            restingHeartRateSamples: restingHeartRateSamples,
+            heartRateSamples: heartRateSamples,
+            respiratoryRateSamples: respiratoryRateSamples,
+            usesRealtimeInputs: true
+        )
+        guard let relativeDetails = AppleHealthStressScoreCalculator.details(
+            for: historicalSleepObservations + [currentObservation],
+            calendar: calendar
+        )[date] else {
+            return nil
+        }
+        return AppleHealthStressScoreCalculator.calibratedForSleep(relativeDetails)
     }
 
     private static func makeCurrentStressDetails(
@@ -842,25 +1103,31 @@ enum AppleHealthAutomaticSleepFactorBuilder {
         workouts: [AppleHealthWorkout],
         hrvSamples: [AppleHealthTimedQuantity],
         restingHeartRateSamples: [AppleHealthTimedQuantity],
+        heartRateSamples: [AppleHealthTimedQuantity],
         respiratoryRateSamples: [AppleHealthTimedQuantity],
         sleepQualityByDay: [LocalDay: Double],
         calendar: Calendar
     ) -> AppleHealthStressCalculationDetails? {
-        let latestSleepQuality = sessions.last.flatMap {
-            sleepQualityByDay[LocalDay(containing: $0.endDate, in: calendar.timeZone)]
-        }
-        let observation = makeStressObservation(
+        let historicalDetails = AppleHealthStressScoreCalculator.details(
+            for: historicalObservations,
+            calendar: calendar
+        )
+        let historicalComposites = historicalDetails.compactMap { key, value in
+            value.compositeIndex.map { (date: key, value: $0) }
+        }.sorted { $0.date < $1.date }
+        return makeTimelineStressDetail(
             at: date,
-            sleepQuality: latestSleepQuality,
+            sessions: sessions,
+            historicalObservations: historicalObservations,
+            historicalComposites: historicalComposites,
             workouts: workouts,
             hrvSamples: hrvSamples,
             restingHeartRateSamples: restingHeartRateSamples,
-            respiratoryRateSamples: respiratoryRateSamples
-        )
-        return AppleHealthStressScoreCalculator.details(
-            for: historicalObservations + [observation],
+            heartRateSamples: heartRateSamples,
+            respiratoryRateSamples: respiratoryRateSamples,
+            sleepQualityByDay: sleepQualityByDay,
             calendar: calendar
-        )[date]
+        )
     }
 
     private static func summedQuantity(
@@ -887,13 +1154,46 @@ enum AppleHealthAutomaticSleepFactorBuilder {
         before date: Date,
         maximumAge: TimeInterval
     ) -> Double? {
-        samples
-            .filter {
-                $0.endDate <= date
-                    && $0.endDate >= date.addingTimeInterval(-maximumAge)
+        var low = 0
+        var high = samples.count - 1
+        var resultIndex: Int? = nil
+        
+        while low <= high {
+            let mid = low + (high - low) / 2
+            if samples[mid].startDate <= date {
+                resultIndex = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
             }
-            .max { $0.endDate < $1.endDate }?
-            .value
+        }
+        
+        guard let idx = resultIndex else { return nil }
+        
+        var i = idx
+        var bestSample: AppleHealthTimedQuantity? = nil
+        while i >= 0 {
+            let sample = samples[i]
+            if sample.endDate <= date {
+                // Since there might be slight overlaps, we check up to 5 elements backwards
+                // to find the absolute max endDate just to be completely safe and match previous behavior.
+                if bestSample == nil || sample.endDate > bestSample!.endDate {
+                    bestSample = sample
+                }
+            }
+            // If we've gone backwards and the end date is way too old, no need to keep checking
+            if let best = bestSample, date.timeIntervalSince(best.endDate) <= maximumAge {
+                if idx - i > 5 { break }
+            } else if date.timeIntervalSince(sample.endDate) > maximumAge + 3600 {
+                break
+            }
+            i -= 1
+        }
+        
+        guard let latest = bestSample, date.timeIntervalSince(latest.endDate) <= maximumAge else {
+            return nil
+        }
+        return latest.value
     }
 }
 
@@ -945,6 +1245,15 @@ struct AppleHealthSnapshot: Codable, Equatable, Sendable {
     /// Automatic factor values aligned with the date on which each sleep
     /// session ended. Optional to preserve decoding of pre-feature caches.
     var automaticSleepFactors: [AppleHealthAutomaticSleepFactors]? = nil
+    /// Version of the logic used to calculate the sleep factors. Used to
+    /// invalidate the cache and force a recalculation when metrics change.
+    var automaticSleepFactorsVersion: Int? = nil
+    /// Version of the nocturnal heart-rate-drop algorithm used by the cached
+    /// values and processed-day ledger.
+    var heartRateDropCalculationVersion: Int? = nil
+    /// Days for which HealthKit heart-rate data has already been inspected,
+    /// including days where there were not enough samples to calculate a drop.
+    var heartRateDropProcessedDays: [LocalDay]? = nil
     /// Short StressScore evolution before the latest recorded sleep session.
     /// Optional to preserve decoding of snapshots written before this chart.
     var latestPreSleepStressTimeline: AppleHealthStressTimeline? = nil
@@ -963,7 +1272,10 @@ struct AppleHealthSnapshot: Codable, Equatable, Sendable {
         stepsToday: nil,
         activeEnergyKilocaloriesToday: nil,
         workoutsThisWeek: [],
-        automaticSleepFactors: []
+        automaticSleepFactors: [],
+        automaticSleepFactorsVersion: nil,
+        latestPreSleepStressTimeline: nil,
+        currentStressDetails: nil
     )
 }
 
@@ -1170,18 +1482,33 @@ struct SleepQualityWeights: Equatable, Sendable {
     let duration: Int
     let regularity: Int
     let interruptions: Int
+    let heartRateDrop: Int
+
+    init(
+        duration: Int,
+        regularity: Int,
+        interruptions: Int,
+        heartRateDrop: Int = 0
+    ) {
+        self.duration = duration
+        self.regularity = regularity
+        self.interruptions = interruptions
+        self.heartRateDrop = heartRateDrop
+    }
 
     static let `default` = SleepQualityWeights(
-        duration: 70,
-        regularity: 10,
-        interruptions: 20
+        duration: 63,
+        regularity: 9,
+        interruptions: 18,
+        heartRateDrop: 10
     )
 
     var isValid: Bool {
         duration >= 0
             && regularity >= 0
             && interruptions >= 0
-            && duration + regularity + interruptions == 100
+            && heartRateDrop >= 0
+            && duration + regularity + interruptions + heartRateDrop == 100
     }
 }
 
@@ -1197,6 +1524,7 @@ struct SleepQualityPreferences {
     private let durationWeightKey = "wellnario.sleep.quality.durationWeight.v1"
     private let regularityWeightKey = "wellnario.sleep.quality.regularityWeight.v1"
     private let interruptionWeightKey = "wellnario.sleep.quality.interruptionWeight.v1"
+    private let heartRateDropWeightKey = "wellnario.sleep.quality.heartRateDropWeight.v1"
     private let customTargetKey = "wellnario.sleep.quality.customTargetHours.v1"
 
     init(defaults: UserDefaults = .standard) {
@@ -1204,14 +1532,34 @@ struct SleepQualityPreferences {
     }
 
     var weights: SleepQualityWeights {
-        let requiredKeys = [durationWeightKey, regularityWeightKey, interruptionWeightKey]
-        guard requiredKeys.allSatisfy({ defaults.object(forKey: $0) != nil }) else {
+        let legacyKeys = [durationWeightKey, regularityWeightKey, interruptionWeightKey]
+        guard legacyKeys.allSatisfy({ defaults.object(forKey: $0) != nil }) else {
             return .default
+        }
+        if defaults.object(forKey: heartRateDropWeightKey) == nil {
+            let legacyDuration = defaults.integer(forKey: durationWeightKey)
+            let legacyRegularity = defaults.integer(forKey: regularityWeightKey)
+            let legacyInterruptions = defaults.integer(forKey: interruptionWeightKey)
+            guard legacyDuration >= 0,
+                  legacyRegularity >= 0,
+                  legacyInterruptions >= 0,
+                  legacyDuration + legacyRegularity + legacyInterruptions == 100 else {
+                return .default
+            }
+            let duration = Int((Double(legacyDuration) * 0.9).rounded())
+            let regularity = Int((Double(legacyRegularity) * 0.9).rounded())
+            return SleepQualityWeights(
+                duration: duration,
+                regularity: regularity,
+                interruptions: 90 - duration - regularity,
+                heartRateDrop: 10
+            )
         }
         let stored = SleepQualityWeights(
             duration: defaults.integer(forKey: durationWeightKey),
             regularity: defaults.integer(forKey: regularityWeightKey),
-            interruptions: defaults.integer(forKey: interruptionWeightKey)
+            interruptions: defaults.integer(forKey: interruptionWeightKey),
+            heartRateDrop: defaults.integer(forKey: heartRateDropWeightKey)
         )
         return stored.isValid ? stored : .default
     }
@@ -1258,6 +1606,7 @@ struct SleepQualityPreferences {
         defaults.set(weights.duration, forKey: durationWeightKey)
         defaults.set(weights.regularity, forKey: regularityWeightKey)
         defaults.set(weights.interruptions, forKey: interruptionWeightKey)
+        defaults.set(weights.heartRateDrop, forKey: heartRateDropWeightKey)
         notifyChange()
         return true
     }
@@ -1281,6 +1630,7 @@ struct SleepQualityPreferences {
             durationWeightKey,
             regularityWeightKey,
             interruptionWeightKey,
+            heartRateDropWeightKey,
             customTargetKey
         ].forEach(defaults.removeObject(forKey:))
         if notify { notifyChange() }
@@ -1295,8 +1645,11 @@ struct SleepQualityBreakdown: Equatable, Sendable {
     let durationScore: Double
     let regularityScore: Double
     let interruptionScore: Double
+    let heartRateDropScore: Double?
     let compliantDays: Int
     let awakePercentage: Double
+    let heartRateDropPercentage: Double?
+    let effectiveWeightTotal: Int
     let totalScore: Double
 }
 
@@ -1304,6 +1657,7 @@ enum SleepQualityCalculator {
     static let regularityWindowDays = 7
     static let bedtimeToleranceMinutes = 60.0
     static let zeroInterruptionScoreAtPercentage = 15.0
+    static let fullHeartRateDropScoreAtPercentage = 25.0
 
     static func applying(
         to history: [AppleHealthSleepDay],
@@ -1328,7 +1682,8 @@ enum SleepQualityCalculator {
                 lightHours: entry.lightHours,
                 sleepStartDate: entry.sleepStartDate,
                 awakeHours: entry.awakeHours,
-                sleepPeriodHours: entry.sleepPeriodHours
+                sleepPeriodHours: entry.sleepPeriodHours,
+                heartRateDropPercentage: entry.heartRateDropPercentage
             )
         }
     }
@@ -1378,18 +1733,32 @@ enum SleepQualityCalculator {
         )
         let regularityScore = Double(compliantDays) / Double(regularityWindowDays) * 100
         let weights = configuration.weights
-        let total = (
+        let heartRateDropPercentage = entry.heartRateDropPercentage.flatMap {
+            $0.isFinite && $0 >= 0 ? $0 : nil
+        }
+        let heartRateDropScore = heartRateDropPercentage.map {
+            min($0 / fullHeartRateDropScoreAtPercentage, 1) * 100
+        }
+        let effectiveWeightTotal = 100 - (heartRateDropScore == nil ? weights.heartRateDrop : 0)
+        let weightedTotal = (
             durationScore * Double(weights.duration)
                 + regularityScore * Double(weights.regularity)
                 + interruptionScore * Double(weights.interruptions)
-        ) / 100
+                + (heartRateDropScore ?? 0) * Double(weights.heartRateDrop)
+        )
+        let total = effectiveWeightTotal > 0
+            ? weightedTotal / Double(effectiveWeightTotal)
+            : 0
 
         return SleepQualityBreakdown(
             durationScore: durationScore,
             regularityScore: regularityScore,
             interruptionScore: interruptionScore,
+            heartRateDropScore: heartRateDropScore,
             compliantDays: compliantDays,
             awakePercentage: awakePercentage,
+            heartRateDropPercentage: heartRateDropPercentage,
+            effectiveWeightTotal: effectiveWeightTotal,
             totalScore: min(max(total, 0), 100)
         )
     }
@@ -1449,8 +1818,150 @@ enum SleepQualityCalculator {
     }
 }
 
+enum SleepHeartRateDropCalculator {
+    static let initialWindow: TimeInterval = 60 * 60
+    static let minimumInitialSamples = 2
+    static let minimumLaterSamples = 4
+    private static let validHeartRateRange = 25.0...220.0
+
+    static func percentage(
+        for session: AppleHealthSleepSession,
+        heartRateSamples: [AppleHealthTimedQuantity]
+    ) -> Double? {
+        let (sleepStart, sleepEnd) = sleepBounds(for: session)
+        guard sleepEnd.timeIntervalSince(sleepStart) > initialWindow else { return nil }
+
+        let initialEnd = sleepStart.addingTimeInterval(initialWindow)
+        let initialValues = values(
+            in: heartRateSamples,
+            from: sleepStart,
+            through: initialEnd
+        )
+        let laterValues = values(
+            in: heartRateSamples,
+            from: initialEnd,
+            through: sleepEnd,
+            includingStart: false
+        )
+        guard initialValues.count >= minimumInitialSamples,
+              laterValues.count >= minimumLaterSamples,
+              let initialMedian = median(initialValues),
+              let stableLow = percentile(laterValues, fraction: 0.2),
+              initialMedian > 0 else {
+            return nil
+        }
+        return min(max((initialMedian - stableLow) / initialMedian * 100, 0), 100)
+    }
+
+    /// Calculates a collection of sessions without scanning the complete
+    /// HealthKit history once for every night.
+    static func percentages(
+        for sessions: [AppleHealthSleepSession],
+        heartRateSamples: [AppleHealthTimedQuantity]
+    ) -> [Date: Double] {
+        guard !sessions.isEmpty, !heartRateSamples.isEmpty else { return [:] }
+        let sortedSamples = heartRateSamples.sorted { $0.endDate < $1.endDate }
+        var result: [Date: Double] = [:]
+
+        for session in sessions {
+            let (sleepStart, sleepEnd) = sleepBounds(for: session)
+            let lowerIndex = lowerBound(in: sortedSamples, for: sleepStart)
+            let upperIndex = upperBound(in: sortedSamples, for: sleepEnd)
+            guard lowerIndex < upperIndex,
+                  let drop = percentage(
+                    for: session,
+                    heartRateSamples: Array(sortedSamples[lowerIndex..<upperIndex])
+                  ) else {
+                continue
+            }
+            result[session.startDate] = drop
+        }
+        return result
+    }
+
+    private static func sleepBounds(
+        for session: AppleHealthSleepSession
+    ) -> (start: Date, end: Date) {
+        let asleepIntervals = session.stageIntervals.filter { $0.stage != .awake }
+        return (
+            asleepIntervals.map(\.startDate).min() ?? session.startDate,
+            asleepIntervals.map(\.endDate).max() ?? session.endDate
+        )
+    }
+
+    private static func lowerBound(
+        in samples: [AppleHealthTimedQuantity],
+        for date: Date
+    ) -> Int {
+        var lower = 0
+        var upper = samples.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if samples[middle].endDate < date {
+                lower = middle + 1
+            } else {
+                upper = middle
+            }
+        }
+        return lower
+    }
+
+    private static func upperBound(
+        in samples: [AppleHealthTimedQuantity],
+        for date: Date
+    ) -> Int {
+        var lower = 0
+        var upper = samples.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if samples[middle].endDate <= date {
+                lower = middle + 1
+            } else {
+                upper = middle
+            }
+        }
+        return lower
+    }
+
+    private static func values(
+        in samples: [AppleHealthTimedQuantity],
+        from startDate: Date,
+        through endDate: Date,
+        includingStart: Bool = true
+    ) -> [Double] {
+        samples.compactMap { sample in
+            let startsInsideWindow = includingStart
+                ? sample.endDate >= startDate
+                : sample.endDate > startDate
+            guard startsInsideWindow,
+                  sample.endDate <= endDate,
+                  sample.value.isFinite,
+                  validHeartRateRange.contains(sample.value) else {
+                return nil
+            }
+            return sample.value
+        }
+    }
+
+    private static func median(_ values: [Double]) -> Double? {
+        percentile(values, fraction: 0.5)
+    }
+
+    private static func percentile(_ values: [Double], fraction: Double) -> Double? {
+        guard !values.isEmpty else { return nil }
+        let sorted = values.sorted()
+        let position = min(max(fraction, 0), 1) * Double(sorted.count - 1)
+        let lowerIndex = Int(position.rounded(.down))
+        let upperIndex = Int(position.rounded(.up))
+        guard lowerIndex != upperIndex else { return sorted[lowerIndex] }
+        let interpolation = position - Double(lowerIndex)
+        return sorted[lowerIndex]
+            + (sorted[upperIndex] - sorted[lowerIndex]) * interpolation
+    }
+}
+
 /// A device-local correction applied only while Wellnario presents sleep data.
-/// It is deliberately stored outside the Apple Health snapshot so a later sync
+/// It is deliberately stored outside the Health snapshot so a later sync
 /// cannot remove it, and it is never written back to HealthKit.
 struct SleepManualOverride: Codable, Equatable, Sendable {
     let day: LocalDay
@@ -1609,7 +2120,8 @@ struct SleepManualOverrideStore {
                 lightHours: existing?.lightHours,
                 sleepStartDate: existing?.sleepStartDate,
                 awakeHours: existing?.awakeHours,
-                sleepPeriodHours: existing?.sleepPeriodHours
+                sleepPeriodHours: existing?.sleepPeriodHours,
+                heartRateDropPercentage: existing?.heartRateDropPercentage
             )
         }
 
@@ -1630,7 +2142,8 @@ struct SleepManualOverrideStore {
                 lightHours: entry.lightHours,
                 sleepStartDate: entry.sleepStartDate,
                 awakeHours: entry.awakeHours,
-                sleepPeriodHours: entry.sleepPeriodHours
+                sleepPeriodHours: entry.sleepPeriodHours,
+                heartRateDropPercentage: entry.heartRateDropPercentage
             )
         }
     }
@@ -1714,23 +2227,67 @@ enum AppleHealthSleepAggregator {
 
     static func sevenDayTrend(
         sessions: [AppleHealthSleepSession],
+        heartRateSamples: [AppleHealthTimedQuantity] = [],
         endingAt date: Date = Date(),
         calendar: Calendar = .autoupdatingCurrent
     ) -> [AppleHealthSleepDay] {
         let today = calendar.startOfDay(for: date)
         let start = calendar.date(byAdding: .day, value: -6, to: today) ?? today
-        return dailyTrend(sessions: sessions, from: start, through: today, calendar: calendar)
+        return dailyTrend(
+            sessions: sessions,
+            heartRateSamples: heartRateSamples,
+            from: start,
+            through: today,
+            calendar: calendar
+        )
     }
 
     static func allTimeTrend(
         sessions: [AppleHealthSleepSession],
+        heartRateSamples: [AppleHealthTimedQuantity] = [],
         endingAt date: Date = Date(),
         calendar: Calendar = .autoupdatingCurrent
     ) -> [AppleHealthSleepDay] {
         guard let earliestSession = sessions.min(by: { $0.endDate < $1.endDate }) else { return [] }
         let start = calendar.startOfDay(for: earliestSession.endDate)
         let today = calendar.startOfDay(for: date)
-        return dailyTrend(sessions: sessions, from: start, through: today, calendar: calendar)
+        return dailyTrend(
+            sessions: sessions,
+            heartRateSamples: heartRateSamples,
+            from: start,
+            through: today,
+            calendar: calendar
+        )
+    }
+
+    static func preservingCachedHeartRateDrops(
+        in updated: [AppleHealthSleepDay],
+        from cached: [AppleHealthSleepDay],
+        calendar: Calendar
+    ) -> [AppleHealthSleepDay] {
+        let cachedByDay = Dictionary(
+            cached.map { (calendar.startOfDay(for: $0.date), $0) },
+            uniquingKeysWith: { _, newest in newest }
+        )
+        return updated.map { entry in
+            guard entry.heartRateDropPercentage == nil,
+                  let cachedEntry = cachedByDay[calendar.startOfDay(for: entry.date)],
+                  let cachedDrop = cachedEntry.heartRateDropPercentage else {
+                return entry
+            }
+            return AppleHealthSleepDay(
+                date: entry.date,
+                hours: entry.hours,
+                qualityScore: entry.qualityScore,
+                remHours: entry.remHours,
+                deepHours: entry.deepHours,
+                lightHours: entry.lightHours,
+                sleepStartDate: entry.sleepStartDate,
+                awakeHours: entry.awakeHours,
+                sleepPeriodHours: entry.sleepPeriodHours,
+                heartRateDropPercentage: cachedDrop
+            )
+        }
     }
 
     static func trend(
@@ -1786,7 +2343,8 @@ enum AppleHealthSleepAggregator {
                 lightHours: entry.lightHours,
                 sleepStartDate: entry.sleepStartDate,
                 awakeHours: entry.awakeHours,
-                sleepPeriodHours: entry.sleepPeriodHours
+                sleepPeriodHours: entry.sleepPeriodHours,
+                heartRateDropPercentage: entry.heartRateDropPercentage
             )
         }
 
@@ -1856,7 +2414,10 @@ enum AppleHealthSleepAggregator {
                 lightHours: average(bucketEntries.map(\.lightHours)),
                 sleepStartDate: nil,
                 awakeHours: average(bucketEntries.map(\.awakeHours)),
-                sleepPeriodHours: average(bucketEntries.map(\.sleepPeriodHours))
+                sleepPeriodHours: average(bucketEntries.map(\.sleepPeriodHours)),
+                heartRateDropPercentage: average(
+                    bucketEntries.map(\.heartRateDropPercentage)
+                )
             )
         }
     }
@@ -1873,10 +2434,12 @@ enum AppleHealthSleepAggregator {
             || entry.remHours != nil
             || entry.deepHours != nil
             || entry.lightHours != nil
+            || entry.heartRateDropPercentage != nil
     }
 
     private static func dailyTrend(
         sessions: [AppleHealthSleepSession],
+        heartRateSamples: [AppleHealthTimedQuantity],
         from start: Date,
         through end: Date,
         calendar: Calendar
@@ -1888,6 +2451,10 @@ enum AppleHealthSleepAggregator {
             guard day >= start, day <= end else { continue }
             sessionsByDay[day, default: []].append(session)
         }
+        let heartRateDrops = SleepHeartRateDropCalculator.percentages(
+            for: sessions,
+            heartRateSamples: heartRateSamples
+        )
         return days.map { day in
             let dailySessions = sessionsByDay[day, default: []]
             let asleepSeconds = dailySessions.reduce(0) { $0 + $1.asleepSeconds }
@@ -1915,7 +2482,10 @@ enum AppleHealthSleepAggregator {
                 awakeHours: dailySessions.isEmpty ? nil : awakeSeconds / 3_600,
                 sleepPeriodHours: dailySessions.isEmpty
                     ? nil
-                    : (asleepSeconds + awakeSeconds) / 3_600
+                    : (asleepSeconds + awakeSeconds) / 3_600,
+                heartRateDropPercentage: mainSession.flatMap {
+                    heartRateDrops[$0.startDate]
+                }
             )
         }
     }
@@ -2049,6 +2619,102 @@ enum AppleHealthSleepAggregator {
     }
 }
 
+enum AppleHealthSessionQuantitySelector {
+    static func latestSamples(
+        from samples: [AppleHealthTimedQuantity],
+        for sessions: [AppleHealthSleepSession]
+    ) -> [AppleHealthTimedQuantity] {
+        let orderedSamples = samples.sorted {
+            if $0.endDate != $1.endDate {
+                return $0.endDate < $1.endDate
+            }
+            return $0.startDate < $1.startDate
+        }
+        return sessions.compactMap { session in
+            orderedSamples.last {
+                $0.startDate >= session.startDate
+                    && $0.endDate <= session.endDate
+            }
+        }.sorted { $0.startDate < $1.startDate }
+    }
+}
+
+enum AppleHealthHeartRateDropBackfill {
+    static func sessionDays(
+        in sessions: [AppleHealthSleepSession],
+        calendar: Calendar
+    ) -> Set<LocalDay> {
+        Set(sessions.map {
+            LocalDay(containing: $0.endDate, in: calendar.timeZone)
+        })
+    }
+
+    static func nextBatch(
+        from sessions: [AppleHealthSleepSession],
+        excluding processedDays: Set<LocalDay>,
+        daySpan: Int,
+        calendar: Calendar
+    ) -> [AppleHealthSleepSession] {
+        guard daySpan > 0 else { return [] }
+        let pending = sessions.filter {
+            !processedDays.contains(
+                LocalDay(containing: $0.endDate, in: calendar.timeZone)
+            )
+        }
+        guard let newestEnd = pending.map(\.endDate).max(),
+              let windowStart = calendar.date(
+                byAdding: .day,
+                value: -(daySpan - 1),
+                to: newestEnd
+              ) else {
+            return []
+        }
+        return pending
+            .filter { $0.endDate >= windowStart && $0.endDate <= newestEnd }
+            .sorted { $0.startDate < $1.startDate }
+    }
+
+    static func applying(
+        heartRateSamples: [AppleHealthTimedQuantity],
+        for sessions: [AppleHealthSleepSession],
+        to trend: [AppleHealthSleepDay],
+        calendar: Calendar
+    ) -> [AppleHealthSleepDay] {
+        let sessionsByDay = Dictionary(
+            grouping: sessions,
+            by: { LocalDay(containing: $0.endDate, in: calendar.timeZone) }
+        )
+        let drops = SleepHeartRateDropCalculator.percentages(
+            for: sessions,
+            heartRateSamples: heartRateSamples
+        )
+        return trend.map { entry in
+            let day = LocalDay(containing: entry.date, in: calendar.timeZone)
+            guard let dailySessions = sessionsByDay[day],
+                  let mainSession = dailySessions.max(by: { lhs, rhs in
+                      if lhs.asleepSeconds != rhs.asleepSeconds {
+                          return lhs.asleepSeconds < rhs.asleepSeconds
+                      }
+                      return lhs.endDate < rhs.endDate
+                  }) else {
+                return entry
+            }
+            return AppleHealthSleepDay(
+                date: entry.date,
+                hours: entry.hours,
+                qualityScore: entry.qualityScore,
+                remHours: entry.remHours,
+                deepHours: entry.deepHours,
+                lightHours: entry.lightHours,
+                sleepStartDate: entry.sleepStartDate,
+                awakeHours: entry.awakeHours,
+                sleepPeriodHours: entry.sleepPeriodHours,
+                heartRateDropPercentage: drops[mainSession.startDate]
+            )
+        }
+    }
+}
+
 /// Pure, potentially expensive calculations that must not run on the main
 /// actor while a HealthKit synchronization is in progress.
 private enum AppleHealthBackgroundCalculations {
@@ -2060,11 +2726,13 @@ private enum AppleHealthBackgroundCalculations {
 
     static func sleepTrend(
         sessions: [AppleHealthSleepSession],
+        heartRateSamples: [AppleHealthTimedQuantity],
         endingAt endDate: Date,
         calendar: Calendar
     ) -> [AppleHealthSleepDay] {
         AppleHealthSleepAggregator.allTimeTrend(
             sessions: sessions,
+            heartRateSamples: heartRateSamples,
             endingAt: endDate,
             calendar: calendar
         )
@@ -2078,6 +2746,7 @@ private enum AppleHealthBackgroundCalculations {
         daylightSamples: [AppleHealthTimedQuantity],
         hrvSamples: [AppleHealthTimedQuantity],
         restingHeartRateSamples: [AppleHealthTimedQuantity],
+        heartRateSamples: [AppleHealthTimedQuantity],
         respiratoryRateSamples: [AppleHealthTimedQuantity],
         sleepQualityByDay: [LocalDay: Double],
         calendar: Calendar,
@@ -2091,6 +2760,7 @@ private enum AppleHealthBackgroundCalculations {
             daylightSamples: daylightSamples,
             hrvSamples: hrvSamples,
             restingHeartRateSamples: restingHeartRateSamples,
+            heartRateSamples: heartRateSamples,
             respiratoryRateSamples: respiratoryRateSamples,
             sleepQualityByDay: sleepQualityByDay,
             calendar: calendar,
@@ -2105,6 +2775,9 @@ final class AppleHealthSyncService: AppleHealthSyncing {
         "appleHealth.bloodPressureAuthorizationReviewed.v1"
     private static let pendingAuthorizationWarningShownKey =
         "appleHealth.pendingAuthorizationWarningShown.v1"
+    private static let currentAutomaticSleepFactorsVersion = 6
+    private static let currentHeartRateDropCalculationVersion = 1
+    private static let historicalHeartRateBackfillDaySpan = 30
 
     private struct SourceQueryFilter {
         let predicate: NSPredicate?
@@ -2123,11 +2796,15 @@ final class AppleHealthSyncService: AppleHealthSyncing {
     private let calendar: Calendar
     private var sourcesByTypeIdentifier: [String: Set<HKSource>] = [:]
     private var isRunningSync = false
+    private var heartRateDropBackfillTask: Task<Void, Never>?
+    private var heartRateDropBackfillGeneration = 0
 
     private(set) var snapshot: AppleHealthSnapshot
     private(set) var state: AppleHealthSyncState
     private(set) var availableSources: [AppleHealthDataSource]
     private(set) var disabledSourceSelections: Set<AppleHealthSourceSelection>
+
+    var recoveryEngine: RecoveryEngine?
 
     var isConfigured: Bool { cache.isConfigured }
     var requiresManualBloodPressureAuthorization: Bool {
@@ -2170,7 +2847,7 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             // as well: on some HealthKit releases, presenting both requests
             // consecutively can leave the subsequent sync in a failed state.
             let primaryReadTypes = wasAlreadyConfigured
-                ? readTypes.subtracting(Self.daylightAuthorizationReadTypes)
+                ? readTypes.subtracting(Self.recentlyAddedAuthorizationReadTypes)
                 : readTypes
             // Do not gate this call behind getRequestStatusForAuthorization.
             // On some HealthKit versions it may report `.unnecessary` for an
@@ -2183,7 +2860,7 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             )
             guard didComplete else { throw AppleHealthSyncError.authorizationFailed }
 
-            // `timeInDaylight` was added after Apple Health support had
+            // `timeInDaylight` was added after Health support had
             // already shipped. Some existing installations do not surface a
             // newly added read type when it is included in a broader request.
             // Ask HealthKit about this type on its own and, only when it still
@@ -2192,11 +2869,11 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             if wasAlreadyConfigured,
                (try? await authorizationRequestStatus(
                 healthStore: healthStore,
-                readTypes: Self.daylightAuthorizationReadTypes
+                readTypes: Self.recentlyAddedAuthorizationReadTypes
             )) == .shouldRequest {
                 _ = try? await requestAuthorization(
                     healthStore: healthStore,
-                    readTypes: Self.daylightAuthorizationReadTypes
+                    readTypes: Self.recentlyAddedAuthorizationReadTypes
                 )
             }
             hasReviewedBloodPressureAuthorization = true
@@ -2262,20 +2939,31 @@ final class AppleHealthSyncService: AppleHealthSyncing {
                 start: stressContextStart,
                 end: dayEnd
             )
-            async let respiratoryRateTask = fetchTimedQuantities(
+            async let heartRateTask = fetchTimedQuantities(
                 from: healthStore,
-                identifier: .respiratoryRate,
+                identifier: .heartRate,
                 unit: .count().unitDivided(by: .minute()),
+                // The target day's FC must be normalized against FC—not RHR—
+                // from the same two rolling baseline windows as the other
+                // stress inputs. Limiting this query to 48 hours leaves fewer
+                // than the seven historical FC observations required.
                 start: stressContextStart,
                 end: dayEnd
             )
-            let (sessions, workouts, hrvSamples, restingHeartRateSamples, respiratoryRateSamples) = try await (
-                sessionsTask,
-                workoutsTask,
-                hrvTask,
-                restingHeartRateTask,
-                respiratoryRateTask
+            let sessions = try await sessionsTask
+
+            async let respiratoryRateTask = fetchLatestQuantitiesForSessions(
+                from: healthStore,
+                identifier: .respiratoryRate,
+                unit: .count().unitDivided(by: .minute()),
+                sessions: sessions
             )
+
+            let workouts = try await workoutsTask
+            let hrvSamples = try await hrvTask
+            let restingHeartRateSamples = try await restingHeartRateTask
+            let heartRateSamples = try await heartRateTask
+            let respiratoryRateSamples = try await respiratoryRateTask
             // The persisted snapshot intentionally stores the raw sleep trend
             // so quality can be recalculated when the user's target or weights
             // change. Historical stress queries must therefore apply the same
@@ -2301,6 +2989,7 @@ final class AppleHealthSyncService: AppleHealthSyncing {
                 workouts: workouts,
                 hrvSamples: hrvSamples,
                 restingHeartRateSamples: restingHeartRateSamples,
+                heartRateSamples: heartRateSamples,
                 respiratoryRateSamples: respiratoryRateSamples,
                 sleepQualityByDay: sleepQualityByDay,
                 calendar: calendar
@@ -2325,9 +3014,26 @@ final class AppleHealthSyncService: AppleHealthSyncing {
     }
 
     func consumePendingAuthorizationWarning() async -> Bool {
-        guard isConfigured,
-              let healthStore,
-              !defaults.bool(forKey: Self.pendingAuthorizationWarningShownKey),
+        guard isConfigured, let healthStore else { return false }
+
+        // If there are recently added types that still need authorization, we MUST
+        // present the request natively at least once, otherwise they won't even
+        // appear in iOS Settings for the user to enable.
+        if (try? await authorizationRequestStatus(
+            healthStore: healthStore,
+            readTypes: Self.recentlyAddedAuthorizationReadTypes
+        )) == .shouldRequest {
+            _ = try? await requestAuthorization(
+                healthStore: healthStore,
+                readTypes: Self.recentlyAddedAuthorizationReadTypes
+            )
+            // We just showed the native modal, so no need for the banner right now.
+            // Reset the flag so if they dismissed it without deciding, we can show the banner next time.
+            defaults.set(false, forKey: Self.pendingAuthorizationWarningShownKey)
+            return false
+        }
+
+        guard !defaults.bool(forKey: Self.pendingAuthorizationWarningShownKey),
               (try? await authorizationRequestStatus(
                 healthStore: healthStore,
                 readTypes: readTypes
@@ -2359,6 +3065,7 @@ final class AppleHealthSyncService: AppleHealthSyncing {
         guard let healthStore else { throw AppleHealthSyncError.unavailable }
         guard !isRunningSync else { return }
 
+        cancelHeartRateDropBackfill()
         isRunningSync = true
         setState(.syncing)
         defer { isRunningSync = false }
@@ -2376,13 +3083,118 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             )
             let sleepSessions = try await fetchSleepSessions(from: healthStore, endingAt: now)
             let currentCalendar = calendar
-            let sleepTrend = await Task.detached(priority: .userInitiated) {
-                AppleHealthBackgroundCalculations.sleepTrend(
-                    sessions: sleepSessions,
-                    endingAt: now,
-                    calendar: currentCalendar
+            let sixMonthsAgo = calendar.date(byAdding: .month, value: -6, to: now)
+                ?? .distantPast
+            let recentHeartRateStart = calendar.date(
+                byAdding: .day,
+                value: -35,
+                to: now
+            ) ?? now.addingTimeInterval(-(35 * 24 * 3_600))
+            let heartRateHistoryStart = max(
+                sleepSessions.map(\.startDate).min() ?? recentHeartRateStart,
+                recentHeartRateStart
+            )
+            async let recentSleepDataTask: (
+                heartRateSamples: [AppleHealthTimedQuantity],
+                trend: [AppleHealthSleepDay]
+            ) = {
+                let heartRateSamples = (try? await fetchTimedQuantities(
+                    from: healthStore,
+                    identifier: .heartRate,
+                    unit: .count().unitDivided(by: .minute()),
+                    start: heartRateHistoryStart,
+                    end: now
+                )) ?? []
+                let trend = await Task.detached(priority: .userInitiated) {
+                    AppleHealthBackgroundCalculations.sleepTrend(
+                        sessions: sleepSessions,
+                        heartRateSamples: heartRateSamples,
+                        endingAt: now,
+                        calendar: currentCalendar
+                    )
+                }.value
+                return (heartRateSamples, trend)
+            }()
+            let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start
+                ?? calendar.startOfDay(for: now)
+            let todayStart = calendar.startOfDay(for: now)
+
+            // HealthKit executes these independent queries in parallel. Each
+            // task yields immediately while HealthKit reads its samples, so
+            // neither the queries nor their wait time block touch handling.
+            async let hrvTask: AppleHealthMeasurement? = {
+                let s = Date()
+                let res = try? await fetchLatestMeasurement(from: healthStore, identifier: .heartRateVariabilitySDNN, unit: .secondUnit(with: .milli), since: calendar.date(byAdding: .day, value: -30, to: now) ?? .distantPast)
+                print("🕒 sync: hrvTask took \(Date().timeIntervalSince(s))s")
+                return res
+            }()
+            async let restingHeartRateTask: AppleHealthMeasurement? = {
+                let s = Date()
+                let res = try? await fetchLatestMeasurement(from: healthStore, identifier: .restingHeartRate, unit: .count().unitDivided(by: .minute()), since: calendar.date(byAdding: .day, value: -30, to: now) ?? .distantPast)
+                print("🕒 sync: restingHeartRateTask took \(Date().timeIntervalSince(s))s")
+                return res
+            }()
+            async let vo2MaxTask: AppleHealthMeasurement? = {
+                let s = Date()
+                let res = try? await fetchAverageMeasurement(from: healthStore, identifier: .vo2Max, unit: HKUnit(from: "ml/kg*min"), since: calendar.date(byAdding: .month, value: -3, to: now) ?? .distantPast, endingAt: now)
+                print("🕒 sync: vo2MaxTask took \(Date().timeIntervalSince(s))s")
+                return res
+            }()
+            async let bloodGlucoseTask: AppleHealthMeasurement? = {
+                let s = Date()
+                let res = try? await fetchLatestMeasurement(from: healthStore, identifier: .bloodGlucose, unit: HKUnit(from: "mg/dL"), since: calendar.date(byAdding: .year, value: -1, to: now) ?? .distantPast)
+                print("🕒 sync: bloodGlucoseTask took \(Date().timeIntervalSince(s))s")
+                return res
+            }()
+            let retainedSystolicBloodPressure = snapshot.systolicBloodPressureSixMonthAverage
+            async let systolicBloodPressureTask: AppleHealthMeasurement? = {
+                let s = Date()
+                guard canQueryBloodPressure else { return retainedSystolicBloodPressure }
+                let res = try? await fetchAverageMeasurement(from: healthStore, identifier: .bloodPressureSystolic, unit: HKUnit(from: "mmHg"), since: sixMonthsAgo, endingAt: now)
+                print("🕒 sync: systolicBloodPressureTask took \(Date().timeIntervalSince(s))s")
+                return res
+            }()
+            async let stepsTask: Double? = {
+                let s = Date()
+                let res = try? await fetchCumulativeQuantity(from: healthStore, identifier: .stepCount, unit: .count(), start: todayStart, end: now)
+                print("🕒 sync: stepsTask took \(Date().timeIntervalSince(s))s")
+                return res
+            }()
+            async let activeEnergyTask: Double? = {
+                let s = Date()
+                let res = try? await fetchCumulativeQuantity(from: healthStore, identifier: .activeEnergyBurned, unit: .kilocalorie(), start: todayStart, end: now)
+                print("🕒 sync: activeEnergyTask took \(Date().timeIntervalSince(s))s")
+                return res
+            }()
+            async let workoutsTask: [AppleHealthWorkout] = {
+                let s = Date()
+                let res = (try? await fetchWorkouts(from: healthStore, start: weekStart, end: now)) ?? []
+                print("🕒 sync: workoutsTask took \(Date().timeIntervalSince(s))s")
+                return res
+            }()
+            let recentSleepData = await recentSleepDataTask
+            let sleepHeartRateSamples = recentSleepData.heartRateSamples
+            let canReuseCachedHeartRateDrops =
+                snapshot.heartRateDropCalculationVersion
+                    == Self.currentHeartRateDropCalculationVersion
+            let sleepTrend = AppleHealthSleepAggregator.preservingCachedHeartRateDrops(
+                in: recentSleepData.trend,
+                from: canReuseCachedHeartRateDrops ? snapshot.sleepTrend : [],
+                calendar: calendar
+            )
+            let previouslyProcessedHeartRateDropDays = canReuseCachedHeartRateDrops
+                ? Set(snapshot.heartRateDropProcessedDays ?? [])
+                : []
+            let recentlyProcessedHeartRateDropDays =
+                AppleHealthHeartRateDropBackfill.sessionDays(
+                    in: sleepSessions.filter {
+                        $0.startDate >= heartRateHistoryStart
+                    },
+                    calendar: calendar
                 )
-            }.value
+            let processedHeartRateDropDays =
+                previouslyProcessedHeartRateDropDays
+                    .union(recentlyProcessedHeartRateDropDays)
             let effectiveSleepTrend = SleepManualOverrideStore(defaults: defaults).applying(
                 to: sleepTrend,
                 calendar: calendar
@@ -2394,83 +3206,23 @@ final class AppleHealthSyncService: AppleHealthSyncing {
                     }
                 }
             )
-            let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start
-                ?? calendar.startOfDay(for: now)
-            let todayStart = calendar.startOfDay(for: now)
-
-            // HealthKit executes these independent queries in parallel. Each
-            // task yields immediately while HealthKit reads its samples, so
-            // neither the queries nor their wait time block touch handling.
-            async let hrvTask: AppleHealthMeasurement? = try? await fetchLatestMeasurement(
-                from: healthStore,
-                identifier: .heartRateVariabilitySDNN,
-                unit: .secondUnit(with: .milli),
-                since: calendar.date(byAdding: .day, value: -30, to: now) ?? .distantPast
-            )
-            async let restingHeartRateTask: AppleHealthMeasurement? = try? await fetchLatestMeasurement(
-                from: healthStore,
-                identifier: .restingHeartRate,
-                unit: .count().unitDivided(by: .minute()),
-                since: calendar.date(byAdding: .day, value: -30, to: now) ?? .distantPast
-            )
-            async let vo2MaxTask: AppleHealthMeasurement? = try? await fetchAverageMeasurement(
-                from: healthStore,
-                identifier: .vo2Max,
-                unit: HKUnit(from: "ml/kg*min"),
-                since: calendar.date(byAdding: .month, value: -3, to: now) ?? .distantPast,
-                endingAt: now
-            )
-            async let bloodGlucoseTask: AppleHealthMeasurement? = try? await fetchLatestMeasurement(
-                from: healthStore,
-                identifier: .bloodGlucose,
-                unit: HKUnit(from: "mg/dL"),
-                since: calendar.date(byAdding: .year, value: -1, to: now) ?? .distantPast
-            )
-            let sixMonthsAgo = calendar.date(byAdding: .month, value: -6, to: now)
-                ?? .distantPast
-            // Blood pressure is an optional BioAge enhancement. A user may
-            // legitimately deny it while authorizing all other HealthKit data,
-            // so its query must never fail the complete synchronization.
-            let retainedSystolicBloodPressure = snapshot.systolicBloodPressureSixMonthAverage
-            async let systolicBloodPressureTask: AppleHealthMeasurement? = {
-                guard canQueryBloodPressure else {
-                    // Keep the last authorized value until the person
-                    // explicitly reviews the new permission in Settings.
-                    return retainedSystolicBloodPressure
-                }
-                return try? await fetchAverageMeasurement(
+            let cachedFactors = snapshot.automaticSleepFactorsVersion == Self.currentAutomaticSleepFactorsVersion
+                ? (snapshot.automaticSleepFactors ?? [])
+                : []
+            async let automaticSleepFactorHistoryTask = {
+                let s = Date()
+                let res = await fetchAutomaticSleepFactorHistory(
                     from: healthStore,
-                    identifier: .bloodPressureSystolic,
-                    unit: HKUnit(from: "mmHg"),
-                    since: sixMonthsAgo,
+                    sessions: sleepSessions,
+                    sleepQualityByDay: sleepQualityByDay,
+                    heartRateSamples: sleepHeartRateSamples,
+                    cachedFactors: cachedFactors,
+                    cacheVersion: snapshot.automaticSleepFactorsVersion,
                     endingAt: now
                 )
+                print("🕒 sync: automaticSleepFactorHistoryTask took \(Date().timeIntervalSince(s))s")
+                return res
             }()
-            async let stepsTask: Double? = try? await fetchCumulativeQuantity(
-                from: healthStore,
-                identifier: .stepCount,
-                unit: .count(),
-                start: todayStart,
-                end: now
-            )
-            async let activeEnergyTask: Double? = try? await fetchCumulativeQuantity(
-                from: healthStore,
-                identifier: .activeEnergyBurned,
-                unit: .kilocalorie(),
-                start: todayStart,
-                end: now
-            )
-            async let workoutsTask: [AppleHealthWorkout] = (try? await fetchWorkouts(
-                from: healthStore,
-                start: weekStart,
-                end: now
-            )) ?? []
-            async let automaticSleepFactorHistoryTask = fetchAutomaticSleepFactorHistory(
-                from: healthStore,
-                sessions: sleepSessions,
-                sleepQualityByDay: sleepQualityByDay,
-                endingAt: now
-            )
             let (
                 hrv,
                 restingHeartRate,
@@ -2506,6 +3258,11 @@ final class AppleHealthSyncService: AppleHealthSyncing {
                 activeEnergyKilocaloriesToday: activeEnergy,
                 workoutsThisWeek: workouts,
                 automaticSleepFactors: automaticSleepFactorHistory.factors,
+                automaticSleepFactorsVersion: Self.currentAutomaticSleepFactorsVersion,
+                heartRateDropCalculationVersion:
+                    Self.currentHeartRateDropCalculationVersion,
+                heartRateDropProcessedDays:
+                    processedHeartRateDropDays.sorted(),
                 latestPreSleepStressTimeline: automaticSleepFactorHistory.latestStressTimeline,
                 currentStressDetails: automaticSleepFactorHistory.currentStressDetails
             )
@@ -2513,10 +3270,123 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             updated.biologicalSex = readBiologicalSex(from: healthStore)
             snapshot = updated
             cache.save(updated)
-            setState(.ready)
+            
+        if let recoveryEngine {
+            try? await recoveryEngine.sync(
+                sleepTrend: snapshot.sleepTrend,
+                healthStore: healthStore,
+                calendar: calendar,
+                now: now
+            )
+        }
+
+        setState(.ready)
+        scheduleHeartRateDropBackfill(
+            from: sleepSessions,
+            healthStore: healthStore
+        )
         } catch {
             setState(.failed)
             throw error
+        }
+    }
+
+    private func cancelHeartRateDropBackfill() {
+        heartRateDropBackfillGeneration += 1
+        heartRateDropBackfillTask?.cancel()
+        heartRateDropBackfillTask = nil
+    }
+
+    private func scheduleHeartRateDropBackfill(
+        from sessions: [AppleHealthSleepSession],
+        healthStore: HKHealthStore
+    ) {
+        guard !sessions.isEmpty else { return }
+        cancelHeartRateDropBackfill()
+        let generation = heartRateDropBackfillGeneration
+        heartRateDropBackfillTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.backfillHistoricalHeartRateDrops(
+                from: sessions,
+                healthStore: healthStore,
+                generation: generation
+            )
+        }
+    }
+
+    private func backfillHistoricalHeartRateDrops(
+        from sessions: [AppleHealthSleepSession],
+        healthStore: HKHealthStore,
+        generation: Int
+    ) async {
+        while !Task.isCancelled,
+              generation == heartRateDropBackfillGeneration {
+            let processedDays =
+                snapshot.heartRateDropCalculationVersion
+                    == Self.currentHeartRateDropCalculationVersion
+                ? Set(snapshot.heartRateDropProcessedDays ?? [])
+                : []
+            let batch = AppleHealthHeartRateDropBackfill.nextBatch(
+                from: sessions,
+                excluding: processedDays,
+                daySpan: Self.historicalHeartRateBackfillDaySpan,
+                calendar: calendar
+            )
+            guard let batchStart = batch.map(\.startDate).min(),
+                  let batchEnd = batch.map(\.endDate).max() else {
+                break
+            }
+
+            let samples: [AppleHealthTimedQuantity]
+            do {
+                samples = try await fetchTimedQuantities(
+                    from: healthStore,
+                    identifier: .heartRate,
+                    unit: .count().unitDivided(by: .minute()),
+                    start: batchStart,
+                    end: batchEnd
+                )
+            } catch {
+                break
+            }
+            guard !Task.isCancelled,
+                  generation == heartRateDropBackfillGeneration else {
+                break
+            }
+
+            let currentTrend = snapshot.sleepTrend
+            let currentCalendar = calendar
+            let updatedTrend = await Task.detached(priority: .utility) {
+                AppleHealthHeartRateDropBackfill.applying(
+                    heartRateSamples: samples,
+                    for: batch,
+                    to: currentTrend,
+                    calendar: currentCalendar
+                )
+            }.value
+            guard !Task.isCancelled,
+                  generation == heartRateDropBackfillGeneration else {
+                break
+            }
+
+            let batchDays = AppleHealthHeartRateDropBackfill.sessionDays(
+                in: batch,
+                calendar: calendar
+            )
+            var updated = snapshot
+            updated.sleepTrend = updatedTrend
+            updated.heartRateDropCalculationVersion =
+                Self.currentHeartRateDropCalculationVersion
+            updated.heartRateDropProcessedDays =
+                processedDays.union(batchDays).sorted()
+            snapshot = updated
+            cache.save(updated)
+            notifyChange()
+            await Task.yield()
+        }
+
+        if generation == heartRateDropBackfillGeneration {
+            heartRateDropBackfillTask = nil
         }
     }
 
@@ -2528,6 +3398,7 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             HKObjectType.characteristicType(forIdentifier: .biologicalSex),
             HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN),
             HKObjectType.quantityType(forIdentifier: .restingHeartRate),
+            HKObjectType.quantityType(forIdentifier: .heartRate),
             HKObjectType.quantityType(forIdentifier: .respiratoryRate),
             HKObjectType.quantityType(forIdentifier: .vo2Max),
             HKObjectType.quantityType(forIdentifier: .bloodGlucose),
@@ -2543,12 +3414,12 @@ final class AppleHealthSyncService: AppleHealthSyncing {
     }
 
     /// Kept separate so previously connected people can explicitly receive
-    /// the choice for the daylight-exposure type introduced later.
-    static var daylightAuthorizationReadTypes: Set<HKObjectType> {
-        guard let daylight = HKObjectType.quantityType(forIdentifier: .timeInDaylight) else {
-            return []
-        }
-        return [daylight]
+    /// the choice for types introduced later.
+    static var recentlyAddedAuthorizationReadTypes: Set<HKObjectType> {
+        [
+            HKObjectType.quantityType(forIdentifier: .timeInDaylight),
+            HKObjectType.quantityType(forIdentifier: .heartRate)
+        ].compactMap { $0 }.reduce(into: Set<HKObjectType>()) { $0.insert($1) }
     }
 
     private var readTypes: Set<HKObjectType> {
@@ -2667,13 +3538,14 @@ final class AppleHealthSyncService: AppleHealthSyncing {
                     )
             }
             .sorted { $0.identifier < $1.identifier }
+            
+        let sixMonthsAgo = calendar.date(byAdding: .month, value: -6, to: Date())
+        let predicate = HKQuery.predicateForSamples(withStart: sixMonthsAgo, end: nil, options: .strictStartDate)
         var catalog: [String: Set<HKSource>] = [:]
         var accumulators: [String: SourceAccumulator] = [:]
 
         for type in sampleTypes {
-            // Source discovery is best effort. A denied optional type must not
-            // prevent sleep, activity, heart, or workout data from syncing.
-            guard let sources = try? await fetchSources(from: healthStore, type: type) else {
+            guard let sources = try? await fetchSources(from: healthStore, type: type, predicate: predicate) else {
                 continue
             }
             catalog[type.identifier] = sources
@@ -2708,10 +3580,11 @@ final class AppleHealthSyncService: AppleHealthSyncing {
 
     private func fetchSources(
         from healthStore: HKHealthStore,
-        type: HKSampleType
+        type: HKSampleType,
+        predicate: NSPredicate? = nil
     ) async throws -> Set<HKSource> {
         try await withCheckedThrowingContinuation { continuation in
-            let query = HKSourceQuery(sampleType: type, samplePredicate: nil) { _, sources, error in
+            let query = HKSourceQuery(sampleType: type, samplePredicate: predicate) { _, sources, error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else {
@@ -2906,7 +3779,7 @@ final class AppleHealthSyncService: AppleHealthSyncing {
         return AppleHealthMeasurement(
             value: average,
             date: endDate,
-            sourceName: "Apple Health"
+            sourceName: L10n.text("apple_health.source_name")
         )
     }
 
@@ -2946,6 +3819,9 @@ final class AppleHealthSyncService: AppleHealthSyncing {
         from healthStore: HKHealthStore,
         sessions: [AppleHealthSleepSession],
         sleepQualityByDay: [LocalDay: Double],
+        heartRateSamples: [AppleHealthTimedQuantity],
+        cachedFactors: [AppleHealthAutomaticSleepFactors],
+        cacheVersion: Int?,
         endingAt endDate: Date
     ) async -> AppleHealthAutomaticSleepFactorHistory {
         guard let firstSession = sessions.min(by: { $0.startDate < $1.startDate }) else {
@@ -2954,58 +3830,76 @@ final class AppleHealthSyncService: AppleHealthSyncing {
                 latestStressTimeline: nil
             )
         }
-        let startDate = calendar.startOfDay(for: firstSession.startDate)
+        let firstSessionDate = calendar.startOfDay(for: firstSession.startDate)
+        
+        let isIncremental = cacheVersion == Self.currentAutomaticSleepFactorsVersion && !cachedFactors.isEmpty
+        // Incremental fetch looks back 35 days (30 days for rolling baseline + 5 extra days buffer).
+        // Full recalculation limits to 6 months to avoid OOM and speed issues.
+        let fetchWindow: TimeInterval = isIncremental ? -(35 * 24 * 3600) : -(6 * 30 * 24 * 3600)
+        let startDate = max(firstSessionDate, endDate.addingTimeInterval(fetchWindow))
         let currentCalendar = calendar
-        // These queries read different HealthKit types and are independent.
-        // Starting them together both shortens the overall sync and avoids a
-        // long sequence of resumptions on the main actor.
-        async let stepsTask: [LocalDay: Double] = (try? await fetchDailyCumulativeQuantities(
-            from: healthStore,
-            identifier: .stepCount,
-            unit: .count(),
-            start: startDate,
-            end: endDate
-        )) ?? [:]
-        async let daylightTask: [LocalDay: Double] = (try? await fetchDailyCumulativeQuantities(
-            from: healthStore,
-            identifier: .timeInDaylight,
-            unit: .minute(),
-            start: startDate,
-            end: endDate
-        )) ?? [:]
-        async let workoutsTask: [AppleHealthWorkout] = (try? await fetchWorkouts(
-            from: healthStore,
-            start: startDate,
-            end: endDate
-        )) ?? []
-        async let daylightSamplesTask: [AppleHealthTimedQuantity] = (try? await fetchTimedQuantities(
-            from: healthStore,
-            identifier: .timeInDaylight,
-            unit: .minute(),
-            start: startDate,
-            end: endDate
-        )) ?? []
-        async let hrvSamplesTask: [AppleHealthTimedQuantity] = (try? await fetchTimedQuantities(
-            from: healthStore,
-            identifier: .heartRateVariabilitySDNN,
-            unit: .secondUnit(with: .milli),
-            start: startDate,
-            end: endDate
-        )) ?? []
-        async let restingHeartRateSamplesTask: [AppleHealthTimedQuantity] = (try? await fetchTimedQuantities(
-            from: healthStore,
-            identifier: .restingHeartRate,
-            unit: .count().unitDivided(by: .minute()),
-            start: startDate,
-            end: endDate
-        )) ?? []
-        async let respiratoryRateSamplesTask: [AppleHealthTimedQuantity] = (try? await fetchTimedQuantities(
-            from: healthStore,
-            identifier: .respiratoryRate,
-            unit: .count().unitDivided(by: .minute()),
-            start: startDate,
-            end: endDate
-        )) ?? []
+        
+        let sessionsToProcess = sessions.filter { $0.endDate >= startDate }
+
+        let p_start = Date()
+        
+        async let stepsTask: [LocalDay: Double] = {
+            let s = Date()
+            let res = (try? await fetchDailyCumulativeQuantities(from: healthStore, identifier: .stepCount, unit: .count(), start: startDate, end: endDate)) ?? [:]
+            print("🕒 stepsTask took \(Date().timeIntervalSince(s))s")
+            return res
+        }()
+        async let daylightTask: [LocalDay: Double] = {
+            let s = Date()
+            let res = (try? await fetchDailyCumulativeQuantities(from: healthStore, identifier: .timeInDaylight, unit: .minute(), start: startDate, end: endDate)) ?? [:]
+            print("🕒 daylightTask took \(Date().timeIntervalSince(s))s")
+            return res
+        }()
+        async let workoutsTask: [AppleHealthWorkout] = {
+            let s = Date()
+            let res = (try? await fetchWorkouts(from: healthStore, start: startDate, end: endDate)) ?? []
+            print("🕒 workoutsTask took \(Date().timeIntervalSince(s))s")
+            return res
+        }()
+        async let daylightSamplesTask: [AppleHealthTimedQuantity] = {
+            let s = Date()
+            let res = (try? await fetchTimedQuantities(from: healthStore, identifier: .timeInDaylight, unit: .minute(), start: startDate, end: endDate)) ?? []
+            print("🕒 daylightSamplesTask took \(Date().timeIntervalSince(s))s")
+            return res
+        }()
+        async let hrvSamplesTask: [AppleHealthTimedQuantity] = {
+            let s = Date()
+            let res = (try? await fetchTimedQuantities(from: healthStore, identifier: .heartRateVariabilitySDNN, unit: .secondUnit(with: .milli), start: startDate, end: endDate)) ?? []
+            print("🕒 hrvSamplesTask took \(Date().timeIntervalSince(s))s")
+            return res
+        }()
+        async let restingHeartRateSamplesTask: [AppleHealthTimedQuantity] = {
+            let s = Date()
+            let res = (try? await fetchTimedQuantities(from: healthStore, identifier: .restingHeartRate, unit: .count().unitDivided(by: .minute()), start: startDate, end: endDate)) ?? []
+            print("🕒 restingHeartRateSamplesTask took \(Date().timeIntervalSince(s))s")
+            return res
+        }()
+        async let respiratoryRateSamplesTask: [AppleHealthTimedQuantity] = {
+            let s = Date()
+            let res = (try? await fetchLatestQuantitiesForSessions(from: healthStore, identifier: .respiratoryRate, unit: .count().unitDivided(by: .minute()), sessions: sessionsToProcess)) ?? []
+            print("🕒 respiratoryRateSamplesTask took \(Date().timeIntervalSince(s))s")
+            return res
+        }()
+        async let automaticHeartRateSamplesTask: [AppleHealthTimedQuantity] = {
+            if isIncremental {
+                return heartRateSamples
+            }
+            let s = Date()
+            let res = (try? await fetchTimedQuantities(
+                from: healthStore,
+                identifier: .heartRate,
+                unit: .count().unitDivided(by: .minute()),
+                start: startDate,
+                end: endDate
+            )) ?? []
+            print("🕒 automaticHeartRateSamplesTask took \(Date().timeIntervalSince(s))s")
+            return res
+        }()
         let (
             steps,
             daylight,
@@ -3013,7 +3907,8 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             daylightSamples,
             hrvSamples,
             restingHeartRateSamples,
-            respiratoryRateSamples
+            respiratoryRateSamples,
+            automaticHeartRateSamples
         ) = await (
             stepsTask,
             daylightTask,
@@ -3021,23 +3916,37 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             daylightSamplesTask,
             hrvSamplesTask,
             restingHeartRateSamplesTask,
-            respiratoryRateSamplesTask
+            respiratoryRateSamplesTask,
+            automaticHeartRateSamplesTask
         )
-        return await Task.detached(priority: .userInitiated) {
+        print("🕒 fetchAutomaticSleepFactorHistory total data fetch took \(Date().timeIntervalSince(p_start))s")
+        let newHistory = await Task.detached(priority: .userInitiated) {
             AppleHealthBackgroundCalculations.automaticSleepFactorHistory(
-                sessions: sessions,
+                sessions: sessionsToProcess,
                 stepsByDay: steps,
                 workouts: workouts,
                 daylightByDay: daylight,
                 daylightSamples: daylightSamples,
                 hrvSamples: hrvSamples,
                 restingHeartRateSamples: restingHeartRateSamples,
+                heartRateSamples: automaticHeartRateSamples,
                 respiratoryRateSamples: respiratoryRateSamples,
                 sleepQualityByDay: sleepQualityByDay,
                 calendar: currentCalendar,
                 currentDate: endDate
             )
         }.value
+
+        let thresholdDate = endDate.addingTimeInterval(-(7 * 24 * 3600))
+        let retainedFactors = cachedFactors.filter { $0.date < thresholdDate }
+        let processedFactors = newHistory.factors
+        let validProcessedFactors = isIncremental ? processedFactors.filter { $0.date >= thresholdDate } : processedFactors
+
+        return AppleHealthAutomaticSleepFactorHistory(
+            factors: retainedFactors + validProcessedFactors,
+            latestStressTimeline: newHistory.latestStressTimeline,
+            currentStressDetails: newHistory.currentStressDetails
+        )
     }
 
     private func fetchDailyCumulativeQuantities(
@@ -3086,6 +3995,83 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             }
             healthStore.execute(query)
         }
+    }
+
+    private func fetchDailyAverageQuantities(
+        from healthStore: HKHealthStore,
+        identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        start startDate: Date,
+        end endDate: Date
+    ) async throws -> [AppleHealthTimedQuantity] {
+        guard let type = HKObjectType.quantityType(forIdentifier: identifier) else {
+            return []
+        }
+        let sourceFilter = sourceFilter(for: type)
+        guard !sourceFilter.excludesAll else { return [] }
+        let datePredicate = HKQuery.predicateForSamples(
+            withStart: startDate,
+            end: endDate,
+            options: [.strictStartDate, .strictEndDate]
+        )
+        let predicate = applyingSourceFilter(sourceFilter, to: datePredicate)
+        let anchorDate = calendar.startOfDay(for: startDate)
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKStatisticsCollectionQuery(
+                quantityType: type,
+                quantitySamplePredicate: predicate,
+                options: [.discreteAverage],
+                anchorDate: anchorDate,
+                intervalComponents: DateComponents(day: 1)
+            )
+            query.initialResultsHandler = { _, collection, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let collection else {
+                    continuation.resume(returning: [])
+                    return
+                }
+                var samples: [AppleHealthTimedQuantity] = []
+                collection.enumerateStatistics(from: anchorDate, to: endDate) { statistics, _ in
+                    guard let quantity = statistics.averageQuantity() else { return }
+                    // Mark the reading as "available" at noon of the day it belongs to,
+                    // so latestQuantity(before:) finds it reliably for sleep sessions
+                    let date = statistics.startDate.addingTimeInterval(12 * 3600)
+                    samples.append(AppleHealthTimedQuantity(
+                        startDate: date,
+                        endDate: date,
+                        value: quantity.doubleValue(for: unit)
+                    ))
+                }
+                continuation.resume(returning: samples)
+            }
+            healthStore.execute(query)
+        }
+    }
+
+    private func fetchLatestQuantitiesForSessions(
+        from healthStore: HKHealthStore,
+        identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        sessions: [AppleHealthSleepSession]
+    ) async throws -> [AppleHealthTimedQuantity] {
+        guard let firstStart = sessions.map(\.startDate).min(),
+              let lastEnd = sessions.map(\.endDate).max() else {
+            return []
+        }
+        let samples = try await fetchTimedQuantities(
+            from: healthStore,
+            identifier: identifier,
+            unit: unit,
+            start: firstStart,
+            end: lastEnd
+        )
+        return AppleHealthSessionQuantitySelector.latestSamples(
+            from: samples,
+            for: sessions
+        )
     }
 
     private func fetchTimedQuantities(

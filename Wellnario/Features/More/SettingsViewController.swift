@@ -8,6 +8,7 @@ final class SettingsViewController: UIViewController, WellnarioPreservesScrollPo
     private let lightAppearanceButton = AppearanceChoiceControl(mode: .light)
     private let systemAppearanceButton = AppearanceChoiceControl(mode: .system)
     private let appleHealthRow = IntegrationRowControl(provider: .appleHealth)
+    private let ouraRow = IntegrationRowControl(provider: .oura)
     private let appleHealthService: AppleHealthSyncing
     private let appearanceManager: WellnarioAppearanceManager
     private let activeTargetMarginPreferences: ActiveTargetMarginPreferences
@@ -41,6 +42,7 @@ final class SettingsViewController: UIViewController, WellnarioPreservesScrollPo
         updateSelection()
         updateAppearanceSelection()
         updateAppleHealthStatus()
+        updateOuraStatus()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(appleHealthDidChange),
@@ -52,6 +54,7 @@ final class SettingsViewController: UIViewController, WellnarioPreservesScrollPo
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(false, animated: animated)
+        updateOuraStatus()
     }
 
     private func setUpView() {
@@ -133,11 +136,10 @@ final class SettingsViewController: UIViewController, WellnarioPreservesScrollPo
         integrationsFooter.text = L10n.text("integrations.footer")
         integrationsFooter.numberOfLines = 0
 
-        let oura = IntegrationRowControl(provider: .oura)
         appleHealthRow.addTarget(self, action: #selector(integrationTapped(_:)), for: .touchUpInside)
-        oura.addTarget(self, action: #selector(integrationTapped(_:)), for: .touchUpInside)
+        ouraRow.addTarget(self, action: #selector(integrationTapped(_:)), for: .touchUpInside)
         let integrationRows = UIStackView(
-            arrangedSubviews: [appleHealthRow, oura],
+            arrangedSubviews: [appleHealthRow, ouraRow],
             axis: .vertical,
             spacing: WellnarioSpacing.xxSmall
         )
@@ -469,6 +471,13 @@ final class SettingsViewController: UIViewController, WellnarioPreservesScrollPo
         appleHealthRow.configureStatus(status, tone: tone)
     }
 
+    private func updateOuraStatus() {
+        let isConnected = OuraKeychainStore.shared.isConnected
+        let status = isConnected ? L10n.text("apple_health.status.configured") : L10n.text("integrations.connect")
+        let tone = isConnected ? WellnarioPalette.success : WellnarioPalette.cyan
+        ouraRow.configureStatus(status, tone: tone)
+    }
+
     @objc private func languageTapped(_ sender: LanguageChoiceControl) {
         guard sender.language != LocalizationManager.shared.language else { return }
         UISelectionFeedbackGenerator().selectionChanged()
@@ -483,10 +492,12 @@ final class SettingsViewController: UIViewController, WellnarioPreservesScrollPo
     }
 
     @objc private func integrationTapped(_ sender: IntegrationRowControl) {
+        let recoveryDataStore = (try? repository.map { try RecoveryDataStore(databaseURL: $0.databaseURL, userID: $0.userID) }) ?? nil
         navigationController?.pushViewController(
             IntegrationSetupViewController(
                 provider: sender.provider,
-                appleHealthService: appleHealthService
+                appleHealthService: appleHealthService,
+                recoveryDataStore: recoveryDataStore
             ),
             animated: true
         )
@@ -679,9 +690,11 @@ private final class SleepQualityOptionsViewController: UIViewController {
     private let durationSlider = UISlider()
     private let regularitySlider = UISlider()
     private let interruptionSlider = UISlider()
+    private let heartRateDropSlider = UISlider()
     private let durationWeightLabel = UILabel()
     private let regularityWeightLabel = UILabel()
     private let interruptionWeightLabel = UILabel()
+    private let heartRateDropWeightLabel = UILabel()
     private let formulaLabel = UILabel()
     private var isUpdatingControls = false
 
@@ -815,6 +828,7 @@ private final class SleepQualityOptionsViewController: UIViewController {
         configureWeightSlider(durationSlider, index: 0, identifier: "duration")
         configureWeightSlider(regularitySlider, index: 1, identifier: "regularity")
         configureWeightSlider(interruptionSlider, index: 2, identifier: "interruptions")
+        configureWeightSlider(heartRateDropSlider, index: 3, identifier: "heart_rate_drop")
 
         formulaLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.fuchsia)
         formulaLabel.numberOfLines = 0
@@ -839,6 +853,11 @@ private final class SleepQualityOptionsViewController: UIViewController {
                     title: L10n.text("settings.advanced.sleep.quality.weight.interruptions"),
                     slider: interruptionSlider,
                     valueLabel: interruptionWeightLabel
+                ),
+                makeWeightRow(
+                    title: L10n.text("settings.advanced.sleep.quality.weight.heart_rate_drop"),
+                    slider: heartRateDropSlider,
+                    valueLabel: heartRateDropWeightLabel
                 ),
                 formulaLabel
             ],
@@ -907,8 +926,19 @@ private final class SleepQualityOptionsViewController: UIViewController {
             title: L10n.text("settings.advanced.sleep.quality.weight.interruptions"),
             body: L10n.text("settings.advanced.sleep.quality.method.interruptions")
         )
+        let heartRateDrop = makeMethodRow(
+            symbolName: "heart.fill",
+            title: L10n.text("settings.advanced.sleep.quality.weight.heart_rate_drop"),
+            body: L10n.text("settings.advanced.sleep.quality.method.heart_rate_drop")
+        )
         let content = UIStackView(
-            arrangedSubviews: [titleLabel, duration, regularity, interruptions],
+            arrangedSubviews: [
+                titleLabel,
+                duration,
+                regularity,
+                interruptions,
+                heartRateDrop
+            ],
             axis: .vertical,
             spacing: WellnarioSpacing.medium
         )
@@ -1066,6 +1096,7 @@ private final class SleepQualityOptionsViewController: UIViewController {
         durationSlider.value = Float(configuration.weights.duration)
         regularitySlider.value = Float(configuration.weights.regularity)
         interruptionSlider.value = Float(configuration.weights.interruptions)
+        heartRateDropSlider.value = Float(configuration.weights.heartRateDrop)
         updateProfileLabel(recommendation)
         updateDisplayedValues()
         isUpdatingControls = false
@@ -1098,6 +1129,7 @@ private final class SleepQualityOptionsViewController: UIViewController {
         let duration = Int(durationSlider.value.rounded())
         let regularity = Int(regularitySlider.value.rounded())
         let interruptions = Int(interruptionSlider.value.rounded())
+        let heartRateDrop = Int(heartRateDropSlider.value.rounded())
         durationWeightLabel.text = L10n.text(
             "settings.advanced.sleep.quality.weight.value",
             duration
@@ -1110,11 +1142,16 @@ private final class SleepQualityOptionsViewController: UIViewController {
             "settings.advanced.sleep.quality.weight.value",
             interruptions
         )
+        heartRateDropWeightLabel.text = L10n.text(
+            "settings.advanced.sleep.quality.weight.value",
+            heartRateDrop
+        )
         formulaLabel.text = L10n.text(
             "settings.advanced.sleep.quality.weights.summary",
             duration,
             regularity,
-            interruptions
+            interruptions,
+            heartRateDrop
         )
         let target = targetPicker.countDownDuration
         let targetText = AppleHealthUIFormatting.duration(target)
@@ -1145,30 +1182,42 @@ private final class SleepQualityOptionsViewController: UIViewController {
         var values = [
             Int(durationSlider.value.rounded()),
             Int(regularitySlider.value.rounded()),
-            Int(interruptionSlider.value.rounded())
+            Int(interruptionSlider.value.rounded()),
+            Int(heartRateDropSlider.value.rounded())
         ]
         let changedIndex = sender.tag
         let remainingIndices = values.indices.filter { $0 != changedIndex }
         let available = 100 - values[changedIndex]
         let previousRemainder = remainingIndices.reduce(0) { $0 + values[$1] }
-        let firstValue: Int
-        if previousRemainder > 0 {
-            firstValue = Int(
-                (Double(available) * Double(values[remainingIndices[0]])
-                    / Double(previousRemainder)).rounded()
-            )
-        } else {
-            firstValue = available / 2
+        var unassigned = available
+        for (offset, index) in remainingIndices.enumerated() {
+            let remainingCount = remainingIndices.count - offset
+            let newValue: Int
+            if remainingCount == 1 {
+                newValue = unassigned
+            } else if previousRemainder > 0 {
+                newValue = min(
+                    Int(
+                        (Double(available) * Double(values[index])
+                            / Double(previousRemainder)).rounded()
+                    ),
+                    unassigned
+                )
+            } else {
+                newValue = unassigned / remainingCount
+            }
+            values[index] = newValue
+            unassigned -= newValue
         }
-        values[remainingIndices[0]] = firstValue
-        values[remainingIndices[1]] = available - firstValue
         durationSlider.value = Float(values[0])
         regularitySlider.value = Float(values[1])
         interruptionSlider.value = Float(values[2])
+        heartRateDropSlider.value = Float(values[3])
         _ = preferences.setWeights(SleepQualityWeights(
             duration: values[0],
             regularity: values[1],
-            interruptions: values[2]
+            interruptions: values[2],
+            heartRateDrop: values[3]
         ))
         updateDisplayedValues()
         isUpdatingControls = false

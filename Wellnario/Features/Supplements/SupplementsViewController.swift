@@ -9,6 +9,8 @@ final class SupplementsViewController: FeatureViewController {
         case category(ActiveCategory)
     }
 
+    private static let activeFilterDefaultsKey = "wellnario.supplements.activeFilter.v1"
+
     var onOpenSettings: (() -> Void)?
 
     private let segmentedControl = UISegmentedControl(items: ["", "", ""])
@@ -38,6 +40,8 @@ final class SupplementsViewController: FeatureViewController {
     private var actives: [Active] = []
     private var todayProgress: [UUID: ActiveDailyProgress] = [:]
     private var weeklyConsumption: [UUID: [Double]] = [:]
+    private var weeklyDays: [LocalDay] = []
+    private var weeklyFirstRecordedDays: [UUID: LocalDay] = [:]
     private var query = ""
     private var selectedActiveFilter: ActiveFilter = .all
     private var activeFilterButtons: [(filter: ActiveFilter, button: ChipButton)] = []
@@ -48,6 +52,7 @@ final class SupplementsViewController: FeatureViewController {
         appleHealthService: AppleHealthSyncing? = nil
     ) {
         self.appleHealthService = appleHealthService
+        self.selectedActiveFilter = Self.loadPersistedActiveFilter()
         super.init(repository: repository)
     }
 
@@ -108,15 +113,29 @@ final class SupplementsViewController: FeatureViewController {
     override func reloadContent() {
         do {
             presentations = try repository.fetchPresentationTypes()
-            supplements = try repository.fetchSupplements(includeArchived: false)
-            instances = try repository.fetchInstances(supplementID: nil, includeArchived: false)
-            actives = try repository.fetchActives(includeArchived: false)
+            supplements = try repository
+                .fetchSupplements(includeArchived: false)
+                .sorted { Self.isAlphabeticallyBefore($0.name, $1.name) }
+            instances = try repository
+                .fetchInstances(supplementID: nil, includeArchived: false)
+                .sorted(by: compareInstances)
+            actives = try repository
+                .fetchActives(includeArchived: false)
+                .sorted {
+                    Self.isAlphabeticallyBefore(
+                        $0.localizedName(language: catalogLanguage),
+                        $1.localizedName(language: catalogLanguage)
+                    )
+            }
             let today = LocalDay(containing: Date(), in: .current)
-            let weekStart = try today.adding(days: -6)
-            let weekDays = try (0..<7).map { try weekStart.adding(days: $0) }
+            let weekRange = try CompletedConsumptionPeriod.range(
+                endingBefore: today,
+                dayCount: 7
+            )
+            let weekDays = try (0..<7).map { try weekRange.from.adding(days: $0) }
             let weekConsumptions = try repository.fetchConsumptions(
-                from: weekStart,
-                through: today,
+                from: weekRange.from,
+                through: weekRange.through,
                 limit: nil
             )
             weeklyConsumption = try WeeklyConsumptionAggregator.values(
@@ -124,6 +143,21 @@ final class SupplementsViewController: FeatureViewController {
                 consumptions: weekConsumptions,
                 days: weekDays
             )
+            weeklyDays = weekDays
+            weeklyFirstRecordedDays = [:]
+            for active in actives where active.isFavorite {
+                let series = try repository.dailyConsumption(
+                    activeID: active.id,
+                    from: weekRange.from,
+                    through: weekRange.through
+                )
+                weeklyConsumption[active.id] = series.points.map {
+                    FeatureFormatting.double($0.amount)
+                }
+                if let firstRecordedDay = series.firstRecordedDay {
+                    weeklyFirstRecordedDays[active.id] = firstRecordedDay
+                }
+            }
             let dashboard = try repository.dashboard(
                 on: today,
                 expiringWithinDays: 30
@@ -395,6 +429,49 @@ final class SupplementsViewController: FeatureViewController {
         supplements.first { $0.id == instance.supplementID }
     }
 
+    private static func loadPersistedActiveFilter() -> ActiveFilter {
+        guard let value = UserDefaults.standard.string(forKey: activeFilterDefaultsKey) else {
+            return .all
+        }
+        switch value {
+        case "favorites":
+            return .favorites
+        case let value where value.hasPrefix("category."):
+            let rawValue = String(value.dropFirst("category.".count))
+            return ActiveCategory(rawValue: rawValue).map(ActiveFilter.category) ?? .all
+        default:
+            return .all
+        }
+    }
+
+    private func persistActiveFilter(_ filter: ActiveFilter) {
+        let value: String
+        switch filter {
+        case .all:
+            value = "all"
+        case .favorites:
+            value = "favorites"
+        case let .category(category):
+            value = "category.\(category.rawValue)"
+        }
+        UserDefaults.standard.set(value, forKey: Self.activeFilterDefaultsKey)
+    }
+
+    private static func isAlphabeticallyBefore(_ lhs: String, _ rhs: String) -> Bool {
+        let comparison = lhs.localizedCaseInsensitiveCompare(rhs)
+        guard comparison == .orderedSame else { return comparison == .orderedAscending }
+        return lhs < rhs
+    }
+
+    private func compareInstances(_ lhs: SupplementInstance, _ rhs: SupplementInstance) -> Bool {
+        let lhsSupplementName = supplement(for: lhs)?.name ?? ""
+        let rhsSupplementName = supplement(for: rhs)?.name ?? ""
+        guard lhsSupplementName.localizedCaseInsensitiveCompare(rhsSupplementName) == .orderedSame else {
+            return Self.isAlphabeticallyBefore(lhsSupplementName, rhsSupplementName)
+        }
+        return Self.isAlphabeticallyBefore(lhs.label, rhs.label)
+    }
+
     private func presentation(for supplement: Supplement) -> PresentationType? {
         presentations.first { $0.id == supplement.presentationTypeID }
     }
@@ -578,26 +655,38 @@ final class SupplementsViewController: FeatureViewController {
                 "actives.weekly_consumption.summary",
                 "\(WellnarioFormatters.number(weeklyTotal, maximumFractionDigits: 2)) \(unit)"
             ) : nil,
-            weeklyLineColor: weeklyChartColor(for: active, values: weeklyValues),
+            weeklyLineColor: weeklyChartColor(
+                for: active,
+                values: weeklyValues,
+                firstRecordedDay: weeklyFirstRecordedDays[active.id]
+            ),
             badge: nil,
             tone: .neutral
         )
     }
 
-    private func weeklyChartColor(for active: Active, values: [Double]) -> UIColor {
-        guard let target = active.currentTarget, !values.isEmpty else {
+    private func weeklyChartColor(
+        for active: Active,
+        values: [Double],
+        firstRecordedDay: LocalDay?
+    ) -> UIColor {
+        guard let target = active.currentTarget else {
             return WellnarioPalette.cyan
         }
-        do {
-            let lower = try target.unit.convert(target.lowerBound, to: active.baseUnit)
-            let upper = try target.unit.convert(target.upperBound, to: active.baseUnit)
-            let bounds = try ActiveTargetMarginPreferences().adjustedBounds(lower: lower, upper: upper)
-            let total = Decimal(values.reduce(0, +))
-            let average = try DecimalMath.divide(total, Decimal(values.count))
-            if average < bounds.lower { return WellnarioPalette.yellow }
-            if average > bounds.upper { return WellnarioPalette.danger }
+        switch (try? WeeklyConsumptionAggregator.status(
+            for: values,
+            days: weeklyDays,
+            firstRecordedDay: firstRecordedDay,
+            target: target,
+            activeUnit: active.baseUnit
+        )) ?? .noTarget {
+        case .below:
+            return WellnarioPalette.yellow
+        case .within:
             return WellnarioPalette.success
-        } catch {
+        case .above:
+            return WellnarioPalette.danger
+        case .noTarget:
             return WellnarioPalette.cyan
         }
     }
@@ -609,10 +698,9 @@ final class SupplementsViewController: FeatureViewController {
                 actives[index] = updatedActive
             }
             UISelectionFeedbackGenerator().selectionChanged()
-            // Favoriting changes more than the star: the weekly chart is
-            // only rendered for favorites, so rebuild the visible card too.
-            tableView.reloadData()
-            updateEmptyState()
+            // Favoriting changes more than the star: it also determines
+            // whether the active's tracked period is loaded for the chart.
+            reloadContent()
             return true
         } catch {
             showError(error)
@@ -698,6 +786,7 @@ final class SupplementsViewController: FeatureViewController {
     private func selectActiveFilter(_ filter: ActiveFilter, button: ChipButton) {
         guard selectedActiveFilter != filter else { return }
         selectedActiveFilter = filter
+        persistActiveFilter(filter)
         updateActiveFilterButtonSelection()
         tableView.setContentOffset(
             CGPoint(x: 0, y: -tableView.adjustedContentInset.top),
@@ -975,7 +1064,48 @@ extension SupplementsViewController: UITableViewDataSource, UITableViewDelegate 
     }
 }
 
+enum CompletedConsumptionPeriod {
+    /// Returns a calendar range ending yesterday, so incomplete intake data
+    /// from today does not affect consumption charts or summaries.
+    static func range(
+        endingBefore today: LocalDay,
+        dayCount: Int
+    ) throws -> (from: LocalDay, through: LocalDay) {
+        guard dayCount > 0 else {
+            throw RepositoryError.validation("A consumption period must include at least one day.")
+        }
+        let through = try today.adding(days: -1)
+        return (try through.adding(days: -(dayCount - 1)), through)
+    }
+}
+
 enum WeeklyConsumptionAggregator {
+    /// Classifies the displayed calendar days using their arithmetic mean.
+    /// Days before the first recorded intake are omitted, matching Trends;
+    /// zero-consumption days after tracking began remain part of the average.
+    static func status(
+        for values: [Double],
+        days: [LocalDay],
+        firstRecordedDay: LocalDay?,
+        target: ActiveTarget,
+        activeUnit: DoseUnit,
+        preferences: ActiveTargetMarginPreferences = ActiveTargetMarginPreferences()
+    ) throws -> TargetProgressStatus {
+        let trackedValues = zip(days, values).compactMap { day, value -> Double? in
+            guard firstRecordedDay.map({ day >= $0 }) ?? true else { return nil }
+            return value
+        }
+        guard !trackedValues.isEmpty else { return .noTarget }
+        let lower = try target.unit.convert(target.lowerBound, to: activeUnit)
+        let upper = try target.unit.convert(target.upperBound, to: activeUnit)
+        let bounds = try preferences.adjustedBounds(lower: lower, upper: upper)
+        let total = Decimal(trackedValues.reduce(0, +))
+        let average = try DecimalMath.divide(total, Decimal(trackedValues.count))
+        if average < bounds.lower { return .below }
+        if average > bounds.upper { return .above }
+        return .within
+    }
+
     static func values(
         actives: [Active],
         consumptions: [Consumption],
@@ -1248,7 +1378,7 @@ private final class CatalogListCell: UITableViewCell {
             inventoryLevelBar.heightAnchor.constraint(equalToConstant: 5)
         ])
 
-        titleLabel.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textPrimary)
+        titleLabel.applyWellnarioStyle(.supplementName, color: WellnarioPalette.textPrimary)
         titleLabel.numberOfLines = 2
         titleLabel.lineBreakMode = .byWordWrapping
         favoriteButton.tintColor = WellnarioPalette.fuchsia
@@ -1325,6 +1455,7 @@ private final class CatalogListCell: UITableViewCell {
     }
 
     @objc private func cardTapped() {
+        card.performCardTapHaptic()
         onTap?()
     }
 

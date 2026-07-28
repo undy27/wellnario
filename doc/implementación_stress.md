@@ -47,17 +47,20 @@ La implementación principal está en:
 | Factor | Fuente | Unidad interna | Selección temporal |
 |---|---|---:|---|
 | Variabilidad de la frecuencia cardíaca (HRV/SDNN) | `heartRateVariabilitySDNN` | ms | última muestra cuyo fin es anterior al inicio del sueño |
-| Frecuencia cardíaca en reposo (RHR) | `restingHeartRate` | latidos/min | misma regla |
+| Frecuencia cardíaca (FC) | `heartRate` | latidos/min | última muestra anterior al cálculo, con una antigüedad máxima de 30 min |
+| Frecuencia cardíaca en reposo (RHR) | `restingHeartRate` | latidos/min | alternativa diaria cuando no hay una FC reciente |
 | Frecuencia respiratoria | `respiratoryRate` | respiraciones/min | misma regla |
 | Calidad del sueño | tendencia de sueño de Wellnario | puntuación 0–100 | calidad de la última sesión completada |
 | Actividad previa | entrenamientos de HealthKit | booleano | cualquier entrenamiento que se solape con las 2 h previas |
 
-Para HRV, RHR y respiración se usa `latestQuantity`: la muestra más reciente
-que termina antes de acostarse y que no tiene más de 36 horas. No se fabrica un
-valor cuando falta una lectura. La calidad no usa la sesión que acaba de
-comenzar: se asocia la calidad de la sesión anterior ya terminada. Esa calidad
-puede proceder de Apple Health o de una sobreescritura manual de sueño en
-Wellnario.
+Para el cálculo previo al sueño, HRV, RHR y respiración admiten una antigüedad
+máxima de 36 horas. En la evolución diurna la HRV debe tener menos de 12 horas
+y la FC menos de 30 minutos. La FC y el RHR se mantienen como señales
+distintas: la FC solo se normaliza contra el historial de FC y el RHR solo
+contra el historial de RHR. No se fabrica un valor cuando falta una lectura.
+La calidad no usa la sesión que acaba de comenzar: se asocia la calidad de la
+sesión anterior ya terminada. Esa calidad puede proceder de Apple Health o de
+una sobreescritura manual de sueño en Wellnario.
 
 Las autorizaciones se declaran en `authorizationReadTypes`, incluyendo HRV,
 frecuencia cardíaca en reposo, frecuencia respiratoria, sueño y entrenamientos.
@@ -102,9 +105,12 @@ escala  = 1.4826 * MAD
 z       = (X_actual - mediana) / escala
 ```
 
-El `z` se limita al intervalo `[-3, 3]`. Si no hay mediana, hay menos de 7
-muestras históricas o la escala es prácticamente cero (`<= 0.000001`), el
-`z-score` y la contribución de ese factor quedan sin valor.
+El `z` se limita al intervalo `[-3, 3]`. Si no hay mediana o hay menos de 7
+muestras históricas, el `z-score` y la contribución quedan sin valor. Cuando la
+escala es prácticamente cero (`<= 0.000001`), un valor idéntico a la mediana se
+considera neutral (`z = 0`); cualquier diferencia queda sin `z-score`, ya que
+no existe dispersión suficiente para dimensionarla. En particular, no se
+convierte una diferencia mínima en `z = ±3`.
 
 El factor `1.4826` hace comparable el MAD con la desviación típica bajo una
 distribución aproximadamente normal, pero conserva la robustez frente a
@@ -112,21 +118,61 @@ valores extremos.
 
 ## Índice compuesto y score final
 
-Cuando están disponibles las cuatro contribuciones se calcula el índice
-fisiológico:
+El cálculo del índice fisiológico requiere obligatoriamente la presencia de la
+**HRV** y de una señal cardíaca. Para la evolución diurna se prefiere una **FC
+reciente**, normalizada contra FC históricas equivalentes; si no existe, se usa
+el **RHR**, normalizado exclusivamente contra su propio historial. La
+frecuencia respiratoria y la calidad del sueño actúan como factores opcionales:
 
 ```text
 S = -0.45 * z_HRV
-  + 0.30 * z_RHR
-  + 0.10 * z_Resp
-  - 0.15 * z_Sleep
+  + 0.30 * z_FC_o_RHR
+  + 0.10 * (z_Resp ?? 0)
+  - 0.15 * (z_Sleep ?? 0)
 ```
 
 Los signos reflejan la interpretación fisiológica del modelo:
 
 - HRV más baja de lo habitual aumenta el estrés.
-- RHR y frecuencia respiratoria más altas de lo habitual aumentan el estrés.
+- FC o RHR y frecuencia respiratoria por encima de su línea base aumentan el estrés.
 - Una calidad de sueño más baja aumenta el estrés.
+
+Durante el día la evolución del estrés se calcula mediante un muestreo
+periódico (intervalos de ~10 min) de las lecturas de frecuencia cardíaca. Cada
+punto usa realmente esa FC y su línea base de FC. Después se aplica un
+suavizado móvil de 3 puntos para evitar picos abruptos.
+
+Los puntos situados dentro de una sesión de sueño usan una referencia
+específicamente nocturna. Wellnario calcula qué porcentaje de la sesión ha
+transcurrido y compara HRV y FC con el mismo porcentaje de noches anteriores
+de al menos 2 horas. Así, por ejemplo, una lectura tomada a mitad de la noche
+no se normaliza contra lecturas previas a acostarse. Si la sesión ya ha
+terminado, el factor de calidad corresponde a esa misma noche, no a la
+anterior.
+
+El índice nocturno ya es una combinación de biomarcadores normalizados contra
+la misma fase de noches anteriores. Por ello no se vuelve a normalizar el
+índice compuesto: hacerlo amplifica variaciones pequeñas y convierte el sueño
+habitual en estrés alto. Durante el sueño se transforma directamente `S`
+mediante una logística cuyo intercepto sitúa `S = 0` en 20 puntos:
+
+```text
+StressScore_sueño = 100 / (1 + exp(-(ln(20 / 80) + 1.4 * S)))
+```
+
+Esta calibración sólo afecta a puntos dentro del sueño. El cálculo diurno y el
+factor de estrés previo a acostarse mantienen la doble normalización original.
+
+El valor «actual» de la tarjeta y de la pantalla de detalle es el último punto
+con puntuación que aparece en esa serie suavizada. El detalle puntual sin
+suavizar solo se usa como alternativa cuando todavía no existe una serie, para
+evitar que la cifra principal contradiga el extremo derecho de la gráfica.
+
+Al consultar un día histórico, HealthKit carga también la FC de las dos
+ventanas móviles anteriores (`2 × 28 días`, más margen). La primera permite
+normalizar cada FC y la segunda aporta los índices compuestos históricos
+necesarios para normalizar el resultado. Limitar esta consulta a las 48 horas
+anteriores dejaría la gráfica sin las 7 referencias mínimas.
 
 El propio índice `S` se normaliza contra los índices compuestos anteriores que
 caen en su ventana de 28 días, usando la misma mediana/MAD. El resultado
@@ -136,9 +182,10 @@ normalizado `S*` se convierte a la escala de usuario mediante:
 StressScore = 100 / (1 + exp(-1.4 * S*))
 ```
 
-El resultado se limita finalmente a `0...100`. Si falta cualquiera de los
-cuatro factores, no se presenta una puntuación parcial; sí se conserva el
-desglose para explicar qué dato o qué historial falta.
+El resultado se limita finalmente a `0...100`. Si faltan la HRV o la señal
+cardíaca seleccionada por falta de lecturas o historial, la puntuación queda
+sin calcular; si faltan el sueño o la respiración, se calcula con el núcleo
+fisiológico principal.
 
 ## Niveles mostrados al usuario
 
@@ -180,7 +227,7 @@ La pantalla se identifica como `today.stress.details` y se compone de tres
 tarjetas:
 
 1. **Estado actual**: score, nivel y fecha.
-2. **Entradas**: HRV, RHR, respiración y calidad; muestra unidades, valor
+2. **Entradas**: HRV, FC o RHR, respiración y calidad; muestra unidades, valor
    ajustado por actividad cuando procede, mediana/MAD, muestras históricas,
    `z-score`, contribución y peso.
 3. **Método**: ventana de 28 días, mínimo de 7 muestras, fórmula, índice
@@ -197,16 +244,19 @@ sincronización.
 - Una fuente HealthKit deshabilitada puede dejar una métrica sin muestras; el
   score queda deliberadamente sin calcular hasta que exista información
   suficiente.
-- Un MAD igual a cero no se fuerza a un valor artificial; evita divisiones
-  inestables y deja el factor fuera de la puntuación.
-- El historial puede obtener lecturas fisiológicas fuera de la hora previa a
-  acostarse: se usa la última muestra retrospectiva dentro de 36 horas, sin
-  inventar una lectura.
+- Un MAD igual a cero no se fuerza a un valor artificial: si la lectura
+  coincide con la mediana aporta `z = 0`; si difiere, el factor queda sin
+  puntuación por falta de una escala válida.
+- El historial previo al sueño puede obtener HRV, RHR y respiración dentro de
+  las 36 horas anteriores. La FC ordinaria nunca se reutiliza después de 30
+  minutos y la HRV de la evolución diurna nunca después de 12 horas.
 - Si se cambian pesos, ventanas, umbrales o la constante logística, hay que
   actualizar el texto de fórmula de la pantalla, esta documentación y las
   pruebas del calculador.
 - Las pruebas relevantes son
   `testStressScoreUsesRobustBaselinesAndActivityAdjustedHRV` y
-  `testStressScoreUsesRetrospectiveHealthSamplesOutsideThePreBedHour`, además
-  de las pruebas del builder que verifican la asociación con la noche
-  siguiente.
+  `testStressScoreUsesRetrospectiveHealthSamplesOutsideThePreBedHour`,
+  `testStressScoreDoesNotSaturateWhenMandatoryMetricHasZeroMAD` y
+  `testCurrentStressUsesRecentHeartRateWithMatchingBaseline`, además de
+  `testSleepStressUsesMatchingSleepPhaseAndCurrentNightQuality` para el
+  contexto nocturno.

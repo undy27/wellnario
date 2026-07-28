@@ -30,8 +30,8 @@ final class TrendsViewController: FeatureViewController {
     private var actives: [Active] = []
     private var selectedActiveID: UUID?
     private var selectedPeriod: Period = .sevenDays
-    private var customFrom = LocalDay(containing: Calendar.current.date(byAdding: .day, value: -29, to: Date()) ?? Date(), in: .current)
-    private var customThrough = LocalDay(containing: Date(), in: .current)
+    private var customFrom = LocalDay(containing: Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date(), in: .current)
+    private var customThrough = LocalDay(containing: Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date(), in: .current)
     private var series: ConsumptionSeries?
     private var favoriteSummaries: [FavoriteConsumptionSummary] = []
 
@@ -286,13 +286,16 @@ final class TrendsViewController: FeatureViewController {
             return
         }
 
-        let through = LocalDay(containing: Date(), in: .current)
-        let monthFrom = try through.adding(days: -29)
+        let today = LocalDay(containing: Date(), in: .current)
+        let monthRange = try CompletedConsumptionPeriod.range(
+            endingBefore: today,
+            dayCount: 30
+        )
         favoriteSummaries = try favorites.map { active in
             let monthSeries = try repository.dailyConsumption(
                 activeID: active.id,
-                from: monthFrom,
-                through: through
+                from: monthRange.from,
+                through: monthRange.through
             )
             let lastSevenDays = Array(monthSeries.points.suffix(7))
             return FavoriteConsumptionSummary(
@@ -542,11 +545,14 @@ final class TrendsViewController: FeatureViewController {
     }
 
     private func dateRange() throws -> (from: LocalDay, through: LocalDay) {
-        let through = LocalDay(containing: Date(), in: .current)
+        let today = LocalDay(containing: Date(), in: .current)
         switch selectedPeriod {
-        case .sevenDays: return (try through.adding(days: -6), through)
-        case .thirtyDays: return (try through.adding(days: -29), through)
-        case .year: return (try through.adding(days: -364), through)
+        case .sevenDays:
+            return try CompletedConsumptionPeriod.range(endingBefore: today, dayCount: 7)
+        case .thirtyDays:
+            return try CompletedConsumptionPeriod.range(endingBefore: today, dayCount: 30)
+        case .year:
+            return try CompletedConsumptionPeriod.range(endingBefore: today, dayCount: 365)
         case .custom: return (customFrom, customThrough)
         }
     }
@@ -792,7 +798,7 @@ private final class CustomRangeViewController: UIViewController {
         [fromPicker, throughPicker].forEach {
             $0.datePickerMode = .date
             $0.preferredDatePickerStyle = .compact
-            $0.maximumDate = Date()
+            $0.maximumDate = Calendar.current.date(byAdding: .day, value: -1, to: Date())
             $0.tintColor = WellnarioPalette.cyan
         }
 

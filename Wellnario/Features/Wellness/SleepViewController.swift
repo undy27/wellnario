@@ -817,32 +817,61 @@ final class SleepViewController: WellnessScrollViewController {
         } else {
             interruptionDetail = L10n.text("sleep.latest.quality.interruptions.unavailable")
         }
+        let heartRateDropDetail = breakdown.heartRateDropPercentage.map {
+            L10n.text(
+                "sleep.latest.quality.heart_rate_drop.detail",
+                AppleHealthUIFormatting.number($0, maximumFractionDigits: 1)
+            )
+        } ?? L10n.text("sleep.latest.quality.heart_rate_drop.unavailable")
 
         let weights = configuration.weights
+        let effectiveWeightTotal = max(breakdown.effectiveWeightTotal, 1)
+        let contribution: (Double, Int) -> Double = { score, weight in
+            score * Double(weight) / Double(effectiveWeightTotal)
+        }
+        let maximumContribution: (Int) -> Int = { weight in
+            Int(
+                (Double(weight) * 100 / Double(effectiveWeightTotal)).rounded()
+            )
+        }
         let rows = [
             makeSleepQualityBreakdownRow(
                 title: L10n.text("settings.advanced.sleep.quality.weight.duration"),
                 detail: durationDetail,
-                contribution: breakdown.durationScore * Double(weights.duration) / 100,
-                maximumContribution: weights.duration,
+                contribution: contribution(breakdown.durationScore, weights.duration),
+                maximumContribution: maximumContribution(weights.duration),
                 color: WellnarioPalette.violet,
                 identifier: "sleep.latest.quality.duration"
             ),
             makeSleepQualityBreakdownRow(
                 title: L10n.text("settings.advanced.sleep.quality.weight.regularity"),
                 detail: regularityDetail,
-                contribution: breakdown.regularityScore * Double(weights.regularity) / 100,
-                maximumContribution: weights.regularity,
+                contribution: contribution(breakdown.regularityScore, weights.regularity),
+                maximumContribution: maximumContribution(weights.regularity),
                 color: WellnarioPalette.cyan,
                 identifier: "sleep.latest.quality.regularity"
             ),
             makeSleepQualityBreakdownRow(
                 title: L10n.text("settings.advanced.sleep.quality.weight.interruptions"),
                 detail: interruptionDetail,
-                contribution: breakdown.interruptionScore * Double(weights.interruptions) / 100,
-                maximumContribution: weights.interruptions,
+                contribution: contribution(breakdown.interruptionScore, weights.interruptions),
+                maximumContribution: maximumContribution(weights.interruptions),
                 color: WellnarioPalette.pink,
                 identifier: "sleep.latest.quality.interruptions"
+            ),
+            makeSleepQualityBreakdownRow(
+                title: L10n.text(
+                    "settings.advanced.sleep.quality.weight.heart_rate_drop"
+                ),
+                detail: heartRateDropDetail,
+                contribution: breakdown.heartRateDropScore.map {
+                    contribution($0, weights.heartRateDrop)
+                },
+                maximumContribution: breakdown.heartRateDropScore.map { _ in
+                    maximumContribution(weights.heartRateDrop)
+                },
+                color: WellnarioPalette.fuchsia,
+                identifier: "sleep.latest.quality.heart_rate_drop"
             )
         ]
         let content = UIStackView(arrangedSubviews: [header] + rows, axis: .vertical, spacing: 6)
@@ -857,8 +886,8 @@ final class SleepViewController: WellnessScrollViewController {
     private func makeSleepQualityBreakdownRow(
         title: String,
         detail: String,
-        contribution: Double,
-        maximumContribution: Int,
+        contribution: Double?,
+        maximumContribution: Int?,
         color: UIColor,
         identifier: String
     ) -> UIView {
@@ -881,11 +910,15 @@ final class SleepViewController: WellnessScrollViewController {
         let score = UILabel()
         score.applyWellnarioStyle(.bodyBold, color: color)
         score.textAlignment = .right
-        score.text = L10n.text(
-            "sleep.latest.quality.contribution",
-            Int(contribution.rounded()),
-            maximumContribution
-        )
+        if let contribution, let maximumContribution {
+            score.text = L10n.text(
+                "sleep.latest.quality.contribution",
+                Int(contribution.rounded()),
+                maximumContribution
+            )
+        } else {
+            score.text = "—"
+        }
         score.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         let row = UIStackView(
@@ -995,18 +1028,15 @@ final class SleepViewController: WellnessScrollViewController {
             spacing: WellnarioSpacing.small,
             alignment: .center
         )
-        let button = UIButton(type: .system)
-        button.accessibilityIdentifier = identifier
-        button.accessibilityLabel = title
-        button.accessibilityHint = body
-        button.addAction(UIAction { _ in action() }, for: .touchUpInside)
-        button.addForAutoLayout(row)
-        row.pinEdges(to: button, insets: .all(WellnarioSpacing.cardPadding))
-        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 76).isActive = true
-
         let card = PremiumCardView()
-        card.contentView.addForAutoLayout(button)
-        button.pinEdges(to: card.contentView)
+        card.isPressable = true
+        card.accessibilityIdentifier = identifier
+        card.accessibilityLabel = title
+        card.accessibilityHint = body
+        card.contentView.addForAutoLayout(row)
+        row.pinEdges(to: card.contentView, insets: .all(WellnarioSpacing.cardPadding))
+        card.heightAnchor.constraint(greaterThanOrEqualToConstant: 76).isActive = true
+        card.addAction(UIAction { _ in action() }, for: .touchUpInside)
         return card
     }
 

@@ -346,8 +346,11 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
 
     private let provider: IntegrationProvider
     private let appleHealthService: AppleHealthSyncing
+    private let ouraSyncService: OuraSyncService
+    private let recoveryDataStore: RecoveryDataStore?
     private let statusBanner = FeedbackBannerView()
     private let connectButton = PrimaryButton()
+    private let disconnectButton = UIButton(type: .system)
     private let sourcesStack = UIStackView()
     private var expandedSourceKinds: Set<AppleHealthDataKind> = [.sleep]
     private var sourceSelectionsOnEntry: Set<AppleHealthSourceSelection>
@@ -356,10 +359,14 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
 
     init(
         provider: IntegrationProvider,
-        appleHealthService: AppleHealthSyncing
+        appleHealthService: AppleHealthSyncing,
+        ouraSyncService: OuraSyncService = OuraSyncService(),
+        recoveryDataStore: RecoveryDataStore? = nil
     ) {
         self.provider = provider
         self.appleHealthService = appleHealthService
+        self.ouraSyncService = ouraSyncService
+        self.recoveryDataStore = recoveryDataStore
         sourceSelectionsOnEntry = appleHealthService.disabledSourceSelections
         super.init(nibName: nil, bundle: nil)
     }
@@ -476,22 +483,78 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
             )
         }
 
+        if provider == .oura {
+            contentStack.addArrangedSubview(makeSectionTitle(L10n.text("integrations.oura.instructions.title")))
+            
+            let steps = [
+                L10n.text("integrations.oura.instructions.step1"),
+                L10n.text("integrations.oura.instructions.step2"),
+                L10n.text("integrations.oura.instructions.step3"),
+                L10n.text("integrations.oura.instructions.step4"),
+                L10n.text("integrations.oura.instructions.step5")
+            ]
+            let stepsStack = UIStackView()
+            stepsStack.axis = .vertical
+            stepsStack.spacing = WellnarioSpacing.xxSmall
+            
+            for step in steps {
+                let label = UILabel()
+                label.applyWellnarioStyle(.body, color: WellnarioPalette.textSecondary)
+                label.text = step
+                label.numberOfLines = 0
+                stepsStack.addArrangedSubview(label)
+            }
+
+            let openWebButton = UIButton(type: .system)
+            openWebButton.setTitle(L10n.text("integrations.oura.instructions.open_web"), for: .normal)
+            openWebButton.setTitleColor(WellnarioPalette.violet, for: .normal)
+            openWebButton.titleLabel?.font = WellnarioTypography.font(for: .bodyBold)
+            openWebButton.contentHorizontalAlignment = .leading
+            openWebButton.addAction(UIAction { _ in
+                if let url = URL(string: "https://cloud.ouraring.com/personal-access-tokens") {
+                    UIApplication.shared.open(url)
+                }
+            }, for: .touchUpInside)
+
+            let instructionsContainer = UIStackView(
+                arrangedSubviews: [stepsStack, openWebButton],
+                axis: .vertical,
+                spacing: WellnarioSpacing.small
+            )
+
+            contentStack.addArrangedSubview(
+                makeCard(
+                    containing: instructionsContainer,
+                    identifier: "settings.integration.oura.instructions.card"
+                )
+            )
+        }
+
         let privacy = FeedbackBannerView()
         privacy.configure(message: L10n.text("integrations.privacy"), tone: .success)
         contentStack.addArrangedSubview(privacy)
 
-        if provider == .appleHealth {
-            contentStack.addArrangedSubview(statusBanner)
-        }
+        contentStack.addArrangedSubview(statusBanner)
 
         connectButton.accessibilityIdentifier = "\(provider.accessibilityIdentifier).connect"
         connectButton.addTarget(self, action: #selector(connect), for: .touchUpInside)
         contentStack.addArrangedSubview(connectButton)
+
+        if provider == .oura {
+            disconnectButton.setTitle(L10n.text("integrations.oura.disconnect"), for: .normal)
+            disconnectButton.setTitleColor(WellnarioPalette.danger, for: .normal)
+            disconnectButton.titleLabel?.font = WellnarioTypography.font(for: .bodyBold)
+            disconnectButton.addAction(UIAction { [weak self] _ in
+                self?.presentDisconnectOuraAlert()
+            }, for: .touchUpInside)
+            disconnectButton.heightAnchor.constraint(equalToConstant: 44).isActive = true
+            contentStack.addArrangedSubview(disconnectButton)
+        }
     }
 
     private func updateStatus() {
-        guard provider == .appleHealth else {
-            connectButton.setTitle(L10n.text("integrations.connect"), for: .normal)
+        if provider == .oura {
+            updateOuraStatus()
             return
         }
 
@@ -524,6 +587,37 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
             connectButton.isEnabled = true
         }
         updateStatusBannerVisibility()
+    }
+
+    private func updateOuraStatus() {
+        let isConnected = OuraKeychainStore.shared.isConnected
+        disconnectButton.isHidden = !isConnected
+        if isConnected {
+            Task {
+                let lastSync = await ouraSyncService.lastSyncDate
+                await MainActor.run {
+                    let message: String
+                    if let lastSync {
+                        let formatter = DateFormatter()
+                        formatter.dateStyle = .medium
+                        formatter.timeStyle = .short
+                        message = L10n.text("integrations.oura.connected") + " · " + formatter.string(from: lastSync)
+                    } else {
+                        message = L10n.text("integrations.oura.connected")
+                    }
+                    self.statusBanner.configure(message: message, tone: .success)
+                    self.connectButton.setTitle(L10n.text("integrations.oura.sync_now"), for: .normal)
+                    self.connectButton.isEnabled = true
+                }
+            }
+        } else {
+            statusBanner.configure(
+                message: L10n.text("integrations.oura.not_connected"),
+                tone: .information
+            )
+            connectButton.setTitle(L10n.text("integrations.connect"), for: .normal)
+            connectButton.isEnabled = true
+        }
     }
 
     private func updateStatusBannerVisibility() {
@@ -723,17 +817,118 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
             return
         }
 
-        let title: String
-        let message: String
-        switch provider {
-        case .appleHealth:
-            return
-        case .oura:
-            title = L10n.text("integrations.oura.authorization.title")
-            message = L10n.text("integrations.oura.authorization.message")
+        if provider == .oura {
+            if OuraKeychainStore.shared.isConnected {
+                syncOura()
+            } else {
+                presentOuraTokenPrompt()
+            }
         }
-        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: L10n.Common.done, style: .default))
+    }
+
+    private func presentOuraTokenPrompt() {
+        let alert = UIAlertController(
+            title: L10n.text("integrations.oura.token_prompt.title"),
+            message: L10n.text("integrations.oura.token_prompt.message"),
+            preferredStyle: .alert
+        )
+        alert.addTextField { textField in
+            textField.placeholder = L10n.text("integrations.oura.token_placeholder")
+            textField.isSecureTextEntry = true
+            textField.autocapitalizationType = .none
+            textField.autocorrectionType = .no
+        }
+        alert.addAction(UIAlertAction(title: L10n.text("integrations.oura.instructions.open_web"), style: .default) { _ in
+            if let url = URL(string: "https://cloud.ouraring.com/personal-access-tokens") {
+                UIApplication.shared.open(url)
+            }
+        })
+        alert.addAction(UIAlertAction(title: L10n.Common.cancel, style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.text("integrations.oura.verify_and_save"), style: .default) { [weak self, weak alert] _ in
+            guard let self, let token = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty else { return }
+            self.verifyAndSaveOuraToken(token)
+        })
+        present(alert, animated: true)
+    }
+
+    private func verifyAndSaveOuraToken(_ token: String) {
+        connectButton.isLoading = true
+        Task {
+            do {
+                _ = try await ouraSyncService.validateToken(token)
+                _ = OuraKeychainStore.shared.saveToken(token)
+                await MainActor.run {
+                    self.connectButton.isLoading = false
+                    self.updateOuraStatus()
+                    self.syncOura()
+                }
+            } catch {
+                await MainActor.run {
+                    self.connectButton.isLoading = false
+                    let alert = UIAlertController(
+                        title: L10n.Common.error,
+                        message: L10n.text("integrations.oura.invalid_token"),
+                        preferredStyle: .alert
+                    )
+                    alert.addAction(UIAlertAction(title: L10n.Common.done, style: .default))
+                    self.present(alert, animated: true)
+                }
+            }
+        }
+    }
+
+    private func syncOura() {
+        guard let recoveryDataStore else {
+            let alert = UIAlertController(
+                title: L10n.text("integrations.oura.connected"),
+                message: L10n.text("integrations.oura.sync_success"),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: L10n.Common.done, style: .default))
+            present(alert, animated: true)
+            return
+        }
+        connectButton.isLoading = true
+        Task {
+            do {
+                try await ouraSyncService.sync(into: recoveryDataStore)
+                await MainActor.run {
+                    self.connectButton.isLoading = false
+                    self.updateOuraStatus()
+                    let alert = UIAlertController(
+                        title: L10n.text("integrations.oura.connected"),
+                        message: L10n.text("integrations.oura.sync_success"),
+                        preferredStyle: .alert
+                    )
+                    alert.addAction(UIAlertAction(title: L10n.Common.done, style: .default))
+                    self.present(alert, animated: true)
+                }
+            } catch {
+                await MainActor.run {
+                    self.connectButton.isLoading = false
+                    let alert = UIAlertController(
+                        title: L10n.Common.error,
+                        message: error.localizedDescription,
+                        preferredStyle: .alert
+                    )
+                    alert.addAction(UIAlertAction(title: L10n.Common.done, style: .default))
+                    self.present(alert, animated: true)
+                }
+            }
+        }
+    }
+
+    private func presentDisconnectOuraAlert() {
+        let alert = UIAlertController(
+            title: L10n.text("integrations.oura.disconnect"),
+            message: nil,
+            preferredStyle: .actionSheet
+        )
+        alert.addAction(UIAlertAction(title: L10n.text("integrations.oura.disconnect"), style: .destructive) { [weak self] _ in
+            OuraKeychainStore.shared.deleteToken()
+            self?.updateOuraStatus()
+        })
+        alert.addAction(UIAlertAction(title: L10n.Common.cancel, style: .cancel))
         present(alert, animated: true)
     }
 

@@ -164,28 +164,13 @@ struct BiologicalAgeProfile: Equatable, Sendable {
             for: BiologicalAgeMarker.bioAgeMarkers
         )
 
-        let age: Double?
-        switch (estimate.phenoAge, estimate.bioAge) {
-        case let (phenoAge?, bioAge?):
-            let totalWeight = phenoCoverage + bioCoverage
-            if totalWeight > 0 {
-                age = (
-                    phenoAge * phenoCoverage
-                    + bioAge * bioCoverage
-                ) / totalWeight
-            } else {
-                age = (phenoAge + bioAge) / 2
-            }
-        case let (phenoAge?, nil):
-            age = phenoAge
-        case let (nil, bioAge?):
-            age = bioAge
-        case (nil, nil):
-            age = nil
-        }
-
         return BiologicalAgeWeightedEstimate(
-            age: age,
+            age: BiologicalAgeWeightedEstimate.combinedAge(
+                phenoAge: estimate.phenoAge,
+                bioAge: estimate.bioAge,
+                phenoCoverage: phenoCoverage,
+                bioCoverage: bioCoverage
+            ),
             phenoAgeFreshAnalysisCoverage: phenoCoverage,
             bioAgeFreshAnalysisCoverage: bioCoverage
         )
@@ -210,6 +195,28 @@ struct BiologicalAgeWeightedEstimate: Equatable, Sendable {
     let age: Double?
     let phenoAgeFreshAnalysisCoverage: Double
     let bioAgeFreshAnalysisCoverage: Double
+
+    static func combinedAge(
+        phenoAge: Double?,
+        bioAge: Double?,
+        phenoCoverage: Double,
+        bioCoverage: Double
+    ) -> Double? {
+        switch (phenoAge, bioAge) {
+        case let (phenoAge?, bioAge?):
+            let totalWeight = phenoCoverage + bioCoverage
+            if totalWeight > 0 {
+                return (
+                    phenoAge * phenoCoverage
+                    + bioAge * bioCoverage
+                ) / totalWeight
+            }
+            return (phenoAge + bioAge) / 2
+        case let (phenoAge?, nil): return phenoAge
+        case let (nil, bioAge?): return bioAge
+        case (nil, nil): return nil
+        }
+    }
 }
 
 enum BiologicalAgeCalculator {
@@ -700,6 +707,7 @@ final class BiologicalAgeEstimationViewController: WellnessScrollViewController 
 
         contentStack.addArrangedSubview(makeProfileCard(profile))
         contentStack.addArrangedSubview(makeEstimateCard(profile))
+        contentStack.addArrangedSubview(makeSimulationCard(profile))
         contentStack.addArrangedSubview(makeCreatinineCard(profile))
         contentStack.addArrangedSubview(makeValuesCard(profile))
         contentStack.addArrangedSubview(makeMethodCard(profile))
@@ -761,6 +769,25 @@ final class BiologicalAgeEstimationViewController: WellnessScrollViewController 
             spacing: WellnarioSpacing.small
         )
         return makeCard(containing: stack, identifier: "health.biological_age.results")
+    }
+
+    private func makeSimulationCard(_ profile: BiologicalAgeProfile) -> UIView {
+        let button = PrimaryButton(
+            title: L10n.text("health.biological_age.simulation.action"),
+            style: .secondary
+        )
+        button.accessibilityIdentifier = "health.biological_age.simulation.open"
+        button.addTarget(self, action: #selector(openSimulation), for: .touchUpInside)
+        let stack = UIStackView(
+            arrangedSubviews: [
+                cardTitle(L10n.text("health.biological_age.simulation.title")),
+                explanatoryLabel(L10n.text("health.biological_age.simulation.description")),
+                button
+            ],
+            axis: .vertical,
+            spacing: WellnarioSpacing.small
+        )
+        return makeCard(containing: stack, identifier: "health.biological_age.simulation")
     }
 
     private func makeCreatinineCard(_ profile: BiologicalAgeProfile) -> UIView {
@@ -867,6 +894,14 @@ final class BiologicalAgeEstimationViewController: WellnessScrollViewController 
         preferences.creatineOrStrengthTraining = creatinineSwitch.isOn
         UIImpactFeedbackGenerator.wellnarioSuccess()
         closeAfterSaving()
+    }
+
+    @objc private func openSimulation() {
+        guard let profile else { return }
+        navigationController?.pushViewController(
+            BiologicalAgeSimulationViewController(profile: profile),
+            animated: true
+        )
     }
 
     private func closeAfterSaving() {
@@ -1237,5 +1272,332 @@ final class BiologicalAgeAuditViewController: WellnessScrollViewController {
 
     private func decimalText(_ value: Double) -> String {
         numberFormatter.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
+    }
+}
+
+@MainActor
+final class BiologicalAgeSimulationViewController: WellnessScrollViewController {
+    private struct ResultLabels {
+        let current: UILabel
+        let simulated: UILabel
+        let change: UILabel
+    }
+
+    private let profile: BiologicalAgeProfile
+    private let baselineValues: [BiologicalAgeMarker: Double]
+    private var fields: [BiologicalAgeMarker: FormFieldView] = [:]
+    private var resultLabels: [ResultLabels] = []
+    private let numberFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
+        return formatter
+    }()
+
+    init(profile: BiologicalAgeProfile) {
+        self.profile = profile
+        baselineValues = profile.values.reduce(into: [:]) { values, item in
+            values[item.key] = item.value.value
+        }
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = L10n.text("health.biological_age.simulation.screen.title")
+        navigationItem.largeTitleDisplayMode = .never
+        navigationItem.backButtonDisplayMode = .minimal
+        view.accessibilityIdentifier = "health.biological_age.simulation.screen"
+        scrollView.keyboardDismissMode = .interactive
+        buildContent()
+    }
+
+    private var canSimulate: Bool {
+        guard profile.chronologicalAge != nil,
+              profile.biologicalSex == .female || profile.biologicalSex == .male else {
+            return false
+        }
+        return BiologicalAgeMarker.allCases.allSatisfy { baselineValues[$0] != nil }
+    }
+
+    private func buildContent() {
+        let intro = UIStackView(
+            arrangedSubviews: [
+                titleLabel(L10n.text("health.biological_age.simulation.intro.title")),
+                explanatoryLabel(L10n.text("health.biological_age.simulation.intro.description"))
+            ],
+            axis: .vertical,
+            spacing: WellnarioSpacing.small
+        )
+        contentStack.addArrangedSubview(
+            makeCard(containing: intro, identifier: "health.biological_age.simulation.intro")
+        )
+
+        guard canSimulate else {
+            contentStack.addArrangedSubview(makeUnavailableCard())
+            return
+        }
+
+        contentStack.addArrangedSubview(makeResultsCard())
+        contentStack.addArrangedSubview(makeParametersCard())
+    }
+
+    private func makeUnavailableCard() -> UIView {
+        let label = explanatoryLabel(L10n.text("health.biological_age.simulation.unavailable"))
+        return makeCard(containing: label, identifier: "health.biological_age.simulation.unavailable")
+    }
+
+    private func makeResultsCard() -> UIView {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = WellnarioSpacing.small
+        stack.addArrangedSubview(titleLabel(L10n.text("health.biological_age.simulation.results.title")))
+        stack.addArrangedSubview(
+            makeResultRow(
+                title: L10n.text("health.biological_age.simulation.overall"),
+                baseline: profile.weightedEstimate.age
+            )
+        )
+        stack.addArrangedSubview(divider())
+        stack.addArrangedSubview(makeResultRow(title: "PhenoAge", baseline: profile.estimate.phenoAge))
+        stack.addArrangedSubview(divider())
+        stack.addArrangedSubview(makeResultRow(title: "BioAge", baseline: profile.estimate.bioAge))
+        return makeCard(containing: stack, identifier: "health.biological_age.simulation.results")
+    }
+
+    private func makeResultRow(title: String, baseline: Double?) -> UIView {
+        let name = captionLabel(title)
+        let current = valueLabel(estimatedAgeText(baseline))
+        let simulated = valueLabel(estimatedAgeText(baseline))
+        simulated.textColor = WellnarioPalette.fuchsia
+        let change = captionLabel(L10n.text("health.biological_age.simulation.delta.none"))
+
+        let values = UIStackView(
+            arrangedSubviews: [
+                resultColumn(title: L10n.text("health.biological_age.simulation.current"), value: current),
+                resultColumn(title: L10n.text("health.biological_age.simulation.simulated"), value: simulated)
+            ],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.small,
+            distribution: .fillEqually
+        )
+        let stack = UIStackView(
+            arrangedSubviews: [name, values, change],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxxSmall
+        )
+        resultLabels.append(ResultLabels(current: current, simulated: simulated, change: change))
+        return stack
+    }
+
+    private func resultColumn(title: String, value: UILabel) -> UIView {
+        let title = captionLabel(title)
+        let stack = UIStackView(
+            arrangedSubviews: [title, value],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxxSmall
+        )
+        return stack
+    }
+
+    private func makeParametersCard() -> UIView {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = WellnarioSpacing.small
+        stack.addArrangedSubview(titleLabel(L10n.text("health.biological_age.simulation.parameters.title")))
+        stack.addArrangedSubview(
+            explanatoryLabel(L10n.text("health.biological_age.simulation.parameters.description"))
+        )
+
+        for (index, marker) in BiologicalAgeMarker.allCases.enumerated() {
+            guard let value = baselineValues[marker] else { continue }
+            if index > 0 { stack.addArrangedSubview(divider()) }
+            let field = FormFieldView()
+            field.configure(
+                title: "\(marker.title) (\(marker.canonicalUnit))",
+                placeholder: decimalText(value),
+                text: decimalText(value),
+                keyboardType: .decimalPad
+            )
+            field.helperText = L10n.text(
+                "health.biological_age.simulation.value",
+                decimalText(value),
+                marker.canonicalUnit
+            )
+            field.accessibilityIdentifier = "health.biological_age.simulation.value.\(marker.rawValue)"
+            field.textField.inputAccessoryView = keyboardToolbar()
+            field.textField.addTarget(self, action: #selector(parameterChanged), for: .editingChanged)
+            fields[marker] = field
+            stack.addArrangedSubview(field)
+        }
+
+        let resetButton = PrimaryButton(
+            title: L10n.text("health.biological_age.simulation.reset"),
+            style: .secondary
+        )
+        resetButton.accessibilityIdentifier = "health.biological_age.simulation.reset"
+        resetButton.addTarget(self, action: #selector(resetSimulation), for: .touchUpInside)
+        stack.addArrangedSubview(resetButton)
+        return makeCard(containing: stack, identifier: "health.biological_age.simulation.parameters")
+    }
+
+    @objc private func parameterChanged() {
+        updateResults()
+    }
+
+    @objc private func resetSimulation() {
+        for (marker, field) in fields {
+            guard let value = baselineValues[marker] else { continue }
+            field.textField.text = decimalText(value)
+            field.setError(nil)
+        }
+        updateResults()
+    }
+
+    private func updateResults() {
+        var values = baselineValues
+        for (marker, field) in fields {
+            guard let text = field.textField.text,
+                  let value = parsedNumber(text),
+                  value >= 0 else {
+                updateResultLabels(overallAge: nil, phenoAge: nil, bioAge: nil)
+                return
+            }
+            values[marker] = value
+        }
+
+        guard let chronologicalAge = profile.chronologicalAge,
+              let sex = profile.biologicalSex else {
+            updateResultLabels(overallAge: nil, phenoAge: nil, bioAge: nil)
+            return
+        }
+        let phenoAge = BiologicalAgeCalculator.phenoAge(
+            chronologicalAge: Double(chronologicalAge),
+            values: values
+        )
+        let bioAge = BiologicalAgeCalculator.bioAge(
+            chronologicalAge: Double(chronologicalAge),
+            sex: sex,
+            values: values
+        )
+        let weightedEstimate = profile.weightedEstimate
+        updateResultLabels(
+            overallAge: BiologicalAgeWeightedEstimate.combinedAge(
+                phenoAge: phenoAge,
+                bioAge: bioAge,
+                phenoCoverage: weightedEstimate.phenoAgeFreshAnalysisCoverage,
+                bioCoverage: weightedEstimate.bioAgeFreshAnalysisCoverage
+            ),
+            phenoAge: phenoAge,
+            bioAge: bioAge
+        )
+    }
+
+    private func updateResultLabels(
+        overallAge: Double?,
+        phenoAge: Double?,
+        bioAge: Double?
+    ) {
+        let simulated = [overallAge, phenoAge, bioAge]
+        let baseline = [
+            profile.weightedEstimate.age,
+            profile.estimate.phenoAge,
+            profile.estimate.bioAge
+        ]
+        for (index, labels) in resultLabels.enumerated() {
+            let current = baseline[index]
+            let result = simulated[index]
+            labels.current.text = estimatedAgeText(current)
+            labels.simulated.text = estimatedAgeText(result)
+            labels.change.text = variationText(from: current, to: result)
+        }
+    }
+
+    private func variationText(from baseline: Double?, to simulated: Double?) -> String {
+        guard let baseline, let simulated else { return "—" }
+        let difference = Int((simulated - baseline).rounded())
+        if difference == 0 { return L10n.text("health.biological_age.simulation.delta.none") }
+        let key = difference < 0
+            ? "health.biological_age.simulation.delta.less"
+            : "health.biological_age.simulation.delta.more"
+        return L10n.text(key, abs(difference))
+    }
+
+    private func estimatedAgeText(_ value: Double?) -> String {
+        value.map { L10n.text("health.biological_age.estimate_value", Int($0.rounded())) } ?? "—"
+    }
+
+    private func titleLabel(_ text: String) -> UILabel {
+        let label = UILabel()
+        label.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textPrimary)
+        label.text = text
+        label.numberOfLines = 0
+        return label
+    }
+
+    private func valueLabel(_ text: String) -> UILabel {
+        let label = UILabel()
+        label.applyWellnarioStyle(.body, color: WellnarioPalette.textSecondary)
+        label.text = text
+        label.numberOfLines = 0
+        return label
+    }
+
+    private func explanatoryLabel(_ text: String) -> UILabel {
+        let label = UILabel()
+        label.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
+        label.text = text
+        label.numberOfLines = 0
+        return label
+    }
+
+    private func captionLabel(_ text: String) -> UILabel {
+        let label = UILabel()
+        label.applyWellnarioStyle(.caption, color: WellnarioPalette.textTertiary)
+        label.text = text
+        label.numberOfLines = 0
+        return label
+    }
+
+    private func divider() -> UIView {
+        let line = UIView()
+        line.backgroundColor = WellnarioPalette.hairline
+        line.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        return line
+    }
+
+    private func keyboardToolbar() -> UIToolbar {
+        let toolbar = UIToolbar()
+        toolbar.sizeToFit()
+        toolbar.items = [
+            UIBarButtonItem(systemItem: .flexibleSpace),
+            UIBarButtonItem(
+                title: L10n.Common.done,
+                style: .done,
+                target: self,
+                action: #selector(dismissKeyboard)
+            )
+        ]
+        return toolbar
+    }
+
+    @objc private func dismissKeyboard() {
+        view.endEditing(true)
+    }
+
+    private func decimalText(_ value: Double) -> String {
+        numberFormatter.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
+    }
+
+    private func parsedNumber(_ text: String) -> Double? {
+        if let number = numberFormatter.number(from: text) {
+            return number.doubleValue
+        }
+        return Double(text.replacingOccurrences(of: ",", with: "."))
     }
 }

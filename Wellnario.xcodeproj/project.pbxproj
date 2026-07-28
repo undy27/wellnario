@@ -7,6 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		FF1000000000000000000012 /* StrengthWorkoutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1000000000000000000013 /* StrengthWorkoutUITests.swift */; };
+		FF1000000000000000000010 /* StrengthDataStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1000000000000000000011 /* StrengthDataStoreTests.swift */; };
+		FF1000000000000000000001 /* StrengthModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1000000000000000000002 /* StrengthModels.swift */; };
+		FF1000000000000000000003 /* StrengthDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1000000000000000000004 /* StrengthDataStore.swift */; };
+		FF1000000000000000000005 /* StrengthViewControllers.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1000000000000000000006 /* StrengthViewControllers.swift */; };
+		FF1000000000000000000007 /* StrengthExercises.json in Resources */ = {isa = PBXBuildFile; fileRef = FF1000000000000000000008 /* StrengthExercises.json */; };
+		FF0000000000000000000011 /* OuraKeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000010 /* OuraKeychainStore.swift */; };
+		FF0000000000000000000013 /* OuraSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000012 /* OuraSyncService.swift */; };
+		FF0000000000000000000015 /* OuraSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000014 /* OuraSyncTests.swift */; };
 		021BBF30BAFC953B341C8366 /* TrendsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0D0E0B9003E1C25B755FCD /* TrendsViewController.swift */; };
 		03139FA281C37036380E3B79 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2C14E9292D7FB3ECDF40050 /* SettingsViewController.swift */; };
 		039274F112DB3405A44DDAF5 /* SleepWidgetSnapshotUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DD3614810C63C6848769C04 /* SleepWidgetSnapshotUpdater.swift */; };
@@ -20,6 +29,9 @@
 		1367A6D455AC096E1652C16A /* TodayViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED89A282729B7462F37E4F82 /* TodayViewController.swift */; };
 		15275CCBC362A569CD50DCEA /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = ED227AA318BDE4EBEAA28E49 /* Localizable.strings */; };
 		1772214F924EE1D518D39F07 /* HealthDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16C8A52761CEB193C84A8A04 /* HealthDataStore.swift */; };
+		FF0000000000000000000004 /* RecoveryEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000001 /* RecoveryEngine.swift */; };
+		FF0000000000000000000005 /* RecoveryModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000002 /* RecoveryModels.swift */; };
+		FF0000000000000000000006 /* RecoveryDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000003 /* RecoveryDataStore.swift */; };
 		1D12EA62BC414B4089E2C2B8 /* WellnarioStateViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B61E62F90E3C1939114F9E0B /* WellnarioStateViews.swift */; };
 		23D989C6E5A718327FDFF40D /* SupplementEditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E3CABD1CAC280DB0958A83D /* SupplementEditorViewController.swift */; };
 		27456B5CD2B8141AAF6954C5 /* LabImportReviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901CD067B6879A88DFB00B4F /* LabImportReviewViewController.swift */; };
@@ -142,6 +154,15 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		FF1000000000000000000013 /* StrengthWorkoutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrengthWorkoutUITests.swift; sourceTree = "<group>"; };
+		FF1000000000000000000011 /* StrengthDataStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrengthDataStoreTests.swift; sourceTree = "<group>"; };
+		FF1000000000000000000002 /* StrengthModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrengthModels.swift; sourceTree = "<group>"; };
+		FF1000000000000000000004 /* StrengthDataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrengthDataStore.swift; sourceTree = "<group>"; };
+		FF1000000000000000000006 /* StrengthViewControllers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrengthViewControllers.swift; sourceTree = "<group>"; };
+		FF1000000000000000000008 /* StrengthExercises.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = StrengthExercises.json; sourceTree = "<group>"; };
+		FF0000000000000000000010 /* OuraKeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Wellnario/Services/Oura/OuraKeychainStore.swift; sourceTree = SOURCE_ROOT; };
+		FF0000000000000000000012 /* OuraSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Wellnario/Services/Oura/OuraSyncService.swift; sourceTree = SOURCE_ROOT; };
+		FF0000000000000000000014 /* OuraSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnarioTests/OuraSyncTests.swift; sourceTree = SOURCE_ROOT; };
 		008F62E6C25A0243668FE670 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		00945DDC66558C4B4ADA38C6 /* AppleHealthSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleHealthSyncService.swift; sourceTree = "<group>"; };
 		017C471E05E3044246A23AAA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -151,6 +172,9 @@
 		10C09174E7F9227F13832FAF /* BiomarkersViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiomarkersViewController.swift; sourceTree = "<group>"; };
 		1670B04FCD03A5EA8E19E3B4 /* FeatureSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureSupport.swift; sourceTree = "<group>"; };
 		16C8A52761CEB193C84A8A04 /* HealthDataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataStore.swift; sourceTree = "<group>"; };
+		FF0000000000000000000001 /* RecoveryEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryEngine.swift; sourceTree = "<group>"; };
+		FF0000000000000000000002 /* RecoveryModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryModels.swift; sourceTree = "<group>"; };
+		FF0000000000000000000003 /* RecoveryDataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryDataStore.swift; sourceTree = "<group>"; };
 		18E2C88BAF411B159393E0ED /* LabAnalysesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabAnalysesViewController.swift; sourceTree = "<group>"; };
 		1A0E0350CAAA6D2585A9DBBD /* AppleHealthShortcutAutomationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleHealthShortcutAutomationViewController.swift; sourceTree = "<group>"; };
 		1BA13CCC95421D209AF59016 /* UIView+Wellnario.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIView+Wellnario.swift"; sourceTree = "<group>"; };
@@ -323,6 +347,7 @@
 				3EAD06E62C8F8078938C06B8 /* AppleHealthSyncTests.swift */,
 				2A1FD270FF8BA7C7848B9F28 /* HealthDataStoreTests.swift */,
 				63001F551897AE5B827BBE22 /* RepositoryTests.swift */,
+				FF1000000000000000000011 /* StrengthDataStoreTests.swift */,
 			);
 			path = WellnarioTests;
 			sourceTree = "<group>";
@@ -334,6 +359,7 @@
 				3AA5764D8FBDD37ACF3C9126 /* PrivacyInfo.xcprivacy */,
 				59F12BD91CC1BEFF11BA2232 /* InfoPlist.strings */,
 				ED227AA318BDE4EBEAA28E49 /* Localizable.strings */,
+				FF1000000000000000000008 /* StrengthExercises.json */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -385,6 +411,16 @@
 			path = Services;
 			sourceTree = "<group>";
 		};
+		FF1000000000000000000009 /* Strength */ = {
+			isa = PBXGroup;
+			children = (
+				FF1000000000000000000002 /* StrengthModels.swift */,
+				FF1000000000000000000004 /* StrengthDataStore.swift */,
+				FF1000000000000000000006 /* StrengthViewControllers.swift */,
+			);
+			path = Strength;
+			sourceTree = "<group>";
+		};
 		7FC1E33A64FF6246D638F5D8 /* Wellness */ = {
 			isa = PBXGroup;
 			children = (
@@ -393,7 +429,14 @@
 				10C09174E7F9227F13832FAF /* BiomarkersViewController.swift */,
 				B74A4848B9A86059AA5CA65D /* BiomarkerTrendsViewController.swift */,
 				97283BDF005691C38A8E1DAF /* FitnessViewController.swift */,
+				FF1000000000000000000009 /* Strength */,
 				16C8A52761CEB193C84A8A04 /* HealthDataStore.swift */,
+				FF0000000000000000000001 /* RecoveryEngine.swift */,
+				FF0000000000000000000002 /* RecoveryModels.swift */,
+				FF0000000000000000000003 /* RecoveryDataStore.swift */,
+				FF0000000000000000000010 /* OuraKeychainStore.swift */,
+				FF0000000000000000000012 /* OuraSyncService.swift */,
+				FF0000000000000000000014 /* OuraSyncTests.swift */,
 				846C762D3896FE4920A77055 /* HealthViewController.swift */,
 				18E2C88BAF411B159393E0ED /* LabAnalysesViewController.swift */,
 				901CD067B6879A88DFB00B4F /* LabImportReviewViewController.swift */,
@@ -482,6 +525,7 @@
 			children = (
 				CD8C330B7E3D760DD9559F57 /* WellnarioNavigationUITests.swift */,
 				E456B28E1165EDE798DE80B5 /* WellnarioSupplementFlowUITests.swift */,
+				FF1000000000000000000013 /* StrengthWorkoutUITests.swift */,
 			);
 			path = WellnarioUITests;
 			sourceTree = "<group>";
@@ -688,6 +732,7 @@
 				15275CCBC362A569CD50DCEA /* Localizable.strings in Resources */,
 				0447C56F7ED13661C2BDF6CA /* PrivacyInfo.xcprivacy in Resources */,
 				03E4F64429612000F1AF912F /* README.md in Resources */,
+				FF1000000000000000000007 /* StrengthExercises.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -700,6 +745,7 @@
 			files = (
 				DC5416B9CA4B075AE3405202 /* WellnarioNavigationUITests.swift in Sources */,
 				84BB6A766189967C80FC1BDF /* WellnarioSupplementFlowUITests.swift in Sources */,
+				FF1000000000000000000012 /* StrengthWorkoutUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -708,8 +754,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				F19833B2E4BA4A1E57562B0B /* AppleHealthSyncTests.swift in Sources */,
+				FF0000000000000000000015 /* OuraSyncTests.swift in Sources */,
 				DADBADBA3D5B91066576E538 /* HealthDataStoreTests.swift in Sources */,
 				548009BD2ECC697639BDA4F3 /* RepositoryTests.swift in Sources */,
+				FF1000000000000000000010 /* StrengthDataStoreTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -752,8 +800,16 @@
 				E51BE79CADAF42B350EC6954 /* EditorSupport.swift in Sources */,
 				A7E2F036C318747E3D62CBF1 /* FeatureSupport.swift in Sources */,
 				7B7CA718A47A8D9CB65351C7 /* FitnessViewController.swift in Sources */,
+				FF1000000000000000000001 /* StrengthModels.swift in Sources */,
+				FF1000000000000000000003 /* StrengthDataStore.swift in Sources */,
+				FF1000000000000000000005 /* StrengthViewControllers.swift in Sources */,
 				09CDCB88B5284A54C5208BA9 /* FloatingTabBarView.swift in Sources */,
 				1772214F924EE1D518D39F07 /* HealthDataStore.swift in Sources */,
+				FF0000000000000000000004 /* RecoveryEngine.swift in Sources */,
+				FF0000000000000000000005 /* RecoveryModels.swift in Sources */,
+				FF0000000000000000000006 /* RecoveryDataStore.swift in Sources */,
+				FF0000000000000000000011 /* OuraKeychainStore.swift in Sources */,
+				FF0000000000000000000013 /* OuraSyncService.swift in Sources */,
 				E8582C356B916EC134C92868 /* HealthViewController.swift in Sources */,
 				6D368FFA29CECD9F509A54B9 /* InstanceEditorViewController.swift in Sources */,
 				2B32C88D026D26E2FC38DB60 /* IntakeEditorViewController.swift in Sources */,

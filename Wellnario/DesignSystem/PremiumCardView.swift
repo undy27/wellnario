@@ -35,6 +35,7 @@ class PremiumCardView: UIControl {
 
     private let surfaceLayer = CAGradientLayer()
     private let borderLayer = CAShapeLayer()
+    private let tapHapticGenerator = UIImpactFeedbackGenerator(style: .light)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -65,6 +66,30 @@ class PremiumCardView: UIControl {
             roundedRect: bounds,
             cornerRadius: WellnarioRadius.card
         ).cgPath
+    }
+
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        let isTracking = super.beginTracking(touch, with: event)
+        if isTracking && isPressable {
+            tapHapticGenerator.prepare()
+        }
+        return isTracking
+    }
+
+    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+        if isPressable,
+           isEnabled,
+           let touch,
+           bounds.contains(touch.location(in: self)) {
+            performCardTapHaptic()
+        }
+        super.endTracking(touch, with: event)
+    }
+
+    /// Triggers the same feedback for cards whose tap is handled by a gesture recognizer.
+    func performCardTapHaptic() {
+        tapHapticGenerator.prepare()
+        tapHapticGenerator.impactOccurred()
     }
 
     private func setUp() {

@@ -20,7 +20,7 @@ enum SeedData {
 
     static let activeSeeds: [ActiveSeed] = [
         ActiveSeed(id: activeID(1), slug: "vitamin_c", unit: .milligram, proposedMale: 90, proposedFemale: 75, categories: [.immunity, .aesthetics, .antioxidant]),
-        ActiveSeed(id: activeID(2), slug: "vitamin_d", unit: .microgram, proposedMale: 15, proposedFemale: 15, categories: [.immunity, .bonesAndJoints]),
+        ActiveSeed(id: activeID(2), slug: "vitamin_d", unit: .internationalUnit, proposedMale: 1000, proposedFemale: 1000, categories: [.immunity, .bonesAndJoints]),
         ActiveSeed(id: activeID(3), slug: "vitamin_b12", unit: .microgram, proposedMale: decimal("2.4"), proposedFemale: decimal("2.4"), categories: [.energy, .cognition]),
         ActiveSeed(id: activeID(4), slug: "magnesium", unit: .milligram, proposedMale: 420, proposedFemale: 320, categories: [.sleep, .physicalPerformance, .stress]),
         ActiveSeed(id: activeID(5), slug: "omega_3", unit: .milligram, proposedMale: nil, proposedFemale: nil, categories: [.cardiovascular, .cognition, .aesthetics]),

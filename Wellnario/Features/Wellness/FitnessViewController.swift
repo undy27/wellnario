@@ -32,11 +32,17 @@ final class FitnessViewController: WellnessScrollViewController {
     var onStartWorkout: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     private let appleHealthService: AppleHealthSyncing
+    private let strengthDataStore: StrengthDataStore?
     private let cardLayoutPreferences: FitnessCardLayoutPreferences
     private lazy var syncIndicator = AppleHealthSyncNavigationIndicator(service: appleHealthService)
 
-    init(appleHealthService: AppleHealthSyncing, defaults: UserDefaults = .standard) {
+    init(
+        appleHealthService: AppleHealthSyncing,
+        strengthDataStore: StrengthDataStore? = nil,
+        defaults: UserDefaults = .standard
+    ) {
         self.appleHealthService = appleHealthService
+        self.strengthDataStore = strengthDataStore
         cardLayoutPreferences = FitnessCardLayoutPreferences(defaults: defaults)
         super.init(nibName: nil, bundle: nil)
     }
@@ -94,6 +100,7 @@ final class FitnessViewController: WellnessScrollViewController {
         let visibleCards = cardLayoutPreferences.orderedCards.filter(cardLayoutPreferences.isVisible)
         if visibleCards.isEmpty {
             contentStack.addArrangedSubview(makeNoVisibleCardsView())
+            contentStack.addArrangedSubview(makeStrengthTrainingButton())
             contentStack.addArrangedSubview(makeStartButton())
             return
         }
@@ -102,6 +109,8 @@ final class FitnessViewController: WellnessScrollViewController {
             let section = makeCardSection(card)
             contentStack.addArrangedSubview(section)
             if index == 0 {
+                let strengthButton = makeStrengthTrainingButton()
+                contentStack.addArrangedSubview(strengthButton)
                 let startButton = makeStartButton()
                 contentStack.addArrangedSubview(startButton)
                 if visibleCards.count > 1 {
@@ -130,6 +139,25 @@ final class FitnessViewController: WellnessScrollViewController {
         startButton.accessibilityIdentifier = "fitness.start"
         startButton.addTarget(self, action: #selector(startWorkout), for: .touchUpInside)
         return startButton
+    }
+
+    private func makeStrengthTrainingButton() -> PrimaryButton {
+        let button = PrimaryButton()
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = L10n.text("fitness.strength.button")
+        configuration.image = UIImage(systemName: "figure.strengthtraining.traditional")
+        configuration.imagePadding = 8
+        configuration.baseForegroundColor = WellnarioPalette.textPrimary
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = WellnarioTypography.font(for: .button)
+            return outgoing
+        }
+        button.configuration = configuration
+        button.style = .primary
+        button.accessibilityIdentifier = "fitness.strength.start"
+        button.addTarget(self, action: #selector(openStrengthTraining), for: .touchUpInside)
+        return button
     }
 
     private func makeCardSection(_ card: FitnessCardKind) -> UIView {
@@ -374,6 +402,13 @@ final class FitnessViewController: WellnessScrollViewController {
     }
 
     @objc private func startWorkout() { onStartWorkout?() }
+    @objc private func openStrengthTraining() {
+        guard let strengthDataStore else { return }
+        navigationController?.pushViewController(
+            StrengthWorkoutStartViewController(store: strengthDataStore),
+            animated: true
+        )
+    }
     @objc private func openSettings() { onOpenSettings?() }
     @objc private func openCardEditor() {
         let editor = WellnessCardEditorViewController(

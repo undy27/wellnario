@@ -29,7 +29,7 @@ final class TodayViewController: FeatureViewController {
     private lazy var syncIndicatorButton = UIBarButtonItem(customView: syncIndicatorContainer)
 
     private let sleepCard = TodaySleepSummaryCard()
-    private let recoveryCard = WellnessSummaryCard()
+    private let recoveryCard = TodayRecoverySummaryCard()
     private let stressCard = TodayStressSummaryCard()
     private let supplementsCard = WellnessSummaryCard()
     private let fitnessCard = WellnessSummaryCard()
@@ -43,22 +43,25 @@ final class TodayViewController: FeatureViewController {
     private var summary: DashboardSummary?
     private var selectedDate = Date()
     private var historicalStressTimeline: AppleHealthStressTimeline?
-    private var historicalStressSleepSession: AppleHealthSleepSession?
+    private var historicalStressSleepSessions: [AppleHealthSleepSession] = []
     private var historicalStressWorkouts: [AppleHealthWorkout] = []
     private var requestedHistoricalStressDay: LocalDay?
     private var historicalStressTimelineTask: Task<Void, Never>?
     private let appleHealthService: AppleHealthSyncing
     private let medicalReviewStore: MedicalReviewStore
     private let sleepManualOverrideStore: SleepManualOverrideStore
+    private let recoveryDataStore: RecoveryDataStore
 
     init(
         repository: WellnarioRepositoryProtocol,
         appleHealthService: AppleHealthSyncing,
         medicalReviewStore: MedicalReviewStore = MedicalReviewStore(),
+        recoveryDataStore: RecoveryDataStore,
         sleepManualOverrideStore: SleepManualOverrideStore = SleepManualOverrideStore()
     ) {
         self.appleHealthService = appleHealthService
         self.medicalReviewStore = medicalReviewStore
+        self.recoveryDataStore = recoveryDataStore
         self.sleepManualOverrideStore = sleepManualOverrideStore
         super.init(repository: repository)
     }
@@ -105,6 +108,7 @@ final class TodayViewController: FeatureViewController {
         settingsBarButton.accessibilityLabel = L10n.Settings.title
         syncIndicatorContainer.accessibilityLabel = L10n.text("apple_health.sync_now")
         updateLastSyncLabel()
+        refreshHistoricalStressTimelineIfNeeded()
         configureStaticCards()
         configureQuickActions()
         if let summary { render(summary) }
@@ -113,8 +117,8 @@ final class TodayViewController: FeatureViewController {
     override func reloadContent() {
         updateSyncIndicator()
         updateLastSyncLabel()
-        configureStaticCards()
         refreshHistoricalStressTimelineIfNeeded()
+        configureStaticCards()
         do {
             let summary = try repository.dashboard(
                 on: LocalDay(containing: selectedDate, in: .current),
@@ -263,7 +267,7 @@ final class TodayViewController: FeatureViewController {
             historicalStressTimelineTask = nil
             requestedHistoricalStressDay = nil
             historicalStressTimeline = nil
-            historicalStressSleepSession = nil
+            historicalStressSleepSessions = []
             historicalStressWorkouts = []
             return
         }
@@ -273,7 +277,7 @@ final class TodayViewController: FeatureViewController {
         historicalStressTimelineTask?.cancel()
         requestedHistoricalStressDay = day
         historicalStressTimeline = nil
-        historicalStressSleepSession = nil
+        historicalStressSleepSessions = []
         historicalStressWorkouts = []
 
         historicalStressTimelineTask = Task { [weak self, appleHealthService] in
@@ -289,7 +293,7 @@ final class TodayViewController: FeatureViewController {
                 return
             }
             self.historicalStressTimeline = result?.timeline
-            self.historicalStressSleepSession = result?.sleepSessions.last
+            self.historicalStressSleepSessions = result?.sleepSessions ?? []
             self.historicalStressWorkouts = result?.workouts ?? []
             self.historicalStressTimelineTask = nil
             self.configureStaticCards()
@@ -301,7 +305,7 @@ final class TodayViewController: FeatureViewController {
         historicalStressTimelineTask = nil
         requestedHistoricalStressDay = nil
         historicalStressTimeline = nil
-        historicalStressSleepSession = nil
+        historicalStressSleepSessions = []
         historicalStressWorkouts = []
     }
 
@@ -356,7 +360,7 @@ final class TodayViewController: FeatureViewController {
         reviewsCard.accessibilityIdentifier = "today.summary.reviews"
 
         sleepCard.addTarget(self, action: #selector(openSleep), for: .touchUpInside)
-        recoveryCard.addTarget(self, action: #selector(openHealth), for: .touchUpInside)
+        recoveryCard.addTarget(self, action: #selector(openRecovery), for: .touchUpInside)
         stressCard.addTarget(self, action: #selector(openStressDetails), for: .touchUpInside)
         supplementsCard.addTarget(self, action: #selector(openSupplements), for: .touchUpInside)
         fitnessCard.addTarget(self, action: #selector(openFitness), for: .touchUpInside)
@@ -403,38 +407,47 @@ final class TodayViewController: FeatureViewController {
                 calendar: .autoupdatingCurrent
             )
         }
+        let isRefreshingHistoricalDay = !isToday
+            && historicalStressTimelineTask != nil
+        let displayedQualityScore = TodaySleepQualityPresentation.score(
+            manualOverride: manualOverride,
+            breakdown: qualityBreakdown,
+            isRefreshingHistoricalDay: isRefreshingHistoricalDay
+        )
         sleepCard.configure(
             entry: selectedSleepDay,
-            breakdown: qualityBreakdown,
+            breakdown: isRefreshingHistoricalDay ? nil : qualityBreakdown,
+            qualityScore: displayedQualityScore,
             detail: sleepDetail
         )
 
-        let hrv = isToday ? snapshot.heartRateVariability : nil
+        let hasSleep = selectedSleepDay?.hours != nil
+        let recoveryScore = hasSleep ? try? recoveryDataStore.fetchScore(forDate: selectedDay.description) : nil
         recoveryCard.configure(
             title: L10n.text("wellness.recovery"),
             symbolName: "figure.cooldown",
-            value: hrv.map { "\(AppleHealthUIFormatting.number($0.value)) ms" } ?? "—",
-            detail: hrv == nil ? noData : L10n.text("apple_health.recovery.hrv_context"),
+            currentScore: recoveryScore?.score,
             tone: WellnarioPalette.success
         )
 
-        let currentStressDetails = isToday ? snapshot.currentStressDetails : nil
-        let preSleepStressScore = isToday
-            ? snapshot.automaticSleepFactors?.last?.preSleepStressScore
-            : nil
-        let historicalStressScore = isToday
-            ? nil
-            : historicalStressTimeline?.points.compactMap(\.score).last
-        let stressScore = currentStressDetails?.score ?? preSleepStressScore ?? historicalStressScore
+        let stressTimeline = isToday
+            ? snapshot.latestPreSleepStressTimeline
+            : historicalStressTimeline
+        let stressScore = isToday
+            ? stressTimeline?.latestScoredPoint?.score ?? snapshot.currentStressDetails?.score
+            : stressTimeline?.latestScoredPoint?.score
         stressCard.configure(
             title: L10n.text("wellness.stress"),
             symbolName: "waveform.path.ecg",
-            currentScore: isToday ? stressScore : nil,
+            currentScore: stressScore,
             showsCurrentScore: isToday,
-            isSyncing: appleHealthService.state == .syncing,
+            isSyncing: appleHealthService.state == .syncing
+                || (!isToday && historicalStressTimelineTask != nil),
             tone: WellnarioPalette.warning,
-            timeline: isToday ? snapshot.latestPreSleepStressTimeline : historicalStressTimeline,
-            sleepSession: isToday ? snapshot.latestSleepSession : historicalStressSleepSession,
+            timeline: stressTimeline,
+            sleepSessions: isToday
+                ? [snapshot.latestSleepSession].compactMap { $0 }
+                : historicalStressSleepSessions,
             workouts: isToday ? snapshot.workoutsThisWeek : historicalStressWorkouts
         )
 
@@ -623,20 +636,52 @@ final class TodayViewController: FeatureViewController {
     @objc private func openSupplements() { onShowSupplements?() }
     @objc private func openSleep() { onShowSleep?() }
     @objc private func openHealth() { onShowHealth?() }
+    
+    @objc private func openRecovery() {
+        let selectedDay = LocalDay(containing: selectedDate, in: .current)
+        let snapshot = sleepManualOverrideStore.applying(to: appleHealthService.snapshot)
+        let isToday = Calendar.autoupdatingCurrent.isDateInToday(selectedDate)
+        let selectedSleepDay = snapshot.sleepTrend.last {
+            LocalDay(containing: $0.date, in: .current) == selectedDay
+        }
+        let hasSleep = selectedSleepDay?.hours != nil
+        let recoveryScore = hasSleep ? try? recoveryDataStore.fetchScore(forDate: selectedDay.description) : nil
+        
+        let detailVC = RecoveryDetailViewController(score: recoveryScore?.score)
+        navigationController?.pushViewController(detailVC, animated: true)
+    }
     @objc private func openFitness() { onShowFitness?() }
     @objc private func openStressDetails() {
         let snapshot = sleepManualOverrideStore.applying(to: appleHealthService.snapshot)
-        let latestPreSleep = snapshot.automaticSleepFactors?.last
-        let usesCurrentEstimate = snapshot.currentStressDetails != nil
-        navigationController?.pushViewController(
-            StressDetailsViewController(
-                details: snapshot.currentStressDetails ?? latestPreSleep?.preSleepStressDetails,
-                fallbackScore: usesCurrentEstimate ? nil : latestPreSleep?.preSleepStressScore,
-                fallbackDate: usesCurrentEstimate ? nil : latestPreSleep?.date,
-                timing: usesCurrentEstimate ? .current : .beforeSleep
-            ),
-            animated: true
-        )
+        let isToday = Calendar.autoupdatingCurrent.isDateInToday(selectedDate)
+        if isToday {
+            navigationController?.pushViewController(
+                StressDetailsViewController(
+                    details: snapshot.currentStressDetails,
+                    fallbackScore: nil,
+                    fallbackDate: nil,
+                    timing: .current,
+                    timeline: snapshot.latestPreSleepStressTimeline,
+                    sleepSessions: [snapshot.latestSleepSession].compactMap { $0 },
+                    workouts: snapshot.workoutsThisWeek
+                ),
+                animated: true
+            )
+        } else {
+            let latestPreSleep = snapshot.automaticSleepFactors?.last
+            navigationController?.pushViewController(
+                StressDetailsViewController(
+                    details: latestPreSleep?.preSleepStressDetails,
+                    fallbackScore: latestPreSleep?.preSleepStressScore,
+                    fallbackDate: latestPreSleep?.date,
+                    timing: .beforeSleep,
+                    timeline: historicalStressTimeline,
+                    sleepSessions: historicalStressSleepSessions,
+                    workouts: historicalStressWorkouts
+                ),
+                animated: true
+            )
+        }
     }
     @objc private func appleHealthDidChange() {
         // A historical selection performs its own sync before requesting the
@@ -651,8 +696,25 @@ final class TodayViewController: FeatureViewController {
     @objc private func sleepQualityPreferencesDidChange() { reloadContent() }
 }
 
+enum TodaySleepQualityPresentation {
+    static func score(
+        manualOverride: SleepManualOverride?,
+        breakdown: SleepQualityBreakdown?,
+        isRefreshingHistoricalDay: Bool
+    ) -> Double? {
+        if let manualQuality = manualOverride?.qualityScore {
+            return manualQuality
+        }
+        guard !isRefreshingHistoricalDay else { return nil }
+        return breakdown?.totalScore
+    }
+}
+
 @MainActor
 final class TodaySleepSummaryCard: PremiumCardView {
+    static let metricRingDiameter: CGFloat = 54
+    static let metricsHeight: CGFloat = 78
+
     private let symbolContainer = UIView()
     private let symbolView = UIImageView(image: UIImage(systemName: "moon.stars.fill"))
     private let titleLabel = UILabel()
@@ -661,6 +723,7 @@ final class TodaySleepSummaryCard: PremiumCardView {
     private let durationMetric = TodaySleepMetricView()
     private let regularityMetric = TodaySleepMetricView()
     private let interruptionsMetric = TodaySleepMetricView()
+    private let heartRateDropMetric = TodaySleepMetricView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -675,12 +738,12 @@ final class TodaySleepSummaryCard: PremiumCardView {
     func configure(
         entry: AppleHealthSleepDay?,
         breakdown: SleepQualityBreakdown?,
+        qualityScore: Double?,
         detail: String
     ) {
         titleLabel.text = L10n.text("wellness.sleep")
         detailLabel.text = detail
 
-        let qualityScore = entry?.qualityScore ?? breakdown?.totalScore
         qualityMetric.configure(
             title: L10n.text("today.sleep.metric.quality"),
             value: qualityScore,
@@ -725,12 +788,24 @@ final class TodaySleepSummaryCard: PremiumCardView {
             gradient: (WellnarioPalette.pink, WellnarioPalette.warning)
         )
 
+        let heartRateDropText = breakdown?.heartRateDropPercentage.map {
+            "\(AppleHealthUIFormatting.number($0, maximumFractionDigits: 1))%"
+        } ?? "—"
+        heartRateDropMetric.configure(
+            title: L10n.text("today.sleep.metric.heart_rate_drop"),
+            value: breakdown?.heartRateDropScore,
+            valueText: heartRateDropText,
+            gradient: (WellnarioPalette.orange, WellnarioPalette.danger),
+            valueTextScale: 0.90
+        )
+
         accessibilityLabel = titleLabel.text
         accessibilityValue = [
             metricAccessibilityValue(for: qualityMetric),
             metricAccessibilityValue(for: durationMetric),
             metricAccessibilityValue(for: regularityMetric),
             metricAccessibilityValue(for: interruptionsMetric),
+            metricAccessibilityValue(for: heartRateDropMetric),
             detail
         ].joined(separator: ". ")
     }
@@ -765,6 +840,12 @@ final class TodaySleepSummaryCard: PremiumCardView {
         detailLabel.lineBreakMode = .byTruncatingTail
         detailLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        qualityMetric.accessibilityIdentifier = "today.sleep.metric.quality"
+        durationMetric.accessibilityIdentifier = "today.sleep.metric.duration"
+        regularityMetric.accessibilityIdentifier = "today.sleep.metric.regularity"
+        interruptionsMetric.accessibilityIdentifier = "today.sleep.metric.interruptions"
+        heartRateDropMetric.accessibilityIdentifier = "today.sleep.metric.heart_rate_drop"
+
         let header = UIStackView(
             arrangedSubviews: [symbolContainer, titleLabel, UIView(), detailLabel],
             axis: .horizontal,
@@ -776,7 +857,8 @@ final class TodaySleepSummaryCard: PremiumCardView {
                 qualityMetric,
                 durationMetric,
                 regularityMetric,
-                interruptionsMetric
+                interruptionsMetric,
+                heartRateDropMetric
             ],
             axis: .horizontal,
             spacing: WellnarioSpacing.xxxSmall,
@@ -790,7 +872,7 @@ final class TodaySleepSummaryCard: PremiumCardView {
         )
         contentView.addForAutoLayout(content)
         content.pinEdges(to: contentView, insets: .all(WellnarioSpacing.xSmall))
-        metrics.heightAnchor.constraint(equalToConstant: 95).isActive = true
+        metrics.heightAnchor.constraint(equalToConstant: Self.metricsHeight).isActive = true
         isPressable = true
     }
 }
@@ -846,7 +928,9 @@ private final class TodaySleepMetricView: UIView {
         addForAutoLayout(stack)
         stack.pinEdges(to: self)
         NSLayoutConstraint.activate([
-            ring.widthAnchor.constraint(equalToConstant: 70),
+            ring.widthAnchor.constraint(
+                equalToConstant: TodaySleepSummaryCard.metricRingDiameter
+            ),
             ring.heightAnchor.constraint(equalTo: ring.widthAnchor),
             titleLabel.widthAnchor.constraint(equalTo: ring.widthAnchor)
         ])
@@ -874,7 +958,7 @@ private final class TodaySleepMetricRingView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let lineWidth: CGFloat = 7
+        let lineWidth: CGFloat = 5.5
         let radius = max(min(bounds.width, bounds.height) / 2 - lineWidth / 2 - 2, 0)
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
         let path = UIBezierPath(
@@ -914,7 +998,7 @@ private final class TodaySleepMetricRingView: UIView {
         isAccessibilityElement = false
         trackLayer.fillColor = UIColor.clear.cgColor
         trackLayer.lineCap = .round
-        trackLayer.lineWidth = 7
+        trackLayer.lineWidth = 5.5
         layer.addSublayer(trackLayer)
 
         gradientLayer.startPoint = CGPoint(x: 0, y: 0)
@@ -925,9 +1009,9 @@ private final class TodaySleepMetricRingView: UIView {
         progressMask.fillColor = UIColor.clear.cgColor
         progressMask.strokeColor = UIColor.black.cgColor
         progressMask.lineCap = .round
-        progressMask.lineWidth = 7
+        progressMask.lineWidth = 5.5
 
-        valueLabel.applyWellnarioStyle(.bodyBold, color: WellnarioPalette.textPrimary)
+        valueLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textPrimary)
         valueLabel.textAlignment = .center
         valueLabel.adjustsFontSizeToFitWidth = true
         valueLabel.minimumScaleFactor = 0.60
@@ -936,8 +1020,8 @@ private final class TodaySleepMetricRingView: UIView {
         NSLayoutConstraint.activate([
             valueLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
             valueLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            valueLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            valueLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+            valueLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 5),
+            valueLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -5)
         ])
         updateColors()
 
@@ -1210,7 +1294,7 @@ final class TodayStressSummaryCard: PremiumCardView {
     private let chart = WellnessTrendChartView()
     private var isSyncing = false
     private var timeline: AppleHealthStressTimeline?
-    private var sleepSession: AppleHealthSleepSession?
+    private var sleepSessions: [AppleHealthSleepSession] = []
     private var workouts: [AppleHealthWorkout] = []
 
     override init(frame: CGRect) {
@@ -1231,7 +1315,7 @@ final class TodayStressSummaryCard: PremiumCardView {
         isSyncing: Bool,
         tone: UIColor,
         timeline: AppleHealthStressTimeline?,
-        sleepSession: AppleHealthSleepSession?,
+        sleepSessions: [AppleHealthSleepSession],
         workouts: [AppleHealthWorkout]
     ) {
         titleLabel.text = title
@@ -1250,7 +1334,7 @@ final class TodayStressSummaryCard: PremiumCardView {
         currentLevelLabel.text = levelText
         currentLevelLabel.isHidden = levelText == nil
         self.timeline = timeline
-        self.sleepSession = sleepSession
+        self.sleepSessions = sleepSessions
         self.workouts = workouts
         updateTimelineGraph()
         accessibilityLabel = title
@@ -1333,13 +1417,13 @@ final class TodayStressSummaryCard: PremiumCardView {
             arrangedSubviews: [symbolContainer, titleLabel],
             axis: .horizontal,
             spacing: 7,
-            alignment: .top
+            alignment: .center
         )
         let heading = UIStackView(
             arrangedSubviews: [titleLeading, UIView(), currentScoreStack],
             axis: .horizontal,
             spacing: 7,
-            alignment: .top
+            alignment: .center
         )
         let stack = UIStackView(
             arrangedSubviews: [heading, chart],
@@ -1379,105 +1463,131 @@ final class TodayStressSummaryCard: PremiumCardView {
     private func timelineAxisLabels(
         for timeline: AppleHealthStressTimeline?
     ) -> [WellnessTrendXAxisLabel] {
-        guard let start = timeline?.points.first?.date,
-              let end = timeline?.points.last?.date,
-              end > start else {
-            return []
-        }
-        let middle = start.addingTimeInterval(end.timeIntervalSince(start) / 2)
-        return [
-            WellnessTrendXAxisLabel(position: 0, text: WellnarioFormatters.time(start)),
-            WellnessTrendXAxisLabel(position: 0.5, text: WellnarioFormatters.time(middle)),
-            WellnessTrendXAxisLabel(position: 1, text: WellnarioFormatters.time(end))
-        ]
+        stressTimelineAxisLabels(for: timeline)
     }
 
     private func normalizedPositions(for points: [AppleHealthStressTimelinePoint]) -> [CGFloat] {
-        guard let start = points.first?.date,
-              let end = points.last?.date,
-              end > start else {
-            return points.indices.map { _ in 0 }
-        }
-        let duration = end.timeIntervalSince(start)
-        return points.map {
-            CGFloat(min(max($0.date.timeIntervalSince(start) / duration, 0), 1))
-        }
+        stressNormalizedPositions(for: points)
     }
 
     private func timelineHighlights(
         for timeline: AppleHealthStressTimeline?
     ) -> [WellnessTrendIntervalHighlight] {
-        guard let timeline,
-              let start = timeline.points.first?.date,
-              let end = timeline.points.last?.date,
-              end > start else {
-            return []
-        }
-
-        func position(_ date: Date) -> CGFloat {
-            CGFloat(min(max(date.timeIntervalSince(start) / end.timeIntervalSince(start), 0), 1))
-        }
-        func highlight(
-            start intervalStart: Date,
-            end intervalEnd: Date,
-            color: UIColor,
-            symbolName: String
-        ) -> WellnessTrendIntervalHighlight? {
-            guard intervalEnd >= start, intervalStart <= end else { return nil }
-            return WellnessTrendIntervalHighlight(
-                startPosition: position(max(intervalStart, start)),
-                endPosition: position(min(intervalEnd, end)),
-                color: color,
-                symbolName: symbolName
-            )
-        }
-
-        var highlights: [WellnessTrendIntervalHighlight] = []
-        if let sleepSession,
-           let sleep = highlight(
-            start: sleepSession.startDate,
-            end: sleepSession.endDate,
-            color: WellnarioPalette.violet,
-            symbolName: "bed.double.fill"
-           ) {
-            highlights.append(sleep)
-        }
-        highlights.append(contentsOf: workouts.compactMap {
-            highlight(
-                start: $0.startDate,
-                end: $0.endDate,
-                color: WellnarioPalette.fuchsia,
-                symbolName: $0.kind == .strength
-                    ? "figure.strengthtraining.traditional"
-                    : "figure.run"
-            )
-        })
-        return highlights
+        stressTimelineHighlights(for: timeline, sleepSessions: sleepSessions, workouts: workouts)
     }
 
     private func stressColor(for score: Double) -> UIColor {
-        let progress = min(max(score / 100, 0), 1)
-        let cyan = WellnarioPalette.cyan.resolvedColor(with: traitCollection)
-        let red = WellnarioPalette.danger.resolvedColor(with: traitCollection)
-        var cyanRed: CGFloat = 0
-        var cyanGreen: CGFloat = 0
-        var cyanBlue: CGFloat = 0
-        var cyanAlpha: CGFloat = 0
-        var redRed: CGFloat = 0
-        var redGreen: CGFloat = 0
-        var redBlue: CGFloat = 0
-        var redAlpha: CGFloat = 0
-        guard cyan.getRed(&cyanRed, green: &cyanGreen, blue: &cyanBlue, alpha: &cyanAlpha),
-              red.getRed(&redRed, green: &redGreen, blue: &redBlue, alpha: &redAlpha) else {
-            return score < 50 ? WellnarioPalette.cyan : WellnarioPalette.danger
-        }
-        return UIColor(
-            red: cyanRed + (redRed - cyanRed) * progress,
-            green: cyanGreen + (redGreen - cyanGreen) * progress,
-            blue: cyanBlue + (redBlue - cyanBlue) * progress,
-            alpha: cyanAlpha + (redAlpha - cyanAlpha) * progress
+        calculateStressColor(for: score, traitCollection: traitCollection)
+    }
+}
+
+@MainActor
+fileprivate func stressTimelineAxisLabels(
+    for timeline: AppleHealthStressTimeline?
+) -> [WellnessTrendXAxisLabel] {
+    guard let start = timeline?.points.first?.date,
+          let end = timeline?.points.last?.date,
+          end > start else {
+        return []
+    }
+    let middle = start.addingTimeInterval(end.timeIntervalSince(start) / 2)
+    return [
+        WellnessTrendXAxisLabel(position: 0, text: WellnarioFormatters.time(start)),
+        WellnessTrendXAxisLabel(position: 0.5, text: WellnarioFormatters.time(middle)),
+        WellnessTrendXAxisLabel(position: 1, text: WellnarioFormatters.time(end))
+    ]
+}
+
+@MainActor
+fileprivate func stressNormalizedPositions(for points: [AppleHealthStressTimelinePoint]) -> [CGFloat] {
+    guard let start = points.first?.date,
+          let end = points.last?.date,
+          end > start else {
+        return points.indices.map { _ in 0 }
+    }
+    let duration = end.timeIntervalSince(start)
+    return points.map {
+        CGFloat(min(max($0.date.timeIntervalSince(start) / duration, 0), 1))
+    }
+}
+
+@MainActor
+func stressTimelineHighlights(
+    for timeline: AppleHealthStressTimeline?,
+    sleepSessions: [AppleHealthSleepSession],
+    workouts: [AppleHealthWorkout]
+) -> [WellnessTrendIntervalHighlight] {
+    guard let timeline,
+          let start = timeline.points.first?.date,
+          let end = timeline.points.last?.date,
+          end > start else {
+        return []
+    }
+
+    func position(_ date: Date) -> CGFloat {
+        CGFloat(min(max(date.timeIntervalSince(start) / end.timeIntervalSince(start), 0), 1))
+    }
+    func highlight(
+        start intervalStart: Date,
+        end intervalEnd: Date,
+        color: UIColor,
+        symbolName: String
+    ) -> WellnessTrendIntervalHighlight? {
+        guard intervalEnd >= start, intervalStart <= end else { return nil }
+        return WellnessTrendIntervalHighlight(
+            startPosition: position(max(intervalStart, start)),
+            endPosition: position(min(intervalEnd, end)),
+            color: color,
+            symbolName: symbolName
         )
     }
+
+    var highlights: [WellnessTrendIntervalHighlight] = []
+    highlights.append(contentsOf: sleepSessions.compactMap {
+        highlight(
+            start: $0.startDate,
+            end: $0.endDate,
+            color: WellnarioPalette.violet,
+            symbolName: "bed.double.fill"
+        )
+    })
+    highlights.append(contentsOf: workouts.compactMap {
+        highlight(
+            start: $0.startDate,
+            end: $0.endDate,
+            color: WellnarioPalette.fuchsia,
+            symbolName: $0.kind == .strength
+                ? "figure.strengthtraining.traditional"
+                : "figure.run"
+        )
+    })
+    return highlights
+}
+
+@MainActor
+fileprivate func calculateStressColor(for score: Double, traitCollection: UITraitCollection? = nil) -> UIColor {
+    let progress = min(max(score / 100, 0), 1)
+    let tc = traitCollection ?? UITraitCollection.current
+    let cyan = WellnarioPalette.cyan.resolvedColor(with: tc)
+    let red = WellnarioPalette.danger.resolvedColor(with: tc)
+    var cyanRed: CGFloat = 0
+    var cyanGreen: CGFloat = 0
+    var cyanBlue: CGFloat = 0
+    var cyanAlpha: CGFloat = 0
+    var redRed: CGFloat = 0
+    var redGreen: CGFloat = 0
+    var redBlue: CGFloat = 0
+    var redAlpha: CGFloat = 0
+    guard cyan.getRed(&cyanRed, green: &cyanGreen, blue: &cyanBlue, alpha: &cyanAlpha),
+          red.getRed(&redRed, green: &redGreen, blue: &redBlue, alpha: &redAlpha) else {
+        return score < 50 ? WellnarioPalette.cyan : WellnarioPalette.danger
+    }
+    return UIColor(
+        red: cyanRed + (redRed - cyanRed) * progress,
+        green: cyanGreen + (redGreen - cyanGreen) * progress,
+        blue: cyanBlue + (redBlue - cyanBlue) * progress,
+        alpha: cyanAlpha + (redAlpha - cyanAlpha) * progress
+    )
 }
 
 @MainActor
@@ -1491,17 +1601,26 @@ final class StressDetailsViewController: WellnessScrollViewController {
     private let fallbackScore: Double?
     private let fallbackDate: Date?
     private let timing: Timing
+    private let timeline: AppleHealthStressTimeline?
+    private let sleepSessions: [AppleHealthSleepSession]
+    private let workouts: [AppleHealthWorkout]
 
     init(
         details: AppleHealthStressCalculationDetails?,
         fallbackScore: Double? = nil,
         fallbackDate: Date? = nil,
-        timing: Timing = .current
+        timing: Timing = .current,
+        timeline: AppleHealthStressTimeline? = nil,
+        sleepSessions: [AppleHealthSleepSession] = [],
+        workouts: [AppleHealthWorkout] = []
     ) {
         self.details = details
         self.fallbackScore = fallbackScore
         self.fallbackDate = fallbackDate
         self.timing = timing
+        self.timeline = timeline
+        self.sleepSessions = sleepSessions
+        self.workouts = workouts
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -1525,9 +1644,58 @@ final class StressDetailsViewController: WellnessScrollViewController {
 
     private func buildContent() {
         contentStack.addArrangedSubview(makeSummaryCard())
+        if let chartCard = makeChartCard() {
+            contentStack.addArrangedSubview(chartCard)
+        }
         guard let details else { return }
         contentStack.addArrangedSubview(makeMetricCard(details))
         contentStack.addArrangedSubview(makeMethodCard(details))
+    }
+
+    private func makeChartCard() -> PremiumCardView? {
+        guard let timeline, !timeline.points.isEmpty else { return nil }
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = WellnarioSpacing.small
+
+        let titleLabel = UILabel()
+        titleLabel.applyWellnarioStyle(.cardTitle, color: WellnarioPalette.textPrimary)
+        titleLabel.text = L10n.text("apple_health.stress.timeline.title")
+
+        let chart = WellnessTrendChartView()
+        chart.fixedBounds = WellnessTrendBounds(lower: 0, upper: 100)
+        chart.lineColor = WellnarioPalette.warning
+        chart.referenceLine = .average
+        chart.averageTitle = ""
+        chart.averageColor = WellnarioPalette.cyan
+        chart.showsAverageValueOnYAxis = true
+        chart.smoothingWindow = 1
+        chart.isUserInteractionEnabled = true
+        chart.emptyText = L10n.text("apple_health.stress.timeline.empty")
+        chart.valueFormatter = { AppleHealthUIFormatting.number($0) }
+
+        let points = timeline.points
+        chart.values = points.map(\.score)
+        chart.lineColors = points.map { point in
+            point.score.map { calculateStressColor(for: $0, traitCollection: traitCollection) }
+        }
+        chart.xPositions = stressNormalizedPositions(for: points)
+        chart.intervalHighlights = stressTimelineHighlights(
+            for: timeline,
+            sleepSessions: sleepSessions,
+            workouts: workouts
+        )
+        chart.selectionLabels = points.map { WellnarioFormatters.time($0.date) }
+        chart.labels = []
+        chart.xAxisLabels = stressTimelineAxisLabels(for: timeline)
+
+        chart.heightAnchor.constraint(equalToConstant: 180).isActive = true
+
+        stack.addArrangedSubview(titleLabel)
+        stack.addArrangedSubview(chart)
+
+        return makeCard(containing: stack, identifier: "today.stress.details.chart")
     }
 
     private func makeSummaryCard() -> PremiumCardView {
@@ -1542,7 +1710,10 @@ final class StressDetailsViewController: WellnessScrollViewController {
         let scoreLabel = UILabel()
         scoreLabel.applyWellnarioStyle(.metric, color: WellnarioPalette.warning)
         scoreLabel.textAlignment = .center
-        let score = details?.score ?? fallbackScore
+        let latestVisiblePoint = timing == .current
+            ? timeline?.latestScoredPoint
+            : nil
+        let score = latestVisiblePoint?.score ?? details?.score ?? fallbackScore
         scoreLabel.text = score.map {
             L10n.text("apple_health.stress.score.value", Int($0.rounded()))
         } ?? "—"
@@ -1559,7 +1730,9 @@ final class StressDetailsViewController: WellnessScrollViewController {
                 levelLabel.text = L10n.text(
                     "apple_health.stress.details.level",
                     L10n.text(AppleHealthStressScoreCalculator.levelLocalizationKey(for: score)),
-                    WellnarioFormatters.numericDateAndTime(details?.date ?? fallbackDate ?? Date())
+                    WellnarioFormatters.numericDateAndTime(
+                        latestVisiblePoint?.date ?? details?.date ?? fallbackDate ?? Date()
+                    )
                 )
             }
         } else {
@@ -1589,7 +1762,11 @@ final class StressDetailsViewController: WellnessScrollViewController {
         ))
         stack.addArrangedSubview(divider())
         stack.addArrangedSubview(metricRow(
-            title: L10n.text("apple_health.stress.details.metric.resting_hr"),
+            title: L10n.text(
+                details.usesInstantaneousHeartRate == true
+                    ? "apple_health.stress.details.metric.heart_rate"
+                    : "apple_health.stress.details.metric.resting_hr"
+            ),
             metric: details.restingHeartRate,
             unit: L10n.text("apple_health.unit.bpm")
         ))
@@ -1690,16 +1867,23 @@ final class StressDetailsViewController: WellnessScrollViewController {
             AppleHealthStressScoreCalculator.baselineDays,
             AppleHealthStressScoreCalculator.minimumHistoricalSamples
         )
+        var rows: [UIView] = [
+            cardTitle(L10n.text("apple_health.stress.details.method.title")),
+            explanatoryLabel(body),
+            detailLabel(L10n.text(
+                details.usesSleepCalibration == true
+                    ? "apple_health.stress.details.formula.sleep"
+                    : "apple_health.stress.details.formula"
+            )),
+            detailLabel(L10n.text("apple_health.stress.details.composite", composite))
+        ]
+        if details.usesSleepCalibration != true {
+            rows.append(detailLabel(compositeBaseline))
+            rows.append(detailLabel(L10n.text("apple_health.stress.details.composite.z", z)))
+        }
+        rows.append(detailLabel(activity))
         let stack = UIStackView(
-            arrangedSubviews: [
-                cardTitle(L10n.text("apple_health.stress.details.method.title")),
-                explanatoryLabel(body),
-                detailLabel(L10n.text("apple_health.stress.details.formula")),
-                detailLabel(L10n.text("apple_health.stress.details.composite", composite)),
-                detailLabel(compositeBaseline),
-                detailLabel(L10n.text("apple_health.stress.details.composite.z", z)),
-                detailLabel(activity)
-            ],
+            arrangedSubviews: rows,
             axis: .vertical,
             spacing: WellnarioSpacing.small
         )
@@ -1808,5 +1992,358 @@ extension TodayViewController: UIDocumentPickerDelegate {
         )
         alert.addAction(UIAlertAction(title: L10n.Common.done, style: .default))
         present(alert, animated: true)
+    }
+}
+
+
+// MARK: - Recovery Components
+
+private final class RecoveryScoreSegmentBarView: UIView {
+    private static let segmentCount = 12
+    private let segments = (0..<RecoveryScoreSegmentBarView.segmentCount).map { _ in UIView() }
+    private let stack = UIStackView()
+    private var activeSegmentCount = 0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setUp()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setUp()
+    }
+
+    func configure(score: Double?) {
+        guard let score else {
+            activeSegmentCount = 0
+            updateColors()
+            return
+        }
+        let normalized = min(max(score / 100, 0), 1)
+        activeSegmentCount = Int(
+            (normalized * Double(Self.segmentCount)).rounded(.up)
+        )
+        updateColors()
+    }
+
+    private func setUp() {
+        isAccessibilityElement = false
+        stack.axis = .horizontal
+        stack.spacing = 2
+        stack.distribution = .fillEqually
+        segments.forEach { segment in
+            segment.applyContinuousCorners(2)
+            stack.addArrangedSubview(segment)
+        }
+        addForAutoLayout(stack)
+        stack.pinEdges(to: self)
+        updateColors()
+
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+            (self: RecoveryScoreSegmentBarView, _: UITraitCollection) in
+            self.updateColors()
+        }
+    }
+
+    private func updateColors() {
+        for (index, segment) in segments.enumerated() {
+            if index < activeSegmentCount {
+                segment.backgroundColor = color(for: index)
+            } else {
+                segment.backgroundColor = WellnarioPalette.hairline
+                    .resolvedColor(with: traitCollection)
+                    .withAlphaComponent(0.55)
+            }
+        }
+    }
+
+    private func color(for index: Int) -> UIColor {
+        let progress = CGFloat(index) / CGFloat(max(Self.segmentCount - 1, 1))
+        if progress <= 0.5 {
+            return interpolate(
+                WellnarioPalette.danger,
+                WellnarioPalette.warning,
+                progress: progress * 2
+            )
+        }
+        return interpolate(
+            WellnarioPalette.warning,
+            WellnarioPalette.success,
+            progress: (progress - 0.5) * 2
+        )
+    }
+
+    private func interpolate(_ start: UIColor, _ end: UIColor, progress: CGFloat) -> UIColor {
+        let resolvedStart = start.resolvedColor(with: traitCollection)
+        let resolvedEnd = end.resolvedColor(with: traitCollection)
+        var startRed: CGFloat = 0
+        var startGreen: CGFloat = 0
+        var startBlue: CGFloat = 0
+        var startAlpha: CGFloat = 0
+        var endRed: CGFloat = 0
+        var endGreen: CGFloat = 0
+        var endBlue: CGFloat = 0
+        var endAlpha: CGFloat = 0
+        guard resolvedStart.getRed(&startRed, green: &startGreen, blue: &startBlue, alpha: &startAlpha),
+              resolvedEnd.getRed(&endRed, green: &endGreen, blue: &endBlue, alpha: &endAlpha) else {
+            return progress < 0.5 ? start : end
+        }
+        let t = min(max(progress, 0), 1)
+        return UIColor(
+            red: startRed + (endRed - startRed) * t,
+            green: startGreen + (endGreen - startGreen) * t,
+            blue: startBlue + (endBlue - startBlue) * t,
+            alpha: startAlpha + (endAlpha - startAlpha) * t
+        )
+    }
+}
+
+@MainActor
+final class TodayRecoverySummaryCard: PremiumCardView {
+    let symbolContainer = UIView()
+    private let symbolView = UIImageView()
+    let titleLabel = UILabel()
+    private let currentScoreBar = RecoveryScoreSegmentBarView()
+    private let currentScoreValueLabel = UILabel()
+    private let currentScoreRow = UIStackView()
+    private let currentLevelLabel = UILabel()
+    private let currentScoreStack = UIStackView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setUp()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setUp()
+    }
+
+    func configure(
+        title: String,
+        symbolName: String,
+        currentScore: Double?,
+        tone: UIColor
+    ) {
+        titleLabel.text = title
+        symbolView.image = UIImage(systemName: symbolName)
+        symbolView.tintColor = tone
+        symbolContainer.backgroundColor = tone.withAlphaComponent(0.14)
+        currentScoreBar.configure(score: currentScore)
+        currentScoreValueLabel.text = currentScore.map {
+            AppleHealthUIFormatting.number($0)
+        } ?? "—"
+        
+        let levelText: String
+        if let score = currentScore {
+            if score < 40 {
+                levelText = L10n.text("apple_health.recovery.level.low")
+            } else if score < 70 {
+                levelText = L10n.text("apple_health.recovery.level.moderate")
+            } else {
+                levelText = L10n.text("apple_health.recovery.level.high")
+            }
+        } else {
+            levelText = L10n.text("wellness.no_data")
+        }
+        currentLevelLabel.text = levelText
+        currentLevelLabel.isHidden = false
+        
+        accessibilityLabel = title
+        let scoreText = currentScore.map { AppleHealthUIFormatting.number($0) }
+        accessibilityValue = [scoreText, levelText]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+        accessibilityTraits = [.button]
+        isPressable = true
+    }
+
+    private func setUp() {
+        symbolContainer.applyContinuousCorners(11)
+        NSLayoutConstraint.activate([
+            symbolContainer.widthAnchor.constraint(equalToConstant: 34),
+            symbolContainer.heightAnchor.constraint(equalTo: symbolContainer.widthAnchor)
+        ])
+
+        symbolView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 15,
+            weight: .semibold
+        )
+        symbolView.contentMode = .scaleAspectFit
+        symbolContainer.addForAutoLayout(symbolView)
+        NSLayoutConstraint.activate([
+            symbolView.centerXAnchor.constraint(equalTo: symbolContainer.centerXAnchor),
+            symbolView.centerYAnchor.constraint(equalTo: symbolContainer.centerYAnchor)
+        ])
+
+        titleLabel.applyWellnarioStyle(.summaryTitle, color: WellnarioPalette.textPrimary)
+        titleLabel.numberOfLines = 1
+        titleLabel.adjustsFontSizeToFitWidth = true
+        titleLabel.minimumScaleFactor = 0.8
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        NSLayoutConstraint.activate([
+            currentScoreBar.widthAnchor.constraint(equalToConstant: 82),
+            currentScoreBar.heightAnchor.constraint(equalToConstant: 17)
+        ])
+
+        currentScoreValueLabel.applyWellnarioStyle(.bodyBold, color: WellnarioPalette.textPrimary)
+        currentScoreValueLabel.textAlignment = .right
+        currentScoreValueLabel.setContentHuggingPriority(.required, for: .horizontal)
+        currentScoreValueLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        currentLevelLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
+        currentLevelLabel.textAlignment = .left
+        currentLevelLabel.numberOfLines = 1
+        currentLevelLabel.adjustsFontSizeToFitWidth = true
+        currentLevelLabel.minimumScaleFactor = 0.75
+
+        currentScoreStack.axis = .vertical
+        currentScoreStack.spacing = WellnarioSpacing.xxxSmall
+        currentScoreStack.alignment = .leading
+        
+        currentScoreRow.axis = .horizontal
+        currentScoreRow.spacing = WellnarioSpacing.xxxSmall
+        currentScoreRow.alignment = .center
+        currentScoreRow.addArrangedSubview(currentScoreBar)
+        currentScoreRow.addArrangedSubview(currentScoreValueLabel)
+        
+        currentScoreStack.addArrangedSubview(currentScoreRow)
+        currentScoreStack.addArrangedSubview(currentLevelLabel)
+
+        let titleRow = UIStackView(
+            arrangedSubviews: [symbolContainer, titleLabel, UIView()],
+            axis: .horizontal,
+            spacing: 7,
+            alignment: .center
+        )
+        
+        let stack = UIStackView(
+            arrangedSubviews: [titleRow, currentScoreStack],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xSmall
+        )
+        
+        contentView.addForAutoLayout(stack)
+        stack.pinEdges(to: contentView, insets: .all(WellnarioSpacing.xSmall))
+    }
+}
+
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
+
+@MainActor
+final class RecoveryDetailViewController: WellnessScrollViewController {
+    private let score: Double?
+    private let descriptionLabel = UILabel()
+    private let aiAdviceTitleLabel = UILabel()
+    private let aiAdviceBodyLabel = UILabel()
+    private let aiContainer = UIView()
+    private let aiActivityIndicator = UIActivityIndicatorView(style: .medium)
+
+    init(score: Double?) {
+        self.score = score
+        super.init(nibName: nil, bundle: nil)
+        title = L10n.text("wellness.recovery")
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = WellnarioPalette.background.resolvedColor(with: traitCollection)
+        setUp()
+        generateAIAdvice()
+    }
+
+    private func setUp() {
+        descriptionLabel.applyWellnarioStyle(.body, color: WellnarioPalette.textSecondary)
+        descriptionLabel.numberOfLines = 0
+        descriptionLabel.text = L10n.text("apple_health.recovery.explanation.body")
+
+        aiAdviceTitleLabel.applyWellnarioStyle(.bodyBold, color: WellnarioPalette.textPrimary)
+        aiAdviceTitleLabel.text = L10n.text("health.analytics.import.method.foundation_models") + " Advice"
+        aiAdviceTitleLabel.numberOfLines = 1
+
+        aiAdviceBodyLabel.applyWellnarioStyle(.body, color: WellnarioPalette.textPrimary)
+        aiAdviceBodyLabel.numberOfLines = 0
+        aiAdviceBodyLabel.text = "Loading advice..."
+
+        aiContainer.backgroundColor = WellnarioPalette.surfaceElevated.resolvedColor(with: traitCollection)
+        aiContainer.applyContinuousCorners(12)
+        
+        let aiStack = UIStackView(arrangedSubviews: [aiAdviceTitleLabel, aiAdviceBodyLabel])
+        aiStack.axis = .vertical
+        aiStack.spacing = WellnarioSpacing.small
+        
+        aiContainer.addForAutoLayout(aiStack)
+        aiStack.pinEdges(to: aiContainer, insets: .all(WellnarioSpacing.medium))
+        
+        aiContainer.addForAutoLayout(aiActivityIndicator)
+        NSLayoutConstraint.activate([
+            aiActivityIndicator.centerYAnchor.constraint(equalTo: aiAdviceTitleLabel.centerYAnchor),
+            aiActivityIndicator.trailingAnchor.constraint(equalTo: aiContainer.trailingAnchor, constant: -WellnarioSpacing.medium)
+        ])
+
+        let mainStack = UIStackView(arrangedSubviews: [descriptionLabel, aiContainer])
+        mainStack.axis = .vertical
+        mainStack.spacing = WellnarioSpacing.large
+        
+        contentStack.addArrangedSubview(mainStack)
+        
+        // Hide AI container if FoundationModels is not available
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            aiContainer.isHidden = false
+        } else {
+            aiContainer.isHidden = true
+        }
+        #else
+        aiContainer.isHidden = true
+        #endif
+    }
+
+    private func generateAIAdvice() {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            guard let score = score else {
+                aiAdviceBodyLabel.text = L10n.text("apple_health.recovery.no_data")
+                return
+            }
+            aiActivityIndicator.startAnimating()
+            
+            Task {
+                do {
+                    let model = SystemLanguageModel.default
+                    let langCode = Locale.current.language.languageCode?.identifier ?? "en"
+                    let session = LanguageModelSession(
+                        model: model,
+                        instructions: """
+                        You are a world-class wellness coach giving direct, actionable advice to a user.
+                        Their current physiological recovery score is \(Int(score))/100.
+                        Provide exactly 1 or 2 sentences of direct advice addressing the user (e.g., "You should...").
+                        - Score < 40: Emphasize rest, active recovery, and very light activity.
+                        - Score 40-70: Suggest moderate training but advise them to pay attention to fatigue.
+                        - Score > 70: Encourage intense workouts as their body is fully primed for performance.
+
+                        Respond ONLY with the final advice to the user in the language corresponding to the locale code '\(langCode)'. Do not include quotes, greetings, explanations of the score, or descriptions of what you are doing. Make it sound natural, direct, and encouraging.
+                        """
+                    )
+                    
+                    let prompt = "My recovery score is \(Int(score)). What should I do today?"
+                    let responseText = try await session.respond(to: prompt)
+                    self.aiAdviceBodyLabel.text = responseText.content
+                } catch {
+                    self.aiAdviceBodyLabel.text = "Could not generate advice at this time."
+                }
+                self.aiActivityIndicator.stopAnimating()
+            }
+        }
+        #endif
     }
 }

@@ -19,6 +19,33 @@ struct SleepFactorLogEntry: Codable, Hashable, Sendable {
     }
 }
 
+/// Manual binary factors distinguish an explicit absence from a day that the
+/// person has not logged. The latter intentionally has no stored entry.
+enum SleepFactorDiscreteState: String, CaseIterable, Equatable, Sendable {
+    case absent
+    case unspecified
+    case present
+
+    init(entry: SleepFactorLogEntry?) {
+        guard let entry else {
+            self = .unspecified
+            return
+        }
+        // Entries written before the three-state control did not include a
+        // value. They represented a selected factor, so preserve them as
+        // explicit presences when decoding the existing local log.
+        self = entry.numericValue == 0 ? .absent : .present
+    }
+
+    var storedValue: Double? {
+        switch self {
+        case .absent: return 0
+        case .unspecified: return nil
+        case .present: return 1
+        }
+    }
+}
+
 @MainActor
 enum WellnessLocalStore {
     private static let customFactorsKey = "wellnario.sleep.customFactors"
@@ -139,8 +166,18 @@ enum WellnessLocalStore {
     }
 
     static func removeCustomSleepFactor(_ name: String) {
+        if let def = allSleepFactorDefinitions().first(where: { $0.title.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
+            setSleepFactor(def.id, enabled: false)
+        }
         let definitions = customSleepFactorDefinitions.filter {
             $0.title.localizedCaseInsensitiveCompare(name) != .orderedSame
+        }
+        persistCustomDefinitions(definitions)
+    }
+
+    static func clearOuraFactors() {
+        let definitions = customSleepFactorDefinitions.filter {
+            $0.category != .oura
         }
         persistCustomDefinitions(definitions)
     }
@@ -156,6 +193,32 @@ enum WellnessLocalStore {
         }
     }
 
+    static func sleepFactorDiscreteState(
+        for definition: SleepFactorDefinition,
+        on date: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> SleepFactorDiscreteState {
+        SleepFactorDiscreteState(entry: sleepFactorEntry(
+            for: definition,
+            on: date,
+            calendar: calendar
+        ))
+    }
+
+    static func setSleepFactorDiscreteState(
+        _ state: SleepFactorDiscreteState,
+        for definition: SleepFactorDefinition,
+        on date: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) {
+        setSleepFactorValue(
+            state.storedValue,
+            for: definition,
+            on: date,
+            calendar: calendar
+        )
+    }
+
     static func setSleepFactorValue(
         _ value: Double?,
         for definition: SleepFactorDefinition,
@@ -167,21 +230,25 @@ enum WellnessLocalStore {
             !(calendar.isDate($0.date, inSameDayAs: startOfDay)
                 && entry($0, matches: definition))
         }
-        if definition.valueKind == .discrete {
-            if value != nil {
+        switch definition.valueKind {
+        case .discrete:
+            if let value {
                 log.append(SleepFactorLogEntry(
                     date: startOfDay,
                     factor: definition.title,
-                    factorID: definition.id
+                    factorID: definition.id,
+                    numericValue: value > 0 ? 1 : 0
                 ))
             }
-        } else if let value, value.isFinite {
-            log.append(SleepFactorLogEntry(
-                date: startOfDay,
-                factor: definition.title,
-                factorID: definition.id,
-                numericValue: value
-            ))
+        case .numeric:
+            if let value, value.isFinite {
+                log.append(SleepFactorLogEntry(
+                    date: startOfDay,
+                    factor: definition.title,
+                    factorID: definition.id,
+                    numericValue: value
+                ))
+            }
         }
         persistSleepFactorLog(log)
         refreshLastSleepFactorCache(log: log, changedDate: startOfDay, calendar: calendar)
@@ -260,6 +327,36 @@ enum WellnessLocalStore {
         UserDefaults.standard.set(sorted.map(\.title), forKey: customFactorsKey)
     }
 
+    static func getOrCreateOuraFactor(for tagName: String) -> SleepFactorDefinition {
+        let normalized = tagName.trimmingCharacters(in: .whitespacesAndNewlines).capitalized
+        if let existing = allSleepFactorDefinitions().first(where: {
+            $0.title.localizedCaseInsensitiveCompare(normalized) == .orderedSame
+        }) {
+            return existing
+        }
+        
+        let safeSlug = normalized.folding(options: .diacriticInsensitive, locale: .current)
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]", with: "_", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        let deterministicID = "oura.\(safeSlug.isEmpty ? UUID().uuidString.lowercased() : safeSlug)"
+        
+        let newDefinition = SleepFactorDefinition(
+            id: deterministicID,
+            category: .oura,
+            title: normalized,
+            valueKind: .discrete,
+            source: .automatic,
+            symbolName: "tag.fill",
+            analysisStep: 1,
+            analysisStepLabel: ""
+        )
+        var definitions = customSleepFactorDefinitions
+        definitions.append(newDefinition)
+        persistCustomDefinitions(definitions)
+        return newDefinition
+    }
+
     private static func refreshLastSleepFactorCache(
         log: [SleepFactorLogEntry],
         changedDate: Date,
@@ -267,13 +364,22 @@ enum WellnessLocalStore {
     ) {
         guard calendar.isDateInToday(changedDate) else { return }
         let todayEntries = log.filter { calendar.isDateInToday($0.date) }
-        if let last = todayEntries.last {
+        if let last = todayEntries.last(where: shouldAppearAsLastLoggedFactor) {
             UserDefaults.standard.set(last.factor, forKey: lastSleepFactorKey)
             UserDefaults.standard.set(Date(), forKey: lastSleepFactorDateKey)
         } else {
             UserDefaults.standard.removeObject(forKey: lastSleepFactorKey)
             UserDefaults.standard.removeObject(forKey: lastSleepFactorDateKey)
         }
+    }
+
+    private static func shouldAppearAsLastLoggedFactor(_ entry: SleepFactorLogEntry) -> Bool {
+        guard let factorID = entry.factorID,
+              let definition = SleepFactorCatalog.definition(id: factorID),
+              case .discrete = definition.valueKind else {
+            return true
+        }
+        return SleepFactorDiscreteState(entry: entry) == .present
     }
 
     private static func legacyCustomFactorID(for name: String) -> String {

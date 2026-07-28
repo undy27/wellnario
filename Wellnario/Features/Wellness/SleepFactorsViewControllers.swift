@@ -197,18 +197,15 @@ final class SleepFactorsViewController: WellnessScrollViewController {
             spacing: WellnarioSpacing.small,
             alignment: .center
         )
-        let button = UIButton(type: .system)
-        button.accessibilityIdentifier = identifier
-        button.accessibilityLabel = title
-        button.accessibilityHint = body
-        button.addAction(UIAction { _ in action() }, for: .touchUpInside)
-        button.addForAutoLayout(row)
-        row.pinEdges(to: button, insets: .all(WellnarioSpacing.cardPadding))
-        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 76).isActive = true
-
         let card = PremiumCardView()
-        card.contentView.addForAutoLayout(button)
-        button.pinEdges(to: card.contentView)
+        card.isPressable = true
+        card.accessibilityIdentifier = identifier
+        card.accessibilityLabel = title
+        card.accessibilityHint = body
+        card.contentView.addForAutoLayout(row)
+        row.pinEdges(to: card.contentView, insets: .all(WellnarioSpacing.cardPadding))
+        card.heightAnchor.constraint(greaterThanOrEqualToConstant: 76).isActive = true
+        card.addAction(UIAction { _ in action() }, for: .touchUpInside)
         return card
     }
 }
@@ -245,6 +242,7 @@ final class SleepFactorConfigurationViewController: UIViewController {
 
         tableView.backgroundColor = .clear
         tableView.tintColor = WellnarioPalette.fuchsia
+        tableView.accessibilityIdentifier = "sleep.factors.configure.table"
         tableView.dataSource = self
         tableView.delegate = self
         tableView.rowHeight = UITableView.automaticDimension
@@ -270,6 +268,9 @@ final class SleepFactorConfigurationViewController: UIViewController {
     }
 
     private var definitions: [SleepFactorDefinition] {
+        // Configuration must keep disabled factors visible so they can be
+        // re-enabled. Filtering them out also changed the row count while a
+        // selected row was being reloaded, which made UITableView crash.
         WellnessLocalStore.allSleepFactorDefinitions(repository: repository).filter {
             $0.category == selectedCategory
         }
@@ -345,7 +346,7 @@ extension SleepFactorConfigurationViewController: UITableViewDataSource, UITable
     }
 
     func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
-        selectedCategory == .custom
+        selectedCategory == .custom || selectedCategory == .oura
     }
 
     func tableView(
@@ -447,9 +448,9 @@ final class SleepFactorDailyLogViewController: WellnessScrollViewController {
     private let appleHealthService: AppleHealthSyncing?
     private let repository: WellnarioRepositoryProtocol?
     private let datePicker = UIDatePicker()
-    private let tabs = SleepFactorCategoryTabsView()
+    private let tabs = SleepFactorCategoryTabsView(selectedCategory: .vitalState)
     private let calendar = Calendar.autoupdatingCurrent
-    private var selectedCategory = SleepFactorCategory.automatic
+    private var selectedCategory = SleepFactorCategory.vitalState
 
     init(
         appleHealthService: AppleHealthSyncing? = nil,
@@ -561,6 +562,94 @@ final class SleepFactorDailyLogViewController: WellnessScrollViewController {
     }
 
     private func makeManualRow(_ definition: SleepFactorDefinition) -> UIView {
+        switch definition.valueKind {
+        case .discrete:
+            return makeDiscreteManualRow(definition)
+        case .numeric:
+            return makeNumericManualRow(definition)
+        }
+    }
+
+    private func makeDiscreteManualRow(_ definition: SleepFactorDefinition) -> UIView {
+        let state = WellnessLocalStore.sleepFactorDiscreteState(
+            for: definition,
+            on: datePicker.date,
+            calendar: calendar
+        )
+        let selector = UIStackView(
+            arrangedSubviews: SleepFactorDiscreteState.allCases.map {
+                makeDiscreteStateButton(
+                    $0,
+                    selectedState: state,
+                    definition: definition
+                )
+            },
+            axis: .horizontal,
+            spacing: 0,
+            alignment: .center
+        )
+        selector.backgroundColor = WellnarioPalette.surfaceElevated
+        selector.applyContinuousCorners(WellnarioRadius.control)
+        let row = UIStackView(
+            arrangedSubviews: [factorIcon(definition), factorTitle(definition), UIView(), selector],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.small,
+            alignment: .center
+        )
+        row.accessibilityIdentifier = "sleep.factors.daily.factor.\(definition.id)"
+        row.heightAnchor.constraint(greaterThanOrEqualToConstant: 50).isActive = true
+        return row
+    }
+
+    private func makeDiscreteStateButton(
+        _ state: SleepFactorDiscreteState,
+        selectedState: SleepFactorDiscreteState,
+        definition: SleepFactorDefinition
+    ) -> UIButton {
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        let selected = state == selectedState
+        let symbolName: String
+        switch state {
+        case .absent: symbolName = "xmark.circle"
+        case .unspecified: symbolName = "questionmark.circle"
+        case .present: symbolName = "checkmark.circle.fill"
+        }
+        button.setImage(
+            UIImage(
+                systemName: symbolName,
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+            ),
+            for: .normal
+        )
+        button.tintColor = selected ? WellnarioPalette.fuchsia : WellnarioPalette.textTertiary
+        button.backgroundColor = selected
+            ? WellnarioPalette.fuchsia.withAlphaComponent(0.16)
+            : .clear
+        button.accessibilityIdentifier = "sleep.factors.daily.factor.\(definition.id).\(state.rawValue)"
+        button.accessibilityLabel = "\(definition.title): \(discreteStateTitle(state))"
+        button.isSelected = selected
+        if selected {
+            button.accessibilityTraits.insert(.selected)
+        }
+        button.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            WellnessLocalStore.setSleepFactorDiscreteState(
+                state,
+                for: definition,
+                on: self.datePicker.date,
+                calendar: self.calendar
+            )
+            self.didLog("\(definition.title) · \(self.discreteStateTitle(state))")
+        }, for: .touchUpInside)
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: WellnarioLayout.minimumTouchTarget),
+            button.heightAnchor.constraint(equalToConstant: WellnarioLayout.minimumTouchTarget)
+        ])
+        return button
+    }
+
+    private func makeNumericManualRow(_ definition: SleepFactorDefinition) -> UIView {
         let entry = WellnessLocalStore.sleepFactorEntry(
             for: definition,
             on: datePicker.date,
@@ -577,10 +666,7 @@ final class SleepFactorDailyLogViewController: WellnessScrollViewController {
         value.textAlignment = .right
         value.numberOfLines = 2
         value.setContentCompressionResistancePriority(.required, for: .horizontal)
-        let indicatorName = definition.isNumeric
-            ? "chevron.forward"
-            : (entry == nil ? "circle" : "checkmark.circle.fill")
-        let indicator = UIImageView(image: UIImage(systemName: indicatorName))
+        let indicator = UIImageView(image: UIImage(systemName: "chevron.forward"))
         indicator.tintColor = entry == nil ? WellnarioPalette.textTertiary : WellnarioPalette.fuchsia
         indicator.setContentHuggingPriority(.required, for: .horizontal)
 
@@ -664,15 +750,17 @@ final class SleepFactorDailyLogViewController: WellnessScrollViewController {
     ) -> String {
         switch definition.valueKind {
         case .discrete:
-            return entry == nil
-                ? L10n.text("sleep.factors.daily.not_selected")
-                : L10n.text("sleep.factors.daily.selected")
+            return discreteStateTitle(SleepFactorDiscreteState(entry: entry))
         case .numeric:
             guard let value = entry?.numericValue else {
                 return L10n.text("sleep.factors.daily.not_recorded")
             }
             return formatted(value: value, definition: definition)
         }
+    }
+
+    private func discreteStateTitle(_ state: SleepFactorDiscreteState) -> String {
+        L10n.text("sleep.factors.daily.state.\(state.rawValue)")
     }
 
     private func formatted(value: Double, definition: SleepFactorDefinition) -> String {
@@ -685,18 +773,7 @@ final class SleepFactorDailyLogViewController: WellnessScrollViewController {
     private func edit(_ definition: SleepFactorDefinition) {
         switch definition.valueKind {
         case .discrete:
-            let existing = WellnessLocalStore.sleepFactorEntry(
-                for: definition,
-                on: datePicker.date,
-                calendar: calendar
-            )
-            WellnessLocalStore.setSleepFactorValue(
-                existing == nil ? 1 : nil,
-                for: definition,
-                on: datePicker.date,
-                calendar: calendar
-            )
-            didLog(definition.title)
+            return
         case let .numeric(unit):
             presentNumericEditor(definition, unit: unit)
         }

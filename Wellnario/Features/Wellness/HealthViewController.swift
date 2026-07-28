@@ -859,21 +859,16 @@ struct BiologicalAgeRingComparison: Equatable, Sendable {
 @MainActor
 private final class BiologicalAgeRingView: UIView {
     private static let biologicalAgeScale: CGFloat = 1.20
-    private static let glowAnimationKey = "wellnario.biologicalAge.glow"
-    private static let glowOpacityAnimationKey = "wellnario.biologicalAge.glowOpacity"
-
     private let ringContainerLayer = CALayer()
-    private let breathingGlowLayer = CAShapeLayer()
     private let coloredArcLayer = CAShapeLayer()
     private let remainderArcLayer = CAShapeLayer()
-    private let coloredHighlightLayer = CAShapeLayer()
-    private let remainderHighlightLayer = CAShapeLayer()
     private let ageLabel = UILabel()
     private let unitLabel = UILabel()
     private var coloredArcProportion: CGFloat = 0
     private var usesGreen = false
     private var hasConfiguredValue = false
     private var isValueVisible = false
+    private var numberOfSegments: CGFloat = 36
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -889,14 +884,49 @@ private final class BiologicalAgeRingView: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        updateGlowAnimation()
+        if window != nil {
+            startRotationAnimation()
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(applicationWillEnterForeground),
+                name: UIApplication.willEnterForegroundNotification,
+                object: nil
+            )
+        } else {
+            ringContainerLayer.removeAnimation(forKey: "rotation")
+            NotificationCenter.default.removeObserver(
+                self,
+                name: UIApplication.willEnterForegroundNotification,
+                object: nil
+            )
+        }
+    }
+
+    @objc private func applicationWillEnterForeground() {
+        if window != nil {
+            startRotationAnimation()
+        }
+    }
+
+    private func startRotationAnimation() {
+        guard WellnarioMotion.animationsEnabled else {
+            ringContainerLayer.removeAnimation(forKey: "rotation")
+            return
+        }
+        guard ringContainerLayer.animation(forKey: "rotation") == nil else { return }
+        let animation = CABasicAnimation(keyPath: "transform.rotation.z")
+        animation.fromValue = 0
+        animation.toValue = CGFloat.pi * 2
+        animation.duration = 30.0
+        animation.repeatCount = .infinity
+        animation.isRemovedOnCompletion = false
+        ringContainerLayer.add(animation, forKey: "rotation")
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         ringContainerLayer.frame = bounds
-        let lineWidth: CGFloat = 8.6 * Self.biologicalAgeScale
-        let glowLineWidth: CGFloat = 15.75 * Self.biologicalAgeScale
+        let lineWidth: CGFloat = 8.4 * Self.biologicalAgeScale
         let halfDimension = min(bounds.width, bounds.height) / 2
         let arcRadius = max(0, halfDimension - lineWidth / 2 - 2)
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
@@ -907,23 +937,26 @@ private final class BiologicalAgeRingView: UIView {
             endAngle: 3 * .pi / 2,
             clockwise: true
         )
-        breathingGlowLayer.path = arcPath.cgPath
-        breathingGlowLayer.lineWidth = glowLineWidth
+        
+        let circumference = 2 * .pi * arcRadius
+        let targetSegmentLength: CGFloat = 4.5
+        let targetGapLength: CGFloat = 2.5
+        let targetPatternLength = targetSegmentLength + targetGapLength
+        let numSegments = round(circumference / targetPatternLength)
+        
+        self.numberOfSegments = max(1, numSegments)
+        
+        let actualPatternLength = circumference / self.numberOfSegments
+        let actualSegmentLength = actualPatternLength * (targetSegmentLength / targetPatternLength)
+        let actualGapLength = actualPatternLength - actualSegmentLength
+        let dashPattern: [NSNumber] = [NSNumber(value: actualSegmentLength), NSNumber(value: actualGapLength)]
+
         [coloredArcLayer, remainderArcLayer].forEach { layer in
             layer.path = arcPath.cgPath
             layer.lineWidth = lineWidth
+            layer.lineDashPattern = dashPattern
         }
-        let highlightPath = UIBezierPath(
-            arcCenter: CGPoint(x: center.x, y: center.y - 0.75),
-            radius: max(0, arcRadius - 0.25),
-            startAngle: -.pi / 2,
-            endAngle: 3 * .pi / 2,
-            clockwise: true
-        )
-        [coloredHighlightLayer, remainderHighlightLayer].forEach { layer in
-            layer.path = highlightPath.cgPath
-            layer.lineWidth = 2.4 * Self.biologicalAgeScale
-        }
+        
         applyArcProportions()
     }
 
@@ -931,13 +964,14 @@ private final class BiologicalAgeRingView: UIView {
         super.traitCollectionDidChange(previousTraitCollection)
         guard hasConfiguredValue else { return }
         applyColors()
-        updateGlowAnimation()
     }
 
     func setValueVisible(_ isVisible: Bool) {
         isValueVisible = isVisible
         isHidden = !isVisible
-        updateGlowAnimation()
+        if isVisible {
+            startRotationAnimation()
+        }
     }
 
     func configure(biologicalAge: Double, chronologicalAge: Double) {
@@ -952,30 +986,21 @@ private final class BiologicalAgeRingView: UIView {
         hasConfiguredValue = true
         applyColors()
         setNeedsLayout()
-        updateGlowAnimation()
+        startRotationAnimation()
     }
 
     private func configureView() {
         isAccessibilityElement = false
-        ringContainerLayer.addSublayer(breathingGlowLayer)
         ringContainerLayer.addSublayer(coloredArcLayer)
         ringContainerLayer.addSublayer(remainderArcLayer)
-        ringContainerLayer.addSublayer(coloredHighlightLayer)
-        ringContainerLayer.addSublayer(remainderHighlightLayer)
         layer.addSublayer(ringContainerLayer)
         [
-            breathingGlowLayer,
             coloredArcLayer,
-            remainderArcLayer,
-            coloredHighlightLayer,
-            remainderHighlightLayer
+            remainderArcLayer
         ].forEach { layer in
             layer.fillColor = UIColor.clear.cgColor
-            layer.lineCap = .round
+            layer.lineCap = .butt
         }
-        breathingGlowLayer.shadowOffset = .zero
-        breathingGlowLayer.shadowOpacity = 0.68
-        breathingGlowLayer.shadowRadius = 7.5
         [coloredArcLayer, remainderArcLayer].forEach { layer in
             layer.shadowColor = UIColor.black.cgColor
             layer.shadowOffset = CGSize(width: 0, height: 1.5)
@@ -1013,16 +1038,15 @@ private final class BiologicalAgeRingView: UIView {
     }
 
     private func applyArcProportions() {
-        [coloredArcLayer, coloredHighlightLayer].forEach { layer in
+        let snappedProportion = round(coloredArcProportion * numberOfSegments) / numberOfSegments
+        [coloredArcLayer].forEach { layer in
             layer.strokeStart = 0
-            layer.strokeEnd = coloredArcProportion
+            layer.strokeEnd = snappedProportion
         }
-        [remainderArcLayer, remainderHighlightLayer].forEach { layer in
-            layer.strokeStart = coloredArcProportion
+        [remainderArcLayer].forEach { layer in
+            layer.strokeStart = snappedProportion
             layer.strokeEnd = 1
         }
-        breathingGlowLayer.strokeStart = 0
-        breathingGlowLayer.strokeEnd = 1
     }
 
     private func applyColors() {
@@ -1035,49 +1059,16 @@ private final class BiologicalAgeRingView: UIView {
             .resolvedColor(with: traitCollection)
         coloredArcLayer.strokeColor = predominant.cgColor
         remainderArcLayer.strokeColor = remainder.cgColor
-        breathingGlowLayer.strokeColor = predominant.withAlphaComponent(0.34).cgColor
-        breathingGlowLayer.shadowColor = predominant.cgColor
-
-        let reflection = UIColor.white.withAlphaComponent(
-            traitCollection.userInterfaceStyle == .dark ? 0.48 : 0.34
-        ).cgColor
-        coloredHighlightLayer.strokeColor = reflection
-        remainderHighlightLayer.strokeColor = reflection
-    }
-
-    private func updateGlowAnimation() {
-        guard window != nil,
-              hasConfiguredValue,
-              isValueVisible,
-              WellnarioMotion.animationsEnabled else {
-            breathingGlowLayer.removeAnimation(forKey: Self.glowAnimationKey)
-            breathingGlowLayer.removeAnimation(forKey: Self.glowOpacityAnimationKey)
-            return
-        }
-        guard breathingGlowLayer.animation(forKey: Self.glowAnimationKey) == nil else { return }
-
-        let scale = CABasicAnimation(keyPath: "transform.scale")
-        scale.fromValue = 1.0
-        scale.toValue = 1.075
-        scale.duration = 1.9
-        scale.autoreverses = true
-        scale.repeatCount = .infinity
-        scale.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-
-        let opacity = CABasicAnimation(keyPath: "opacity")
-        opacity.fromValue = 0.62
-        opacity.toValue = 1.0
-        opacity.duration = 1.9
-        opacity.autoreverses = true
-        opacity.repeatCount = .infinity
-        opacity.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-
-        breathingGlowLayer.add(scale, forKey: Self.glowAnimationKey)
-        breathingGlowLayer.add(opacity, forKey: Self.glowOpacityAnimationKey)
     }
 
     @objc private func reduceMotionChanged() {
-        updateGlowAnimation()
+        if WellnarioMotion.animationsEnabled {
+            if window != nil {
+                startRotationAnimation()
+            }
+        } else {
+            ringContainerLayer.removeAnimation(forKey: "rotation")
+        }
     }
 
 }

@@ -148,6 +148,9 @@ final class WellnarioNavigationUITests: XCTestCase {
         )
         XCTAssertTrue(app.sliders["settings.advanced.sleep.quality.weight.duration"].exists)
         XCTAssertTrue(
+            app.sliders["settings.advanced.sleep.quality.weight.heart_rate_drop"].exists
+        )
+        XCTAssertTrue(
             app.descendants(matching: .any)["settings.advanced.sleep.quality.table.card"].exists
         )
         app.navigationBars.buttons.element(boundBy: 0).tap()

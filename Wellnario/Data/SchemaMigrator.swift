@@ -351,6 +351,191 @@ enum SchemaMigrator {
             SET sample_type = 'other'
             WHERE sample_type = 'physiological';
             """
+        ),
+        Migration(
+            version: 14,
+            sql: """
+            CREATE TABLE IF NOT EXISTS recovery_baselines (
+                user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                date TEXT NOT NULL,
+                hrv_mean REAL NOT NULL,
+                hrv_stddev REAL NOT NULL,
+                rhr_mean REAL NOT NULL,
+                rhr_stddev REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (user_id, date)
+            );
+
+            CREATE TABLE IF NOT EXISTS recovery_scores (
+                user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                date TEXT NOT NULL,
+                score REAL NOT NULL,
+                hrv_value REAL,
+                rhr_value REAL,
+                sleep_score REAL,
+                respiratory_rate REAL,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (user_id, date)
+            );
+            """
+        ),
+        Migration(
+            version: 15,
+            sql: """
+            -- Vitamin D used to be seeded in micrograms. It is now tracked
+            -- in IU, which matches the catalog and prevents a generic
+            -- mass-to-IU conversion from distorting reports.
+            UPDATE consumption_active_snapshots
+            SET
+                amount = CASE
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM consumptions c
+                        JOIN supplement_instances i ON i.id = c.instance_id
+                        JOIN supplement_components component
+                            ON component.supplement_id = i.supplement_id
+                        WHERE c.id = consumption_active_snapshots.consumption_id
+                          AND component.active_id = consumption_active_snapshots.active_id
+                          AND component.unit = 'IU'
+                    ) THEN CAST(CAST(amount AS REAL) / 1000 AS TEXT)
+                    ELSE CAST(CAST(amount AS REAL) * 40 AS TEXT)
+                END,
+                unit = 'IU'
+            WHERE active_id = '20000000-0000-4000-8000-000000000002'
+              AND unit = 'ug';
+
+            UPDATE supplement_components
+            SET amount = CAST(CAST(amount AS REAL) * 40 AS TEXT), unit = 'IU'
+            WHERE active_id = '20000000-0000-4000-8000-000000000002'
+              AND unit = 'ug';
+
+            UPDATE active_targets
+            SET
+                lower_amount = CAST(CAST(lower_amount AS REAL) * 40 AS TEXT),
+                upper_amount = CAST(CAST(upper_amount AS REAL) * 40 AS TEXT),
+                unit = 'IU'
+            WHERE active_id = '20000000-0000-4000-8000-000000000002'
+              AND unit = 'ug';
+
+            UPDATE actives
+            SET
+                base_unit = 'IU',
+                proposed_daily_male = CASE
+                    WHEN proposed_daily_male = '15' THEN '1000'
+                    ELSE proposed_daily_male
+                END,
+                proposed_daily_female = CASE
+                    WHEN proposed_daily_female = '15' THEN '1000'
+                    ELSE proposed_daily_female
+                END
+            WHERE id = '20000000-0000-4000-8000-000000000002'
+              AND is_seeded = 1;
+            """
+        ),
+        Migration(
+            version: 16,
+            sql: """
+            CREATE TABLE IF NOT EXISTS strength_exercises (
+                id TEXT PRIMARY KEY NOT NULL,
+                name_en TEXT NOT NULL,
+                name_es TEXT NOT NULL,
+                force TEXT,
+                level TEXT,
+                mechanic TEXT,
+                equipment TEXT,
+                primary_muscles_json TEXT NOT NULL,
+                secondary_muscles_json TEXT NOT NULL,
+                instructions_en_json TEXT NOT NULL,
+                instructions_es_json TEXT,
+                image_paths_json TEXT NOT NULL,
+                source TEXT NOT NULL,
+                is_seeded INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE TABLE IF NOT EXISTS strength_workout_templates (
+                id TEXT PRIMARY KEY NOT NULL,
+                user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL COLLATE NOCASE,
+                notes TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE(user_id, name)
+            );
+
+            CREATE TABLE IF NOT EXISTS strength_template_exercises (
+                id TEXT PRIMARY KEY NOT NULL,
+                template_id TEXT NOT NULL REFERENCES strength_workout_templates(id) ON DELETE CASCADE,
+                exercise_id TEXT NOT NULL REFERENCES strength_exercises(id) ON DELETE RESTRICT,
+                display_order INTEGER NOT NULL,
+                default_rest_seconds INTEGER,
+                UNIQUE(template_id, display_order)
+            );
+
+            CREATE TABLE IF NOT EXISTS strength_template_sets (
+                id TEXT PRIMARY KEY NOT NULL,
+                template_exercise_id TEXT NOT NULL REFERENCES strength_template_exercises(id) ON DELETE CASCADE,
+                display_order INTEGER NOT NULL,
+                weight TEXT,
+                repetitions INTEGER,
+                rest_seconds INTEGER,
+                is_warmup INTEGER NOT NULL DEFAULT 0,
+                is_failure INTEGER NOT NULL DEFAULT 0,
+                is_drop_set INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(template_exercise_id, display_order)
+            );
+
+            CREATE TABLE IF NOT EXISTS strength_workouts (
+                id TEXT PRIMARY KEY NOT NULL,
+                user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                title TEXT NOT NULL,
+                started_at REAL NOT NULL,
+                ended_at REAL,
+                notes TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS strength_workout_exercises (
+                id TEXT PRIMARY KEY NOT NULL,
+                workout_id TEXT NOT NULL REFERENCES strength_workouts(id) ON DELETE CASCADE,
+                exercise_id TEXT NOT NULL REFERENCES strength_exercises(id) ON DELETE RESTRICT,
+                exercise_name_snapshot TEXT NOT NULL,
+                display_order INTEGER NOT NULL,
+                notes TEXT,
+                UNIQUE(workout_id, display_order)
+            );
+
+            CREATE TABLE IF NOT EXISTS strength_workout_sets (
+                id TEXT PRIMARY KEY NOT NULL,
+                workout_exercise_id TEXT NOT NULL REFERENCES strength_workout_exercises(id) ON DELETE CASCADE,
+                display_order INTEGER NOT NULL,
+                weight TEXT,
+                repetitions INTEGER,
+                rest_seconds INTEGER,
+                is_warmup INTEGER NOT NULL DEFAULT 0,
+                is_failure INTEGER NOT NULL DEFAULT 0,
+                is_drop_set INTEGER NOT NULL DEFAULT 0,
+                completed_at REAL,
+                UNIQUE(workout_exercise_id, display_order)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_strength_templates_user
+                ON strength_workout_templates(user_id, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_strength_workouts_user
+                ON strength_workouts(user_id, started_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_strength_template_exercises_template
+                ON strength_template_exercises(template_id, display_order);
+            CREATE INDEX IF NOT EXISTS idx_strength_workout_exercises_workout
+                ON strength_workout_exercises(workout_id, display_order);
+            """
+        ),
+        Migration(
+            version: 17,
+            sql: """
+            ALTER TABLE strength_workout_templates ADD COLUMN name_key TEXT;
+            CREATE INDEX IF NOT EXISTS idx_strength_templates_name_key
+                ON strength_workout_templates(user_id, name_key);
+            """
         )
     ]
 }

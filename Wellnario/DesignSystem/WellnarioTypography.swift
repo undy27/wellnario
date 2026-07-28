@@ -24,6 +24,8 @@ enum WellnarioTextStyle: Int, Sendable {
     /// Compact value and unit styles used inside the biological-age ring.
     case biologicalAgeRingMetric
     case biologicalAgeRingUnit
+    /// Compact semibold title used for supplement names in the catalog list.
+    case supplementName
 }
 
 enum WellnarioTypography {
@@ -48,7 +50,7 @@ enum WellnarioTypography {
                 compatibleWith: traitCollection
             )
         case .summaryTitle:
-            scaledFont(size: 15, weight: .semibold, textStyle: .subheadline, compatibleWith: traitCollection)
+            scaledFont(size: 14, weight: .semibold, textStyle: .subheadline, compatibleWith: traitCollection)
         case .summaryMetric:
             scaledFont(
                 size: 26,
@@ -89,6 +91,8 @@ enum WellnarioTypography {
             )
         case .biologicalAgeRingUnit:
             scaledFont(size: 8, weight: .medium, textStyle: .caption2, compatibleWith: traitCollection)
+        case .supplementName:
+            scaledFont(size: 16, weight: .semibold, textStyle: .subheadline, compatibleWith: traitCollection)
         }
     }
 

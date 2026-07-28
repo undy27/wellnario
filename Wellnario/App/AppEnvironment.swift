@@ -7,6 +7,9 @@ final class AppEnvironment {
     let appleHealthService: AppleHealthSyncing
     let medicalReviewStore: MedicalReviewStore
     let healthDataStore: HealthDataStore
+    let recoveryDataStore: RecoveryDataStore
+    let strengthDataStore: StrengthDataStore
+    let ouraSyncService: OuraSyncService
 
     init(
         launchConfiguration: AppLaunchConfiguration = .current(),
@@ -51,6 +54,18 @@ final class AppEnvironment {
             databaseURL: repository.databaseURL,
             userID: repository.userID
         )
+        recoveryDataStore = try RecoveryDataStore(
+            databaseURL: repository.databaseURL,
+            userID: repository.userID
+        )
+        strengthDataStore = try StrengthDataStore(
+            databaseURL: repository.databaseURL,
+            userID: repository.userID
+        )
+        ouraSyncService = OuraSyncService()
+        if let service = appleHealthService as? AppleHealthSyncService {
+            service.recoveryEngine = RecoveryEngine(dataStore: recoveryDataStore)
+        }
     }
 
     private static func uiTestDatabaseURL(fileManager: FileManager) throws -> URL {

@@ -102,18 +102,18 @@ class EditorViewController: FeatureViewController, UIGestureRecognizerDelegate {
 
     private func closeEditor(animated: Bool) {
         // Intake and the other editors are normally wrapped in a page-sheet
-        // navigation controller. During the end of a sheet presentation,
-        // `presentingViewController` can briefly be nil even though the
-        // navigation controller still owns the sheet. Dismiss the sheet by
-        // its presentation style as well so saving never leaves the editor
-        // stranded on screen.
+        // navigation controller. Dismiss that container after a successful
+        // save so the editor does not remain visible on top of the updated
+        // parent screen.
         if let navigationController,
            navigationController.presentingViewController != nil
-            || navigationController.sheetPresentationController != nil {
+            || (navigationController.viewIfLoaded?.window != nil
+                && navigationController.modalPresentationStyle == .pageSheet) {
             navigationController.dismiss(animated: animated)
             return
         }
-        if presentingViewController != nil || sheetPresentationController != nil {
+        if presentingViewController != nil
+            || (viewIfLoaded?.window != nil && modalPresentationStyle == .pageSheet) {
             dismiss(animated: animated)
             return
         }

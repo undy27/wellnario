@@ -1,0 +1,47 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project Wellnario.xcodeproj -scheme Wellnario -destination "platform=iOS Simulator,name=iPhone 17,OS=26.4.1" build -derivedDataPath ./DerivedData
+
+2026-07-22 11:10:58.295 xcodebuild[30638:124629491] [MT] IDELogStore: Failed to open log store at /Volumes/DATOS/Desarrollo/Wellnario/DerivedData/Logs/Build
+2026-07-22 11:10:58.296 xcodebuild[30638:124629491] [MT] IDELogStore: Failed to open Build log store: Error Domain=NSCocoaErrorDomain Code=513 "You don’t have permission to save the file “LogStoreManifest.plist” in the folder “Build”." UserInfo={NSUnderlyingError=0x8967e39c0 {Error Domain=NSPOSIXErrorDomain Code=1 "Operation not permitted"}, NSUserStringVariant=Folder, NSURL=file:///Volumes/DATOS/Desarrollo/Wellnario/DerivedData/Logs/Build/LogStoreManifest.plist}. User info: {
+    NSURL = "file:///Volumes/DATOS/Desarrollo/Wellnario/DerivedData/Logs/Build/LogStoreManifest.plist";
+    NSUnderlyingError = "Error Domain=NSPOSIXErrorDomain Code=1 \"Operation not permitted\"";
+    NSUserStringVariant = Folder;
+}.
+2026-07-22 11:10:58.299 xcodebuild[30638:124629544]  IDEDownloadableMetalToolchainCoordinator: Failed to remount the Metal Toolchain: No downloaded assets found: The file “MetalToolchain” couldn’t be opened because you don’t have permission to view it.
+2026-07-22 11:10:58.308 xcodebuild[30638:124629491] [MT] IDESimulatorRuntimeVersionCoordinator: Error loading SDK-to-sim mappings: Error Domain=NSCocoaErrorDomain Code=257 "The file “SDKToSimulatorIndexMapping.plist” couldn’t be opened because you don’t have permission to view it." UserInfo={NSFilePath=/Users/arans/Library/Developer/Xcode/SDKToSimulatorIndexMapping.plist, NSURL=file:///Users/arans/Library/Developer/Xcode/SDKToSimulatorIndexMapping.plist, NSUnderlyingError=0x896608bd0 {Error Domain=NSPOSIXErrorDomain Code=1 "Operation not permitted"}}
+2026-07-22 11:10:58.309 xcodebuild[30638:124629491] [MT] IDESimulatorRuntimeVersionCoordinator: Unable to read RuntimeMap data at /Users/arans/Library/Developer/CoreSimulator/RuntimeMap.plist: Error Domain=NSCocoaErrorDomain Code=257 "The file “RuntimeMap.plist” couldn’t be opened because you don’t have permission to view it." UserInfo={NSFilePath=/Users/arans/Library/Developer/CoreSimulator/RuntimeMap.plist, NSURL=file:///Users/arans/Library/Developer/CoreSimulator/RuntimeMap.plist, NSUnderlyingError=0x8966089c0 {Error Domain=NSPOSIXErrorDomain Code=1 "Operation not permitted"}}
+2026-07-22 11:10:58.314 xcodebuild[30638:124629491] [MT] IDELogStore: Failed to open log store at /Volumes/DATOS/Desarrollo/Wellnario/DerivedData/Logs/Localization
+2026-07-22 11:10:58.314 xcodebuild[30638:124629491] [MT] IDELogStore: Failed to open Localization log store: Error Domain=NSCocoaErrorDomain Code=513 "You don’t have permission to save the file “LogStoreManifest.plist” in the folder “Localization”." UserInfo={NSURL=file:///Volumes/DATOS/Desarrollo/Wellnario/DerivedData/Logs/Localization/LogStoreManifest.plist, NSUnderlyingError=0x896316e20 {Error Domain=NSPOSIXErrorDomain Code=1 "Operation not permitted"}, NSUserStringVariant=Folder}. User info: {
+    NSURL = "file:///Volumes/DATOS/Desarrollo/Wellnario/DerivedData/Logs/Localization/LogStoreManifest.plist";
+    NSUnderlyingError = "Error Domain=NSPOSIXErrorDomain Code=1 \"Operation not permitted\"";
+    NSUserStringVariant = Folder;
+}.
+2026-07-22 11:10:58.314 xcodebuild[30638:124629491] [MT] IDELogStore: Failed to open log store at /Volumes/DATOS/Desarrollo/Wellnario/DerivedData/Logs/Launch
+2026-07-22 11:10:58.314 xcodebuild[30638:124629491] [MT] IDELogStore: Failed to open Launch log store: Error Domain=NSCocoaErrorDomain Code=513 "You don’t have permission to save the file “LogStoreManifest.plist” in the folder “Launch”." UserInfo={NSUserStringVariant=Folder, NSUnderlyingError=0x8963178d0 {Error Domain=NSPOSIXErrorDomain Code=1 "Operation not permitted"}, NSURL=file:///Volumes/DATOS/Desarrollo/Wellnario/DerivedData/Logs/Launch/LogStoreManifest.plist}. User info: {
+    NSURL = "file:///Volumes/DATOS/Desarrollo/Wellnario/DerivedData/Logs/Launch/LogStoreManifest.plist";
+    NSUnderlyingError = "Error Domain=NSPOSIXErrorDomain Code=1 \"Operation not permitted\"";
+    NSUserStringVariant = Folder;
+}.
+2026-07-22 11:10:58.324 xcodebuild[30638:124629491] [MT] IDESimulatorRuntimeVersionCoordinator: Unable to read RuntimeMap data at /Users/arans/Library/Developer/CoreSimulator/RuntimeMap.plist: Error Domain=NSCocoaErrorDomain Code=257 "The file “RuntimeMap.plist” couldn’t be opened because you don’t have permission to view it." UserInfo={NSFilePath=/Users/arans/Library/Developer/CoreSimulator/RuntimeMap.plist, NSURL=file:///Users/arans/Library/Developer/CoreSimulator/RuntimeMap.plist, NSUnderlyingError=0x896317e10 {Error Domain=NSPOSIXErrorDomain Code=1 "Operation not permitted"}}
+2026-07-22 11:10:58.326 xcodebuild[30638:124629491] [MT] IDESimulatorRuntimeVersionCoordinator: Unable to read RuntimeMap data at /Users/arans/Library/Developer/CoreSimulator/RuntimeMap.plist: Error Domain=NSCocoaErrorDomain Code=257 "The file “RuntimeMap.plist” couldn’t be opened because you don’t have permission to view it." UserInfo={NSFilePath=/Users/arans/Library/Developer/CoreSimulator/RuntimeMap.plist, NSURL=file:///Users/arans/Library/Developer/CoreSimulator/RuntimeMap.plist, NSUnderlyingError=0x896317e10 {Error Domain=NSPOSIXErrorDomain Code=1 "Operation not permitted"}}
+2026-07-22 11:10:58.333 xcodebuild[30638:124629491] [MT] IDELogStore: Failed to open log store at /Volumes/DATOS/Desarrollo/Wellnario/DerivedData/Logs/Package
+2026-07-22 11:10:58.333 xcodebuild[30638:124629491] [MT] IDELogStore: Failed to open Package log store: Error Domain=NSCocoaErrorDomain Code=513 "You don’t have permission to save the file “LogStoreManifest.plist” in the folder “Package”." UserInfo={NSUnderlyingError=0x896906130 {Error Domain=NSPOSIXErrorDomain Code=1 "Operation not permitted"}, NSUserStringVariant=Folder, NSURL=file:///Volumes/DATOS/Desarrollo/Wellnario/DerivedData/Logs/Package/LogStoreManifest.plist}. User info: {
+    NSURL = "file:///Volumes/DATOS/Desarrollo/Wellnario/DerivedData/Logs/Package/LogStoreManifest.plist";
+    NSUnderlyingError = "Error Domain=NSPOSIXErrorDomain Code=1 \"Operation not permitted\"";
+    NSUserStringVariant = Folder;
+}.
+2026-07-22 11:10:58.346 xcodebuild[30638:124629491] [MT] IDELogStore: Failed to open log store at /Volumes/DATOS/Desarrollo/Wellnario/DerivedData/Logs/Test
+2026-07-22 11:10:58.346 xcodebuild[30638:124629491] [MT] IDELogStore: Failed to open Test log store: Error Domain=NSCocoaErrorDomain Code=513 "You don’t have permission to save the file “LogStoreManifest.plist” in the folder “Test”." UserInfo={NSUserStringVariant=Folder, NSURL=file:///Volumes/DATOS/Desarrollo/Wellnario/DerivedData/Logs/Test/LogStoreManifest.plist, NSUnderlyingError=0x896613000 {Error Domain=NSPOSIXErrorDomain Code=1 "Operation not permitted"}}. User info: {
+    NSURL = "file:///Volumes/DATOS/Desarrollo/Wellnario/DerivedData/Logs/Test/LogStoreManifest.plist";
+    NSUnderlyingError = "Error Domain=NSPOSIXErrorDomain Code=1 \"Operation not permitted\"";
+    NSUserStringVariant = Folder;
+}.
+Build Preparation
+Couldn't create workspace arena folder '/Volumes/DATOS/Desarrollo/Wellnario/DerivedData': Unable to write to info file '<DVTFilePath:0x8939bab20:'/Volumes/DATOS/Desarrollo/Wellnario/DerivedData/info.plist'>'.
+
+** BUILD FAILED **
+
+
+The following build commands failed:
+	Building project Wellnario with scheme Wellnario
+(1 failure)

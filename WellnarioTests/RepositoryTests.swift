@@ -59,6 +59,124 @@ final class RepositoryTests: XCTestCase {
         )
     }
 
+    func testVitaminDIUMigrationRepairsInflatedHistoricalSnapshots() throws {
+        let (repository, url) = try makeRepository()
+        let vitaminD = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.vitamin_d.name" }
+        )
+        let capsules = try presentation(repository, key: "presentation.capsule.name")
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Vitamina D",
+            brand: "",
+            presentationTypeID: capsules.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(
+                    activeID: vitaminD.id,
+                    amount: 5_000,
+                    unit: .internationalUnit
+                )
+            ]
+        ))
+        let instance = try repository.createInstance(
+            SupplementInstanceDraft(supplementID: supplement.id)
+        )
+        let day = LocalDay(containing: Date(), in: .current)
+        _ = try repository.setTarget(
+            activeID: vitaminD.id,
+            lowerBound: 5_000,
+            upperBound: 5_000,
+            unit: .internationalUnit,
+            effectiveFrom: day
+        )
+        let consumption = try repository.createConsumption(ConsumptionDraft(
+            instanceID: instance.id,
+            quantity: 1,
+            unit: .capsule
+        ))
+
+        // Recreate the values produced by the old generic IU-to-mass path.
+        try repository.database.execute(
+            "UPDATE actives SET base_unit = 'ug' WHERE id = ?;",
+            bindings: [.text(vitaminD.id.uuidString)]
+        )
+        try repository.database.execute(
+            """
+            UPDATE consumption_active_snapshots
+            SET amount = '5000000', unit = 'ug'
+            WHERE consumption_id = ? AND active_id = ?;
+            """,
+            bindings: [.text(consumption.id.uuidString), .text(vitaminD.id.uuidString)]
+        )
+        try repository.database.execute(
+            "DELETE FROM schema_migrations WHERE version = 15;"
+        )
+
+        let migrated = try WellnarioRepository(databaseURL: url)
+        let migratedVitaminD = try XCTUnwrap(try migrated.active(id: vitaminD.id))
+        XCTAssertEqual(migratedVitaminD.baseUnit, .internationalUnit)
+        XCTAssertEqual(migratedVitaminD.currentTarget?.unit, .internationalUnit)
+        XCTAssertEqual(migratedVitaminD.currentTarget?.upperBound, 5_000)
+
+        let migratedConsumption = try XCTUnwrap(
+            try migrated.fetchConsumptions(from: day, through: day, limit: 1).first
+        )
+        XCTAssertEqual(migratedConsumption.activeSnapshots.first?.unit, .internationalUnit)
+        XCTAssertEqual(migratedConsumption.activeSnapshots.first?.amount, 5_000)
+
+        let series = try migrated.dailyConsumption(
+            activeID: vitaminD.id,
+            from: day,
+            through: day
+        )
+        XCTAssertEqual(series.unit, .internationalUnit)
+        XCTAssertEqual(series.points.first?.amount, 5_000)
+    }
+
+    func testInternationalUnitsCannotBeConvertedToMassWithoutAnActiveSpecificFactor() {
+        XCTAssertFalse(DoseUnit.internationalUnit.isCompatible(with: .microgram))
+        XCTAssertThrowsError(
+            try DoseUnit.internationalUnit.convert(5_000, to: .microgram)
+        )
+    }
+
+    func testWeeklySupplementChartStatusIgnoresDaysBeforeFirstRecordedIntake() throws {
+        let firstDay = try LocalDay(year: 2026, month: 7, day: 21)
+        let days = try (0..<7).map { try firstDay.adding(days: $0) }
+        let target = ActiveTarget(
+            id: UUID(),
+            activeID: UUID(),
+            lowerBound: 100,
+            upperBound: 101,
+            unit: .milligram,
+            effectiveFrom: firstDay,
+            effectiveThrough: nil,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+
+        // Tracking began three days ago. The leading empty days must not
+        // dilute the 200 mg daily average to the equivalent of 3/7 of it.
+        let status = try WeeklyConsumptionAggregator.status(
+            for: [0, 0, 0, 0, 200, 200, 200],
+            days: days,
+            firstRecordedDay: days[4],
+            target: target,
+            activeUnit: .milligram
+        )
+
+        XCTAssertEqual(status, .above)
+    }
+
+    func testCompletedConsumptionPeriodExcludesTheCurrentDay() throws {
+        let today = try LocalDay(year: 2026, month: 7, day: 27)
+        let range = try CompletedConsumptionPeriod.range(endingBefore: today, dayCount: 7)
+
+        XCTAssertEqual(range.from, try LocalDay(year: 2026, month: 7, day: 20))
+        XCTAssertEqual(range.through, try LocalDay(year: 2026, month: 7, day: 26))
+    }
+
     func testActiveCategoriesSupportMultipleAssignmentsAndPersistUpdates() throws {
         let (repository, url) = try makeRepository()
         let active = try repository.createActive(

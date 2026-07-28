@@ -3,6 +3,7 @@ import Foundation
 
 enum SleepFactorCategory: String, CaseIterable, Codable, Sendable {
     case automatic
+    case oura
     case vitalState
     case lifestyle
     case medication
@@ -401,7 +402,8 @@ enum SleepFactorStatistics {
         let meanY = samples.map(\.y).reduce(0, +) / Double(samples.count)
         let derivative = fit.linear + (2 * fit.quadratic * meanX)
         let effect = meanY == 0 ? 0 : (derivative * analysisStep / abs(meanY)) * 100
-        let confidence = modelConfidence(rSquared: fit.rSquared, sampleCount: samples.count)
+        let parameterCount = fit.kind == .quadratic ? 3 : 2
+        let confidence = modelConfidence(rSquared: fit.rSquared, sampleCount: samples.count, parameterCount: parameterCount)
         let range = (samples.map(\.x).min() ?? 0)...(samples.map(\.x).max() ?? 0)
         let optimum: Double?
         if fit.kind == .quadratic, abs(fit.quadratic) > .ulpOfOne {
@@ -567,12 +569,13 @@ enum SleepFactorStatistics {
         return augmented.map { $0[3] }
     }
 
-    private static func modelConfidence(rSquared: Double, sampleCount: Int) -> Double {
-        guard rSquared > 0, sampleCount > 3 else { return 0 }
-        let z = sqrt(
-            rSquared * Double(sampleCount - 2) / max(1 - rSquared, 1e-9)
-        )
-        return min(max(erf(z / sqrt(2)), 0), 0.999)
+    private static func modelConfidence(rSquared: Double, sampleCount: Int, parameterCount: Int) -> Double {
+        let n = Double(sampleCount)
+        let k = Double(parameterCount)
+        guard rSquared > 0, n > k else { return 0 }
+        let fStat = (rSquared / (k - 1)) / (max(1 - rSquared, 1e-9) / (n - k))
+        let z = sqrt(fStat)
+        return min(max(erf(z / sqrt(2)), 0), 0.99)
     }
 
     private static func mean(_ values: [Double]) -> Double {

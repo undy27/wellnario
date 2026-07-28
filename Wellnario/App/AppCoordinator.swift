@@ -15,24 +15,31 @@ private final class LiveRootFeatureFactory: RootFeatureBuilding {
     private let appleHealthService: AppleHealthSyncing
     private let medicalReviewStore: MedicalReviewStore
     private let healthDataStore: HealthDataStore
+    private let recoveryDataStore: RecoveryDataStore
+    private let strengthDataStore: StrengthDataStore
 
     init(
         repository: WellnarioRepositoryProtocol,
         appleHealthService: AppleHealthSyncing,
         medicalReviewStore: MedicalReviewStore,
-        healthDataStore: HealthDataStore
+        healthDataStore: HealthDataStore,
+        recoveryDataStore: RecoveryDataStore,
+        strengthDataStore: StrengthDataStore
     ) {
         self.repository = repository
         self.appleHealthService = appleHealthService
         self.medicalReviewStore = medicalReviewStore
         self.healthDataStore = healthDataStore
+        self.recoveryDataStore = recoveryDataStore
+        self.strengthDataStore = strengthDataStore
     }
 
     func makeToday() -> TodayViewController {
         TodayViewController(
             repository: repository,
             appleHealthService: appleHealthService,
-            medicalReviewStore: medicalReviewStore
+            medicalReviewStore: medicalReviewStore,
+            recoveryDataStore: recoveryDataStore
         )
     }
 
@@ -59,7 +66,10 @@ private final class LiveRootFeatureFactory: RootFeatureBuilding {
     }
 
     func makeFitness() -> FitnessViewController {
-        FitnessViewController(appleHealthService: appleHealthService)
+        FitnessViewController(
+            appleHealthService: appleHealthService,
+            strengthDataStore: strengthDataStore
+        )
     }
 }
 
@@ -89,7 +99,9 @@ final class AppCoordinator: NSObject {
                 repository: environment.repository,
                 appleHealthService: environment.appleHealthService,
                 medicalReviewStore: environment.medicalReviewStore,
-                healthDataStore: environment.healthDataStore
+                healthDataStore: environment.healthDataStore,
+                recoveryDataStore: environment.recoveryDataStore,
+                strengthDataStore: environment.strengthDataStore
             )
         super.init()
 
