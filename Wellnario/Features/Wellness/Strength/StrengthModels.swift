@@ -4,6 +4,9 @@ struct StrengthExercise: Identifiable, Hashable, Sendable {
     let id: String
     let nameEnglish: String
     let nameSpanish: String
+    /// A personal label stored per user. It intentionally takes precedence in
+    /// both languages: it is the name the user expects to find in their list.
+    let customName: String?
     let force: String?
     let level: String?
     let mechanic: String?
@@ -14,8 +17,39 @@ struct StrengthExercise: Identifiable, Hashable, Sendable {
     let instructionsSpanish: [String]?
     let imagePaths: [String]
 
+    init(
+        id: String,
+        nameEnglish: String,
+        nameSpanish: String,
+        customName: String? = nil,
+        force: String?,
+        level: String?,
+        mechanic: String?,
+        equipment: String?,
+        primaryMuscles: [String],
+        secondaryMuscles: [String],
+        instructionsEnglish: [String],
+        instructionsSpanish: [String]?,
+        imagePaths: [String]
+    ) {
+        self.id = id
+        self.nameEnglish = nameEnglish
+        self.nameSpanish = nameSpanish
+        self.customName = customName
+        self.force = force
+        self.level = level
+        self.mechanic = mechanic
+        self.equipment = equipment
+        self.primaryMuscles = primaryMuscles
+        self.secondaryMuscles = secondaryMuscles
+        self.instructionsEnglish = instructionsEnglish
+        self.instructionsSpanish = instructionsSpanish
+        self.imagePaths = imagePaths
+    }
+
     func localizedName(language: AppLanguage) -> String {
-        language == .spanish ? nameSpanish : nameEnglish
+        if let customName, !customName.isEmpty { return customName }
+        return language == .spanish ? nameSpanish : nameEnglish
     }
 
     func localizedInstructions(language: AppLanguage) -> [String] {
@@ -23,6 +57,56 @@ struct StrengthExercise: Identifiable, Hashable, Sendable {
             return instructionsEnglish
         }
         return instructionsSpanish
+    }
+}
+
+struct StrengthWorkoutSummary: Identifiable, Hashable, Sendable {
+    let id: UUID
+    let title: String
+    let startedAt: Date
+    let endedAt: Date?
+    let exerciseCount: Int
+    let totalVolume: Double
+}
+
+struct StrengthReportPoint: Identifiable, Hashable, Sendable {
+    let id: String
+    let label: String
+    let value: Double
+}
+
+struct StrengthSessionVolume: Identifiable, Hashable, Sendable {
+    let id: UUID
+    let date: Date
+    let volume: Double
+}
+
+struct StrengthReport: Hashable, Sendable {
+    let sessionVolumes: [StrengthSessionVolume]
+    let exerciseVolumes: [StrengthReportPoint]
+    let averageSetVolume: Double
+    let muscleVolumes: [StrengthReportPoint]
+}
+
+struct StrengthBodyMetric: Identifiable, Hashable, Sendable {
+    let id: UUID
+    var name: String
+    var value: Decimal
+    var unit: String?
+    var measuredAt: Date
+}
+
+struct StrengthBodyMetricDraft: Sendable {
+    var name: String
+    var value: Decimal
+    var unit: String?
+    var measuredAt: Date
+
+    init(name: String, value: Decimal, unit: String? = nil, measuredAt: Date) {
+        self.name = name
+        self.value = value
+        self.unit = unit
+        self.measuredAt = measuredAt
     }
 }
 
@@ -65,6 +149,7 @@ struct StrengthWorkoutExercise: Identifiable, Hashable, Sendable {
     let exercise: StrengthExercise
     var order: Int
     var notes: String?
+    var restSeconds: Int?
     var sets: [StrengthWorkoutSet]
 
     init(
@@ -72,14 +157,26 @@ struct StrengthWorkoutExercise: Identifiable, Hashable, Sendable {
         exercise: StrengthExercise,
         order: Int,
         notes: String? = nil,
+        restSeconds: Int? = nil,
         sets: [StrengthWorkoutSet] = [StrengthWorkoutSet(order: 1)]
     ) {
         self.id = id
         self.exercise = exercise
         self.order = order
         self.notes = notes
-        self.sets = sets
+        let resolvedRestSeconds = restSeconds ?? sets.first?.restSeconds ?? 90
+        self.restSeconds = resolvedRestSeconds
+        self.sets = sets.map { set in
+            var normalizedSet = set
+            normalizedSet.restSeconds = resolvedRestSeconds
+            return normalizedSet
+        }
     }
+}
+
+struct StrengthPreviousSet: Hashable, Sendable {
+    let weight: Decimal?
+    let repetitions: Int?
 }
 
 struct StrengthWorkout: Identifiable, Hashable, Sendable {

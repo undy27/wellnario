@@ -6,18 +6,18 @@ import XCTest
 
 final class AppleHealthSyncTests: XCTestCase {
     @MainActor
-    func testAppleHealthRequestsGroupedBloodPressureAuthorization() {
+    func testAppleHealthRequestsBloodPressureQuantityAuthorization() {
         let identifiers = Set(
             AppleHealthSyncService.authorizationReadTypes.map(\.identifier)
         )
 
-        XCTAssertTrue(
+        XCTAssertFalse(
             identifiers.contains(HKCorrelationTypeIdentifier.bloodPressure.rawValue)
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             identifiers.contains(HKQuantityTypeIdentifier.bloodPressureSystolic.rawValue)
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             identifiers.contains(HKQuantityTypeIdentifier.bloodPressureDiastolic.rawValue)
         )
         XCTAssertTrue(
@@ -92,6 +92,53 @@ final class AppleHealthSyncTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testAuthorizationReadTypesNeverIncludeCorrelationsAcrossOSVersions() {
+        for (major, minor) in [(17, 0), (26, 4), (26, 5), (26, 6), (27, 0), (28, 0)] {
+            let version = OperatingSystemVersion(majorVersion: major, minorVersion: minor, patchVersion: 0)
+            let types = AppleHealthSyncService.authorizationReadTypes(for: version)
+            let identifiers = Set(types.map(\.identifier))
+            XCTAssertFalse(types.contains { $0 is HKCorrelationType }, "iOS \(major).\(minor)")
+            let expectsBloodPressure = !(major == 26 && minor == 5)
+            XCTAssertEqual(
+                identifiers.contains(HKQuantityTypeIdentifier.bloodPressureSystolic.rawValue),
+                expectsBloodPressure
+            )
+            XCTAssertEqual(
+                identifiers.contains(HKQuantityTypeIdentifier.bloodPressureDiastolic.rawValue),
+                expectsBloodPressure
+            )
+            let otherTypes = types.filter {
+                $0.identifier != HKQuantityTypeIdentifier.bloodPressureSystolic.rawValue
+                    && $0.identifier != HKQuantityTypeIdentifier.bloodPressureDiastolic.rawValue
+            }
+            XCTAssertEqual(otherTypes.count, AppleHealthSyncService.authorizationReadTypes.count - 2)
+            XCTAssertTrue(AppleHealthSyncService.recentlyAddedAuthorizationReadTypes.isSubset(of: types))
+        }
+    }
+
+    @MainActor
+    func testHealthKitAcceptsLaunchAuthorizationStatusRequest() async throws {
+        guard HKHealthStore.isHealthDataAvailable() else {
+            throw XCTSkip("HealthKit is unavailable on this test device")
+        }
+        let types = AppleHealthSyncService.authorizationReadTypes(
+            for: OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0)
+        )
+        // Exercise the same HealthKit API that aborted at launch. This only
+        // checks whether a permission request is needed; it never presents one.
+        let status: HKAuthorizationRequestStatus = try await withCheckedThrowingContinuation { continuation in
+            HKHealthStore().getRequestStatusForAuthorization(toShare: [], read: types) { status, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: status)
+                }
+            }
+        }
+        XCTAssertNotEqual(status, .unknown)
+    }
+
     func testSleepAggregationMergesOverlappingSourcesWithoutDoubleCounting() throws {
         let start = try utcDate(2026, 7, 9, hour: 22)
         let segments = [
@@ -124,6 +171,63 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(trend.last?.deepHours), 1, accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(trend.last?.remHours), 1, accuracy: 0.001)
         XCTAssertNil(trend.last?.qualityScore)
+        XCTAssertNil(session.sleepLatencySeconds)
+        XCTAssertNil(trend.last?.sleepLatencyMinutes)
+    }
+
+    func testSleepAggregationDerivesLatencyFromMatchingInBedInterval() throws {
+        let start = try utcDate(2026, 7, 9, hour: 22)
+        let segments = [
+            segment(start, hours: 9, kind: .inBed, source: "iPhone"),
+            segment(
+                start.addingTimeInterval(10 * 60),
+                hours: 8,
+                kind: .inBed,
+                source: "Apple Watch"
+            ),
+            segment(
+                start.addingTimeInterval(30 * 60),
+                hours: 7.5,
+                kind: .core,
+                source: "Apple Watch"
+            )
+        ]
+
+        let session = try XCTUnwrap(AppleHealthSleepAggregator.sessions(from: segments).first)
+
+        XCTAssertEqual(try XCTUnwrap(session.sleepLatencySeconds), 20 * 60, accuracy: 0.001)
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let trend = AppleHealthSleepAggregator.sevenDayTrend(
+            sessions: [session],
+            endingAt: try utcDate(2026, 7, 10, hour: 12),
+            calendar: calendar
+        )
+        XCTAssertEqual(try XCTUnwrap(trend.last?.sleepLatencyMinutes), 20, accuracy: 0.001)
+    }
+
+    func testSleepAggregationUsesCompleteInBedIntervalWhenSameSourceProvidesNestedIntervals() throws {
+        let start = try utcDate(2026, 8, 24, hour: 23)
+        let segments = [
+            segment(start, hours: 9, kind: .inBed, source: "Oura"),
+            segment(
+                start.addingTimeInterval(19 * 60),
+                hours: 8,
+                kind: .inBed,
+                source: "Oura"
+            ),
+            segment(
+                start.addingTimeInterval(26 * 60),
+                hours: 7.5,
+                kind: .core,
+                source: "Oura"
+            )
+        ]
+
+        let session = try XCTUnwrap(AppleHealthSleepAggregator.sessions(from: segments).first)
+
+        XCTAssertEqual(try XCTUnwrap(session.sleepLatencySeconds), 26 * 60, accuracy: 0.001)
     }
 
     func testLegacySleepSessionCacheDecodesWithoutStageIntervals() throws {
@@ -151,12 +255,14 @@ final class AppleHealthSyncTests: XCTestCase {
             JSONSerialization.jsonObject(with: encoded) as? [String: Any]
         )
         legacyObject.removeValue(forKey: "stageIntervals")
+        legacyObject.removeValue(forKey: "sleepLatencySeconds")
         let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
 
         let decoded = try JSONDecoder().decode(AppleHealthSleepSession.self, from: legacyData)
 
         XCTAssertEqual(decoded.startDate, session.startDate)
         XCTAssertTrue(decoded.stageIntervals.isEmpty)
+        XCTAssertNil(decoded.sleepLatencySeconds)
     }
 
     func testLegacySleepDayCacheDecodesWithoutQualityInputs() throws {
@@ -180,6 +286,8 @@ final class AppleHealthSyncTests: XCTestCase {
         legacyObject.removeValue(forKey: "awakeHours")
         legacyObject.removeValue(forKey: "sleepPeriodHours")
         legacyObject.removeValue(forKey: "heartRateDropPercentage")
+        legacyObject.removeValue(forKey: "averageSleepStressScore")
+        legacyObject.removeValue(forKey: "sleepLatencyMinutes")
         let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
 
         let decoded = try JSONDecoder().decode(AppleHealthSleepDay.self, from: legacyData)
@@ -189,6 +297,8 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertNil(decoded.awakeHours)
         XCTAssertNil(decoded.sleepPeriodHours)
         XCTAssertNil(decoded.heartRateDropPercentage)
+        XCTAssertNil(decoded.averageSleepStressScore)
+        XCTAssertNil(decoded.sleepLatencyMinutes)
     }
 
     func testSleepAggregationSeparatesSessionsAfterThreeHourGapAndBuildsSevenDayTrend() throws {
@@ -214,7 +324,7 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertNil(trend[6].hours)
     }
 
-    func testSleepQualityInputsExcludeAwakeTimeBeforeAndAfterActualSleep() throws {
+    func testSleepQualityInputsIncludeAllAwakeTimeWithinDisplayedSessionRange() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
         let start = try utcDate(2026, 7, 9, hour: 22)
@@ -236,8 +346,23 @@ final class AppleHealthSyncTests: XCTestCase {
         let day = try XCTUnwrap(trend.last)
 
         XCTAssertEqual(day.sleepStartDate, start.addingTimeInterval(30 * 60))
-        XCTAssertEqual(try XCTUnwrap(day.awakeHours), 0.5, accuracy: 0.001)
-        XCTAssertEqual(try XCTUnwrap(day.sleepPeriodHours), 6.5, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(day.awakeHours), 1.5, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(day.sleepPeriodHours), 8, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(day.sleepLatencyMinutes), 30, accuracy: 0.001)
+
+        let interruptionOnly = SleepQualityConfiguration(
+            targetHours: 8,
+            weights: SleepQualityWeights(duration: 0, regularity: 0, interruptions: 100)
+        )
+        let breakdown = try XCTUnwrap(SleepQualityCalculator.breakdown(
+            for: day,
+            in: trend,
+            configuration: interruptionOnly,
+            calendar: calendar
+        ))
+
+        XCTAssertEqual(breakdown.awakePercentage, 18.75, accuracy: 0.001)
+        XCTAssertEqual(breakdown.interruptionScore, 0, accuracy: 0.001)
     }
 
     func testAllTimeSleepTrendCanBeFilteredByPeriod() throws {
@@ -430,6 +555,52 @@ final class AppleHealthSyncTests: XCTestCase {
         )
         XCTAssertEqual(monthly.granularity, .month)
         XCTAssertEqual(monthly.entries.count, 19)
+    }
+
+    func testCustomSleepTrendUsesTheInclusiveSelectedDateRange() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let start = try utcDate(2026, 7, 5, hour: 12)
+        let end = try utcDate(2026, 7, 14, hour: 22)
+        let history = sleepDays(
+            from: try XCTUnwrap(calendar.date(byAdding: .day, value: -5, to: start)),
+            through: try XCTUnwrap(calendar.date(byAdding: .day, value: 5, to: end)),
+            calendar: calendar
+        )
+
+        let series = AppleHealthSleepAggregator.trendSeries(
+            from: history,
+            dateRange: start...end,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(series.granularity, .day)
+        XCTAssertEqual(series.entries.count, 10)
+        XCTAssertEqual(series.dailyEntries.count, 10)
+        XCTAssertEqual(series.entries.first?.date, calendar.startOfDay(for: start))
+        XCTAssertEqual(series.entries.last?.date, calendar.startOfDay(for: end))
+        XCTAssertTrue(series.entries.compactMap(\.hours).allSatisfy { $0 == 8 })
+    }
+
+    func testCustomSleepTrendAdaptsGranularityToTheSelectedSpan() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let end = try utcDate(2026, 7, 14, hour: 12)
+        let history = [AppleHealthSleepDay(date: end, hours: 8)]
+
+        func series(startingDaysAgo days: Int) throws -> AppleHealthSleepTrendSeries {
+            let start = try XCTUnwrap(calendar.date(byAdding: .day, value: -days, to: end))
+            return AppleHealthSleepAggregator.trendSeries(
+                from: history,
+                dateRange: start...end,
+                calendar: calendar
+            )
+        }
+
+        XCTAssertEqual(try series(startingDaysAgo: 30).granularity, .day)
+        XCTAssertEqual(try series(startingDaysAgo: 31).granularity, .week)
+        XCTAssertEqual(try series(startingDaysAgo: 365).granularity, .month)
+        XCTAssertEqual(try series(startingDaysAgo: 732).granularity, .year)
     }
 
     func testSnapshotCacheRoundTripsHealthData() throws {
@@ -983,6 +1154,9 @@ final class AppleHealthSyncTests: XCTestCase {
             return AppleHealthSleepDay(
                 date: day,
                 hours: 4,
+                remHours: 1,
+                deepHours: 0.6,
+                lightHours: 2.4,
                 sleepStartDate: bedtime,
                 awakeHours: 0.75,
                 sleepPeriodHours: 10
@@ -1003,9 +1177,11 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertEqual(breakdown.durationScore, 50, accuracy: 0.001)
         XCTAssertEqual(breakdown.regularityScore, 100, accuracy: 0.001)
         XCTAssertEqual(breakdown.interruptionScore, 50, accuracy: 0.001)
+        XCTAssertEqual(breakdown.remDeepSleepScore, 100)
         XCTAssertEqual(breakdown.compliantDays, 7)
         XCTAssertEqual(breakdown.awakePercentage, 7.5, accuracy: 0.001)
-        XCTAssertEqual(breakdown.totalScore, 55, accuracy: 0.001)
+        XCTAssertEqual(breakdown.effectiveWeightTotal, 75)
+        XCTAssertEqual(breakdown.totalScore, 60, accuracy: 0.001)
     }
 
     func testSleepHeartRateDropUsesInitialMedianAndStableLowPercentile() throws {
@@ -1343,6 +1519,68 @@ final class AppleHealthSyncTests: XCTestCase {
         )
     }
 
+    func testSleepTrendAssociatesAverageStressWithTheMainSession() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let mainStart = try utcDate(2026, 7, 14, hour: 22)
+        let mainSession = AppleHealthSleepSession(
+            startDate: mainStart,
+            endDate: mainStart.addingTimeInterval(8 * 3_600),
+            asleepSeconds: 8 * 3_600,
+            inBedSeconds: 8 * 3_600,
+            awakeSeconds: 0,
+            coreSeconds: 5 * 3_600,
+            deepSeconds: 1.5 * 3_600,
+            remSeconds: 1.5 * 3_600,
+            sourceNames: ["Test"]
+        )
+        let napStart = try utcDate(2026, 7, 15, hour: 12)
+        let nap = AppleHealthSleepSession(
+            startDate: napStart,
+            endDate: napStart.addingTimeInterval(60 * 60),
+            asleepSeconds: 60 * 60,
+            inBedSeconds: 60 * 60,
+            awakeSeconds: 0,
+            coreSeconds: 60 * 60,
+            deepSeconds: 0,
+            remSeconds: 0,
+            sourceNames: ["Test"]
+        )
+        let day = calendar.startOfDay(for: mainSession.endDate)
+        let trend = [AppleHealthSleepDay(date: day, hours: 9)]
+        let factors = [
+            AppleHealthAutomaticSleepFactors(
+                date: day,
+                sleepSessionStartDate: mainSession.startDate,
+                steps: nil,
+                strengthTrainingMinutes: nil,
+                daylightMinutes: nil,
+                earlyDaylightMinutes: nil,
+                preSleepStressScore: nil,
+                averageSleepStressScore: 24
+            ),
+            AppleHealthAutomaticSleepFactors(
+                date: day,
+                sleepSessionStartDate: nap.startDate,
+                steps: nil,
+                strengthTrainingMinutes: nil,
+                daylightMinutes: nil,
+                earlyDaylightMinutes: nil,
+                preSleepStressScore: nil,
+                averageSleepStressScore: 80
+            )
+        ]
+
+        let updated = AppleHealthSleepAggregator.applyingAverageSleepStress(
+            from: factors,
+            sessions: [mainSession, nap],
+            to: trend,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(updated.first?.averageSleepStressScore, 24)
+    }
+
     func testSleepQualityIncludesHeartRateDropAndDoesNotPenalizeMissingData() throws {
         let date = try utcDate(2026, 7, 15, hour: 8)
         let weights = SleepQualityWeights(
@@ -1375,6 +1613,201 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertNil(unavailableBreakdown.heartRateDropScore)
         XCTAssertEqual(unavailableBreakdown.effectiveWeightTotal, 50)
         XCTAssertEqual(unavailableBreakdown.totalScore, 100, accuracy: 0.001)
+    }
+
+    func testSleepQualityInvertsAverageSleepStressAndDoesNotPenalizeMissingData() throws {
+        let date = try utcDate(2026, 7, 15, hour: 8)
+        let weights = SleepQualityWeights(
+            duration: 50,
+            regularity: 0,
+            interruptions: 0,
+            sleepStress: 50
+        )
+        let configuration = SleepQualityConfiguration(targetHours: 8, weights: weights)
+        let measured = AppleHealthSleepDay(
+            date: date,
+            hours: 8,
+            averageSleepStressScore: 30
+        )
+        let unavailable = AppleHealthSleepDay(date: date, hours: 8)
+
+        let measuredBreakdown = try XCTUnwrap(SleepQualityCalculator.breakdown(
+            for: measured,
+            in: [measured],
+            configuration: configuration
+        ))
+        let unavailableBreakdown = try XCTUnwrap(SleepQualityCalculator.breakdown(
+            for: unavailable,
+            in: [unavailable],
+            configuration: configuration
+        ))
+
+        XCTAssertEqual(measuredBreakdown.sleepStressScore, 40)
+        XCTAssertEqual(measuredBreakdown.totalScore, 70, accuracy: 0.001)
+        XCTAssertNil(unavailableBreakdown.sleepStressScore)
+        XCTAssertEqual(unavailableBreakdown.effectiveWeightTotal, 50)
+        XCTAssertEqual(unavailableBreakdown.totalScore, 100, accuracy: 0.001)
+
+        let stressOnly = SleepQualityConfiguration(
+            targetHours: 8,
+            weights: SleepQualityWeights(
+                duration: 0,
+                regularity: 0,
+                interruptions: 0,
+                sleepStress: 100
+            )
+        )
+        func score(for stress: Double) throws -> Double {
+            let entry = AppleHealthSleepDay(
+                date: date,
+                hours: 8,
+                averageSleepStressScore: stress
+            )
+            return try XCTUnwrap(SleepQualityCalculator.breakdown(
+                for: entry,
+                in: [entry],
+                configuration: stressOnly
+            )).totalScore
+        }
+        XCTAssertEqual(try score(for: 0), 100, accuracy: 0.001)
+        XCTAssertEqual(try score(for: 25), 50, accuracy: 0.001)
+        XCTAssertEqual(try score(for: 50), 0, accuracy: 0.001)
+        XCTAssertEqual(try score(for: 100), 0, accuracy: 0.001)
+    }
+
+    func testSleepQualityScoresREMAndDeepPercentageWithOptimalBand() throws {
+        let date = try utcDate(2026, 7, 15, hour: 8)
+        let configuration = SleepQualityConfiguration(
+            targetHours: 8,
+            weights: SleepQualityWeights(
+                duration: 0,
+                regularity: 0,
+                interruptions: 0,
+                remDeepSleep: 100
+            )
+        )
+        func breakdown(for percentage: Double) throws -> SleepQualityBreakdown {
+            let restorativeHours = 8 * percentage / 100
+            let entry = AppleHealthSleepDay(
+                date: date,
+                hours: 8,
+                remHours: restorativeHours / 2,
+                deepHours: restorativeHours / 2,
+                lightHours: 8 - restorativeHours
+            )
+            return try XCTUnwrap(SleepQualityCalculator.breakdown(
+                for: entry,
+                in: [entry],
+                configuration: configuration
+            ))
+        }
+
+        XCTAssertEqual(try XCTUnwrap(breakdown(for: 0).remDeepSleepScore), 0, accuracy: 0.001)
+        XCTAssertEqual(
+            try XCTUnwrap(breakdown(for: 20).remDeepSleepScore),
+            20 / 35 * 100,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(try XCTUnwrap(breakdown(for: 35).remDeepSleepScore), 100, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(breakdown(for: 40).remDeepSleepScore), 100, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(breakdown(for: 45).remDeepSleepScore), 100, accuracy: 0.001)
+        XCTAssertEqual(
+            try XCTUnwrap(breakdown(for: 50).remDeepSleepScore),
+            50 / 55 * 100,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(try XCTUnwrap(breakdown(for: 100).remDeepSleepScore), 0, accuracy: 0.001)
+    }
+
+    func testSleepQualityREMAndDeepExcludesUnknownSleepAndRequiresEightyPercentCoverage() throws {
+        let date = try utcDate(2026, 7, 15, hour: 8)
+        let configuration = SleepQualityConfiguration(
+            targetHours: 8,
+            weights: SleepQualityWeights(
+                duration: 0,
+                regularity: 0,
+                interruptions: 0,
+                remDeepSleep: 100
+            )
+        )
+        let sufficient = AppleHealthSleepDay(
+            date: date,
+            hours: 10,
+            remHours: 2,
+            deepHours: 2,
+            lightHours: 4
+        )
+        let insufficient = AppleHealthSleepDay(
+            date: date,
+            hours: 10,
+            remHours: 2,
+            deepHours: 2,
+            lightHours: 3.9
+        )
+
+        let sufficientBreakdown = try XCTUnwrap(SleepQualityCalculator.breakdown(
+            for: sufficient,
+            in: [sufficient],
+            configuration: configuration
+        ))
+        let insufficientBreakdown = try XCTUnwrap(SleepQualityCalculator.breakdown(
+            for: insufficient,
+            in: [insufficient],
+            configuration: configuration
+        ))
+
+        XCTAssertEqual(
+            try XCTUnwrap(sufficientBreakdown.remDeepSleepPercentage),
+            50,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(sufficientBreakdown.remDeepSleepScore),
+            50 / 55 * 100,
+            accuracy: 0.001
+        )
+        XCTAssertNil(insufficientBreakdown.remDeepSleepPercentage)
+        XCTAssertNil(insufficientBreakdown.remDeepSleepScore)
+        XCTAssertEqual(insufficientBreakdown.effectiveWeightTotal, 0)
+    }
+
+    func testSleepQualityScoresLatencyWithOptimalBandAndIgnoresMissingData() throws {
+        let date = try utcDate(2026, 7, 15, hour: 8)
+        let configuration = SleepQualityConfiguration(
+            targetHours: 8,
+            weights: SleepQualityWeights(
+                duration: 0,
+                regularity: 0,
+                interruptions: 0,
+                sleepLatency: 100
+            )
+        )
+        func breakdown(for minutes: Double?) throws -> SleepQualityBreakdown {
+            let entry = AppleHealthSleepDay(
+                date: date,
+                hours: 8,
+                sleepLatencyMinutes: minutes
+            )
+            return try XCTUnwrap(SleepQualityCalculator.breakdown(
+                for: entry,
+                in: [entry],
+                configuration: configuration
+            ))
+        }
+
+        XCTAssertEqual(try XCTUnwrap(breakdown(for: 0).sleepLatencyScore), 0, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(breakdown(for: 2.5).sleepLatencyScore), 50, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(breakdown(for: 5).sleepLatencyScore), 100, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(breakdown(for: 15).sleepLatencyScore), 100, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(breakdown(for: 20).sleepLatencyScore), 100, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(breakdown(for: 40).sleepLatencyScore), 50, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(breakdown(for: 60).sleepLatencyScore), 0, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(breakdown(for: 90).sleepLatencyScore), 0, accuracy: 0.001)
+
+        let unavailable = try breakdown(for: nil)
+        XCTAssertNil(unavailable.sleepLatencyScore)
+        XCTAssertNil(unavailable.sleepLatencyMinutes)
+        XCTAssertEqual(unavailable.effectiveWeightTotal, 0)
     }
 
     func testSleepHeartRateDropScoreDoesNotSaturateAtFifteenPercent() throws {
@@ -1497,6 +1930,58 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertEqual(breakdown.regularityScore, 100, accuracy: 0.001)
     }
 
+    func testSleepQualityRegularityUsesThirtyMinuteFullScoreBandAndFourHourZeroBand() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let firstDay = try utcDate(2026, 7, 1, hour: 8)
+        let configuration = SleepQualityConfiguration(
+            targetHours: 8,
+            weights: SleepQualityWeights(
+                duration: 0,
+                regularity: 100,
+                interruptions: 0
+            )
+        )
+
+        func score(for deviationMinutes: Double) throws -> SleepQualityBreakdown {
+            let history = try (0..<7).map { offset -> AppleHealthSleepDay in
+                let day = try XCTUnwrap(calendar.date(
+                    byAdding: .day,
+                    value: offset,
+                    to: firstDay
+                ))
+                let offsetFromMean: Double
+                switch offset {
+                case 0: offsetFromMean = -deviationMinutes
+                case 6: offsetFromMean = deviationMinutes
+                default: offsetFromMean = 0
+                }
+                let meanBedtime = try XCTUnwrap(calendar.date(
+                    bySettingHour: 23,
+                    minute: 0,
+                    second: 0,
+                    of: day
+                ))
+                let sleepStart = meanBedtime.addingTimeInterval(offsetFromMean * 60)
+                return AppleHealthSleepDay(
+                    date: day,
+                    hours: 8,
+                    sleepStartDate: sleepStart
+                )
+            }
+            return try XCTUnwrap(SleepQualityCalculator.breakdown(
+                for: try XCTUnwrap(history.last),
+                in: history,
+                configuration: configuration,
+                calendar: calendar
+            ))
+        }
+
+        XCTAssertEqual(try score(for: 30).regularityScore, 100, accuracy: 0.001)
+        XCTAssertEqual(try score(for: 135).regularityScore, 50, accuracy: 0.001)
+        XCTAssertEqual(try score(for: 240).regularityScore, 0, accuracy: 0.001)
+    }
+
     func testSleepQualityPreferencesUseAgeRecommendationUntilUserSetsCustomTarget() throws {
         let suiteName = "SleepQualityPreferencesTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -1536,6 +2021,9 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertEqual(preferences.weights.regularity, 15)
         XCTAssertEqual(preferences.weights.interruptions, 21)
         XCTAssertEqual(preferences.weights.heartRateDrop, 10)
+        XCTAssertEqual(preferences.weights.sleepStress, 0)
+        XCTAssertEqual(preferences.weights.remDeepSleep, 0)
+        XCTAssertEqual(preferences.weights.sleepLatency, 0)
 
         preferences.useRecommendedTarget()
         XCTAssertNil(preferences.customTargetHours)
@@ -1586,6 +2074,85 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertTrue(heartRateWeighted.allSatisfy { $0.qualityScore == 100 })
     }
 
+    @MainActor
+    func testHistoricalSleepChartUpdatesImmediatelyWhenWeightsAndTargetChange() throws {
+        let suiteName = "HistoricalSleepChartSettingsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = SleepQualityPreferences(defaults: defaults)
+        XCTAssertTrue(preferences.setCustomTargetHours(8))
+        XCTAssertTrue(preferences.setWeights(SleepQualityWeights(
+            duration: 100, regularity: 0, interruptions: 0
+        )))
+        let calendar = Calendar.autoupdatingCurrent
+        let today = calendar.startOfDay(for: Date())
+        let service = AppleHealthSyncingStub(availableSources: [], disabledSourceSelections: [])
+        service.snapshot.sleepTrend = try (0..<300).map { offset in
+            AppleHealthSleepDay(
+                date: try XCTUnwrap(calendar.date(byAdding: .day, value: offset - 299, to: today)),
+                hours: 4,
+                qualityScore: 1,
+                heartRateDropPercentage: 25
+            )
+        }
+        let controller = SleepViewController(appleHealthService: service, defaults: defaults)
+        controller.loadViewIfNeeded()
+        let metric = try XCTUnwrap(descendant(
+            of: UISegmentedControl.self,
+            identifier: "sleep.trend.metric.selector",
+            in: controller.view
+        ))
+        metric.selectedSegmentIndex = 0
+        metric.sendActions(for: .valueChanged)
+        let period = try XCTUnwrap(descendant(
+            of: UISegmentedControl.self,
+            identifier: "sleep.trend.period.selector",
+            in: controller.view
+        ))
+        period.selectedSegmentIndex = AppleHealthSleepTrendPeriod.allTime.rawValue
+        period.sendActions(for: .valueChanged)
+
+        func assertMonthlyScores(_ expected: Double, file: StaticString = #filePath, line: UInt = #line) throws {
+            let chart = try XCTUnwrap(descendant(
+                of: WellnessTrendChartView.self,
+                identifier: "sleep.trend.chart",
+                in: controller.view
+            ), file: file, line: line)
+            let values = chart.values.compactMap { $0 }
+            XCTAssertGreaterThanOrEqual(values.count, 10, file: file, line: line)
+            for value in values {
+                XCTAssertEqual(value, expected, accuracy: 0.0001, file: file, line: line)
+            }
+        }
+
+        try assertMonthlyScores(50)
+        // The existing screen must refresh via the settings notification,
+        // including the oldest monthly buckets, without another Health sync.
+        XCTAssertTrue(preferences.setCustomTargetHours(4))
+        try assertMonthlyScores(100)
+        XCTAssertTrue(preferences.setCustomTargetHours(8))
+        try assertMonthlyScores(50)
+        XCTAssertTrue(preferences.setWeights(SleepQualityWeights(
+            duration: 0, regularity: 0, interruptions: 0, heartRateDrop: 100
+        )))
+        try assertMonthlyScores(100)
+        XCTAssertTrue(service.snapshot.sleepTrend.allSatisfy { $0.qualityScore == 1 })
+    }
+
+    func testHistoricalSleepScoreIgnoresWeightOfUnavailableStress() throws {
+        let day = AppleHealthSleepDay(date: try utcDate(2025, 9, 1, hour: 8), hours: 4)
+        let durationOnly = SleepQualityCalculator.applying(to: [day], configuration: SleepQualityConfiguration(
+            targetHours: 8,
+            weights: SleepQualityWeights(duration: 100, regularity: 0, interruptions: 0)
+        ))
+        let mostlyUnavailableStress = SleepQualityCalculator.applying(to: [day], configuration: SleepQualityConfiguration(
+            targetHours: 8,
+            weights: SleepQualityWeights(duration: 10, regularity: 0, interruptions: 0, sleepStress: 90)
+        ))
+        XCTAssertEqual(durationOnly.first?.qualityScore, 50)
+        XCTAssertEqual(mostlyUnavailableStress.first?.qualityScore, 50)
+    }
+
     func testSleepQualityPreferencesMigrateThreeLegacyWeights() throws {
         let suiteName = "SleepQualityPreferencesMigrationTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -1596,10 +2163,79 @@ final class AppleHealthSyncTests: XCTestCase {
 
         let weights = SleepQualityPreferences(defaults: defaults).weights
 
-        XCTAssertEqual(weights.duration, 54)
-        XCTAssertEqual(weights.regularity, 14)
-        XCTAssertEqual(weights.interruptions, 22)
+        XCTAssertEqual(weights.duration, 36)
+        XCTAssertEqual(weights.regularity, 9)
+        XCTAssertEqual(weights.interruptions, 15)
         XCTAssertEqual(weights.heartRateDrop, 10)
+        XCTAssertEqual(weights.sleepStress, 10)
+        XCTAssertEqual(weights.remDeepSleep, 10)
+        XCTAssertEqual(weights.sleepLatency, 10)
+        XCTAssertTrue(weights.isValid)
+    }
+
+    func testSleepQualityPreferencesMigrateFourWeightsByAddingSleepStress() throws {
+        let suiteName = "SleepQualityPreferencesFourWeightMigrationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(63, forKey: "wellnario.sleep.quality.durationWeight.v1")
+        defaults.set(9, forKey: "wellnario.sleep.quality.regularityWeight.v1")
+        defaults.set(18, forKey: "wellnario.sleep.quality.interruptionWeight.v1")
+        defaults.set(10, forKey: "wellnario.sleep.quality.heartRateDropWeight.v1")
+
+        let weights = SleepQualityPreferences(defaults: defaults).weights
+
+        XCTAssertEqual(weights.duration, 44)
+        XCTAssertEqual(weights.regularity, 6)
+        XCTAssertEqual(weights.interruptions, 13)
+        XCTAssertEqual(weights.heartRateDrop, 7)
+        XCTAssertEqual(weights.sleepStress, 10)
+        XCTAssertEqual(weights.remDeepSleep, 10)
+        XCTAssertEqual(weights.sleepLatency, 10)
+        XCTAssertTrue(weights.isValid)
+    }
+
+    func testSleepQualityPreferencesMigrateFiveWeightsByAddingREMAndDeepSleep() throws {
+        let suiteName = "SleepQualityPreferencesFiveWeightMigrationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(57, forKey: "wellnario.sleep.quality.durationWeight.v1")
+        defaults.set(8, forKey: "wellnario.sleep.quality.regularityWeight.v1")
+        defaults.set(16, forKey: "wellnario.sleep.quality.interruptionWeight.v1")
+        defaults.set(9, forKey: "wellnario.sleep.quality.heartRateDropWeight.v1")
+        defaults.set(10, forKey: "wellnario.sleep.quality.sleepStressWeight.v1")
+
+        let weights = SleepQualityPreferences(defaults: defaults).weights
+
+        XCTAssertEqual(weights.duration, 46)
+        XCTAssertEqual(weights.regularity, 6)
+        XCTAssertEqual(weights.interruptions, 13)
+        XCTAssertEqual(weights.heartRateDrop, 7)
+        XCTAssertEqual(weights.sleepStress, 8)
+        XCTAssertEqual(weights.remDeepSleep, 10)
+        XCTAssertEqual(weights.sleepLatency, 10)
+        XCTAssertTrue(weights.isValid)
+    }
+
+    func testSleepQualityPreferencesMigrateSixWeightsByAddingLatency() throws {
+        let suiteName = "SleepQualityPreferencesSixWeightMigrationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(51, forKey: "wellnario.sleep.quality.durationWeight.v1")
+        defaults.set(7, forKey: "wellnario.sleep.quality.regularityWeight.v1")
+        defaults.set(15, forKey: "wellnario.sleep.quality.interruptionWeight.v1")
+        defaults.set(8, forKey: "wellnario.sleep.quality.heartRateDropWeight.v1")
+        defaults.set(9, forKey: "wellnario.sleep.quality.sleepStressWeight.v1")
+        defaults.set(10, forKey: "wellnario.sleep.quality.remDeepSleepWeight.v1")
+
+        let weights = SleepQualityPreferences(defaults: defaults).weights
+
+        XCTAssertEqual(weights.duration, 46)
+        XCTAssertEqual(weights.regularity, 6)
+        XCTAssertEqual(weights.interruptions, 14)
+        XCTAssertEqual(weights.heartRateDrop, 7)
+        XCTAssertEqual(weights.sleepStress, 8)
+        XCTAssertEqual(weights.remDeepSleep, 9)
+        XCTAssertEqual(weights.sleepLatency, 10)
         XCTAssertTrue(weights.isValid)
     }
 
@@ -1629,6 +2265,70 @@ final class AppleHealthSyncTests: XCTestCase {
 
         XCTAssertEqual(preferences.loadSources(), sources)
         XCTAssertEqual(preferences.loadDisabledSourceSelections(), disabledSelections)
+    }
+
+    func testHealthSourceIdentityDistinguishesDevicesWithTheSameBundle() {
+        let watch = AppleHealthSourceIdentity.identifier(
+            bundleIdentifier: "com.apple.health",
+            name: "Apple Watch"
+        )
+        let phone = AppleHealthSourceIdentity.identifier(
+            bundleIdentifier: "com.apple.health",
+            name: "iPhone"
+        )
+
+        XCTAssertNotEqual(watch, phone)
+    }
+
+    func testSourcePreferencesExpandLegacyBundleExclusionToEveryDiscoveredSource() throws {
+        let suiteName = "AppleHealthSourcePreferenceIdentityMigrationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = AppleHealthSourcePreferences(defaults: defaults)
+        let sources = [
+            AppleHealthDataSource(
+                identifier: AppleHealthSourceIdentity.identifier(
+                    bundleIdentifier: "com.apple.health",
+                    name: "Apple Watch"
+                ),
+                name: "Apple Watch",
+                dataKinds: [.sleep],
+                sourceBundleIdentifier: "com.apple.health"
+            ),
+            AppleHealthDataSource(
+                identifier: AppleHealthSourceIdentity.identifier(
+                    bundleIdentifier: "com.apple.health",
+                    name: "iPhone"
+                ),
+                name: "iPhone",
+                dataKinds: [.sleep],
+                sourceBundleIdentifier: "com.apple.health"
+            ),
+            AppleHealthDataSource(
+                identifier: AppleHealthSourceIdentity.identifier(
+                    bundleIdentifier: "com.ouraring.oura",
+                    name: "Oura"
+                ),
+                name: "Oura",
+                dataKinds: [.sleep],
+                sourceBundleIdentifier: "com.ouraring.oura"
+            )
+        ]
+        let legacy: Set<AppleHealthSourceSelection> = [
+            AppleHealthSourceSelection(
+                sourceIdentifier: "com.apple.health",
+                dataKind: .sleep
+            )
+        ]
+
+        let migrated = preferences.migratingLegacyDisabledSourceSelections(
+            legacy,
+            to: sources
+        )
+
+        XCTAssertEqual(migrated, Set(sources.prefix(2).map {
+            AppleHealthSourceSelection(sourceIdentifier: $0.identifier, dataKind: .sleep)
+        }))
     }
 
     func testShortcutAutomationPreferencesPersistScheduleDraft() throws {
@@ -1894,6 +2594,17 @@ final class AppleHealthSyncTests: XCTestCase {
         periodSelector.selectedSegmentIndex = AppleHealthSleepTrendPeriod.thirtyDays.rawValue
         periodSelector.sendActions(for: .valueChanged)
         XCTAssertEqual(chart.values.compactMap { $0 }.count, 7)
+        XCTAssertEqual(
+            periodSelector.numberOfSegments,
+            AppleHealthSleepTrendPeriod.allCases.count + 1
+        )
+        XCTAssertNotNil(
+            periodSelector.imageForSegment(at: AppleHealthSleepTrendPeriod.allCases.count)
+        )
+        XCTAssertEqual(
+            periodSelector.titleForSegment(at: AppleHealthSleepTrendPeriod.allTime.rawValue),
+            L10n.text("sleep.trend.period.all")
+        )
     }
 
     @MainActor
@@ -1962,6 +2673,21 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertNotNil(descendant(
             of: UIStackView.self,
             identifier: "sleep.latest.quality.heart_rate_drop",
+            in: controller.view
+        ))
+        XCTAssertNotNil(descendant(
+            of: UIStackView.self,
+            identifier: "sleep.latest.quality.sleep_stress",
+            in: controller.view
+        ))
+        XCTAssertNotNil(descendant(
+            of: UIStackView.self,
+            identifier: "sleep.latest.quality.rem_deep_sleep",
+            in: controller.view
+        ))
+        XCTAssertNotNil(descendant(
+            of: UIStackView.self,
+            identifier: "sleep.latest.quality.sleep_latency",
             in: controller.view
         ))
     }
@@ -3256,16 +3982,23 @@ final class AppleHealthSyncTests: XCTestCase {
         let entry = AppleHealthSleepDay(
             date: Date(),
             hours: 8,
-            qualityScore: 99
+            qualityScore: 99,
+            awakeHours: 0.25
         )
         let breakdown = SleepQualityBreakdown(
             durationScore: 80,
             regularityScore: 70,
             interruptionScore: 60,
             heartRateDropScore: 50,
+            sleepStressScore: 50,
+            remDeepSleepScore: 100,
+            sleepLatencyScore: 100,
             compliantDays: 5,
-            awakePercentage: 4,
+            awakePercentage: 3.5,
             heartRateDropPercentage: 7.5,
+            averageSleepStressScore: 12.5,
+            remDeepSleepPercentage: 40,
+            sleepLatencyMinutes: 15,
             effectiveWeightTotal: 100,
             totalScore: 68
         )
@@ -3284,10 +4017,19 @@ final class AppleHealthSyncTests: XCTestCase {
                 L10n.text("today.sleep.metric.heart_rate_drop")
             ) == true
         )
+        XCTAssertTrue(card.accessibilityValue?.contains(": 4%") == true)
+        XCTAssertTrue(card.accessibilityValue?.contains(": 8%") == true)
+        XCTAssertTrue(card.accessibilityValue?.contains(": 13%") == true)
+        XCTAssertTrue(card.accessibilityValue?.contains(": 40%") == true)
+        XCTAssertTrue(
+            card.accessibilityValue?.contains(
+                ": \(AppleHealthUIFormatting.compactDuration(15 * 60))"
+            ) == true
+        )
     }
 
     @MainActor
-    func testTodaySleepCardFitsFiveCompactMetricsAndHandlesMissingHeartRateDrop() throws {
+    func testTodaySleepCardUsesOneQualityRingAndSevenCompactFactorBars() throws {
         let card = TodaySleepSummaryCard()
         let entry = AppleHealthSleepDay(
             date: Date(),
@@ -3312,7 +4054,7 @@ final class AppleHealthSyncTests: XCTestCase {
             qualityScore: 91,
             detail: ""
         )
-        card.frame = CGRect(x: 0, y: 0, width: 320, height: 150)
+        card.frame = CGRect(x: 0, y: 0, width: 320, height: 175)
         card.layoutIfNeeded()
 
         let identifiers = [
@@ -3320,7 +4062,10 @@ final class AppleHealthSyncTests: XCTestCase {
             "today.sleep.metric.duration",
             "today.sleep.metric.regularity",
             "today.sleep.metric.interruptions",
-            "today.sleep.metric.heart_rate_drop"
+            "today.sleep.metric.heart_rate_drop",
+            "today.sleep.metric.sleep_stress",
+            "today.sleep.metric.rem_deep_sleep",
+            "today.sleep.metric.sleep_latency"
         ]
         let metricFrames = try identifiers.map { identifier in
             let metric = try XCTUnwrap(descendant(
@@ -3329,16 +4074,34 @@ final class AppleHealthSyncTests: XCTestCase {
                 in: card
             ))
             return metric.convert(metric.bounds, to: card)
-        }.sorted { $0.minX < $1.minX }
+        }
 
-        XCTAssertEqual(TodaySleepSummaryCard.metricRingDiameter, 54)
-        XCTAssertLessThan(TodaySleepSummaryCard.metricRingDiameter, 70)
-        for pair in zip(metricFrames, metricFrames.dropFirst()) {
-            XCTAssertLessThanOrEqual(pair.0.maxX, pair.1.minX)
+        let qualityFrame = try XCTUnwrap(metricFrames.first)
+        let factorFrames = Array(metricFrames.dropFirst())
+        XCTAssertEqual(TodaySleepSummaryCard.metricRingDiameter, 68)
+        XCTAssertGreaterThan(qualityFrame.height, factorFrames[0].height)
+        XCTAssertTrue(factorFrames.allSatisfy { $0.minX > qualityFrame.maxX })
+        for pair in zip(factorFrames, factorFrames.dropFirst()) {
+            XCTAssertLessThanOrEqual(pair.0.maxY, pair.1.minY)
         }
         XCTAssertTrue(
             card.accessibilityValue?.contains(
                 "\(L10n.text("today.sleep.metric.heart_rate_drop")): —"
+            ) == true
+        )
+        XCTAssertTrue(
+            card.accessibilityValue?.contains(
+                "\(L10n.text("today.sleep.metric.sleep_stress")): —"
+            ) == true
+        )
+        XCTAssertTrue(
+            card.accessibilityValue?.contains(
+                "\(L10n.text("today.sleep.metric.rem_deep_sleep")): —"
+            ) == true
+        )
+        XCTAssertTrue(
+            card.accessibilityValue?.contains(
+                "\(L10n.text("today.sleep.metric.sleep_latency")): —"
             ) == true
         )
     }
@@ -5310,6 +6073,35 @@ final class AppleHealthSyncTests: XCTestCase {
             day = next
         }
         return result
+    }
+
+    func testFitnessMaximumHeartRateEstimateUsesAgeSexAndRestingHeartRate() throws {
+        var snapshot = AppleHealthSnapshot.empty
+        snapshot.dateOfBirthComponents = DateComponents(year: 1990, month: 8, day: 2)
+        snapshot.biologicalSex = .male
+
+        let estimate = FitnessMaximumHeartRateEstimator.estimate(
+            snapshot: snapshot,
+            restingHeartRate: 55,
+            referenceDate: try utcDate(2026, 8, 2, hour: 12)
+        )
+
+        XCTAssertEqual(estimate.value, 190)
+        XCTAssertTrue(estimate.usesFullProfile)
+    }
+
+    func testFitnessMaximumHeartRatePreferencesOverrideAndResetAutomaticEstimate() {
+        let suiteName = "FitnessMaximumHeartRatePreferencesTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = FitnessMaximumHeartRatePreferences(defaults: defaults)
+
+        XCTAssertNil(preferences.manualMaximumHeartRate)
+        preferences.setManualMaximumHeartRate(195)
+        XCTAssertEqual(preferences.manualMaximumHeartRate, 195)
+
+        preferences.resetToAutomaticEstimate()
+        XCTAssertNil(preferences.manualMaximumHeartRate)
     }
 
     private func utcDate(_ year: Int, _ month: Int, _ day: Int, hour: Int) throws -> Date {

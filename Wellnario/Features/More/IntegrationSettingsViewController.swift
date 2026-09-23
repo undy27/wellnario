@@ -547,7 +547,7 @@ final class IntegrationSetupViewController: WellnessScrollViewController {
             disconnectButton.addAction(UIAction { [weak self] _ in
                 self?.presentDisconnectOuraAlert()
             }, for: .touchUpInside)
-            disconnectButton.heightAnchor.constraint(equalToConstant: 44).isActive = true
+            disconnectButton.heightAnchor.constraint(equalToConstant: WellnarioLayout.textButtonHeight).isActive = true
             contentStack.addArrangedSubview(disconnectButton)
         }
     }

@@ -295,7 +295,8 @@ final class SupplementDetailViewController: FeatureViewController {
                         timeZoneID: consumption.timeZoneID
                     ),
                     value: "\(FeatureFormatting.decimal(consumption.quantity)) \(consumption.unit.symbol(languageCode: catalogLanguage.rawValue))",
-                    symbol: "checkmark.circle.fill"
+                    iconImage: WellnarioSymbols.intake(),
+                    iconSize: CGSize(width: 27, height: 22)
                 )
                 stack.addArrangedSubview(row)
             }
@@ -314,9 +315,24 @@ final class SupplementDetailViewController: FeatureViewController {
         return UIStackView(arrangedSubviews: [label, UIView(), icon], axis: .horizontal, spacing: 8, alignment: .center)
     }
 
-    private func valueRow(title: String, value: String, symbol: String) -> UIView {
-        let icon = UIImageView(image: UIImage(systemName: symbol))
+    private func valueRow(
+        title: String,
+        value: String,
+        symbol: String? = nil,
+        iconImage: UIImage? = nil,
+        iconSize: CGSize? = nil
+    ) -> UIView {
+        let icon = UIImageView(image: iconImage ?? symbol.flatMap { UIImage(systemName: $0) })
         icon.tintColor = WellnarioPalette.cyan
+        if let iconSize {
+            icon.contentMode = .scaleAspectFit
+            icon.setContentHuggingPriority(.required, for: .horizontal)
+            icon.setContentCompressionResistancePriority(.required, for: .horizontal)
+            NSLayoutConstraint.activate([
+                icon.widthAnchor.constraint(equalToConstant: iconSize.width),
+                icon.heightAnchor.constraint(equalToConstant: iconSize.height)
+            ])
+        }
         let titleLabel = UILabel()
         titleLabel.applyWellnarioStyle(.body, color: WellnarioPalette.textPrimary)
         titleLabel.text = title

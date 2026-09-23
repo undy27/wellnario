@@ -4,6 +4,7 @@ import UIKit
 class WellnessScrollViewController: UIViewController {
     let scrollView = UIScrollView()
     let contentStack = UIStackView()
+    var contentHorizontalInset: CGFloat { WellnarioSpacing.screenHorizontal }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -22,11 +23,11 @@ class WellnessScrollViewController: UIViewController {
         NSLayoutConstraint.activate([
             contentStack.leadingAnchor.constraint(
                 equalTo: scrollView.contentLayoutGuide.leadingAnchor,
-                constant: WellnarioSpacing.screenHorizontal
+                constant: contentHorizontalInset
             ),
             contentStack.trailingAnchor.constraint(
                 equalTo: scrollView.contentLayoutGuide.trailingAnchor,
-                constant: -WellnarioSpacing.screenHorizontal
+                constant: -contentHorizontalInset
             ),
             contentStack.topAnchor.constraint(
                 equalTo: scrollView.contentLayoutGuide.topAnchor,
@@ -38,7 +39,7 @@ class WellnessScrollViewController: UIViewController {
             ),
             contentStack.widthAnchor.constraint(
                 equalTo: scrollView.frameLayoutGuide.widthAnchor,
-                constant: -(WellnarioSpacing.screenHorizontal * 2)
+                constant: -(contentHorizontalInset * 2)
             )
         ])
     }

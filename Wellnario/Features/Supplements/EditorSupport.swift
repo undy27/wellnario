@@ -6,6 +6,8 @@ class EditorViewController: FeatureViewController, UIGestureRecognizerDelegate {
     let contentStack = UIStackView()
     let saveButton = PrimaryButton()
     var minimumBottomContentInset: CGFloat { 0 }
+    var contentTopInset: CGFloat { WellnarioSpacing.medium }
+    var usesNavigationBackButton: Bool { false }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -19,20 +21,17 @@ class EditorViewController: FeatureViewController, UIGestureRecognizerDelegate {
 
     func performSave() {}
 
-    func finishSaving(message: String = L10n.text("feedback.saved")) {
+    func finishSaving(
+        message: String = L10n.text("feedback.saved"),
+        onEditorClosed: (() -> Void)? = nil
+    ) {
         saveButton.isLoading = false
         UIImpactFeedbackGenerator.wellnarioSuccess()
-        closeEditor(animated: true)
+        closeEditor(animated: true, completion: onEditorClosed)
     }
 
     private func setUpEditor() {
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            title: L10n.Common.cancel,
-            style: .plain,
-            target: self,
-            action: #selector(cancelTapped)
-        )
-        navigationItem.leftBarButtonItem?.tintColor = WellnarioPalette.textSecondary
+        navigationItem.leftBarButtonItem = usesNavigationBackButton ? nil : cancelBarButtonItem()
 
         scrollView.alwaysBounceVertical = true
         scrollView.keyboardDismissMode = .interactive
@@ -48,11 +47,10 @@ class EditorViewController: FeatureViewController, UIGestureRecognizerDelegate {
         NSLayoutConstraint.activate([
             contentStack.leadingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.leadingAnchor, constant: WellnarioSpacing.screenHorizontal),
             contentStack.trailingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.trailingAnchor, constant: -WellnarioSpacing.screenHorizontal),
-            contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: WellnarioSpacing.medium),
+            contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: contentTopInset),
             contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -WellnarioSpacing.large),
             contentStack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -(WellnarioSpacing.screenHorizontal * 2))
         ])
-
         saveButton.setTitle(L10n.Common.save, for: .normal)
         saveButton.accessibilityIdentifier = "editor.save"
         saveButton.addTarget(self, action: #selector(saveTapped), for: .touchUpInside)
@@ -77,7 +75,7 @@ class EditorViewController: FeatureViewController, UIGestureRecognizerDelegate {
     }
 
     @discardableResult
-    func addSection(title: String, views: [UIView]) -> FormSectionView {
+    func addSection(title: String?, views: [UIView]) -> FormSectionView {
         let section = FormSectionView(title: title, views: views)
         contentStack.addArrangedSubview(section)
         return section
@@ -87,6 +85,34 @@ class EditorViewController: FeatureViewController, UIGestureRecognizerDelegate {
         guard saveButton.superview == nil else { return }
         contentStack.setCustomSpacing(WellnarioSpacing.large, after: contentStack.arrangedSubviews.last!)
         contentStack.addArrangedSubview(saveButton)
+    }
+
+    private func cancelBarButtonItem() -> UIBarButtonItem {
+        UIBarButtonItem(customView: makeCancelButton(leadingInset: WellnarioSpacing.xxxSmall))
+    }
+
+    private func makeCancelButton(leadingInset: CGFloat) -> UIButton {
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = L10n.Common.cancel
+        configuration.baseForegroundColor = WellnarioPalette.textSecondary
+        configuration.contentInsets = NSDirectionalEdgeInsets(
+            top: 0,
+            leading: leadingInset,
+            bottom: 0,
+            trailing: 0
+        )
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = WellnarioTypography.font(for: .body)
+            return outgoing
+        }
+        button.configuration = configuration
+        button.accessibilityLabel = L10n.Common.cancel
+        button.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        button.heightAnchor.constraint(equalToConstant: WellnarioLayout.textButtonHeight).isActive = true
+        return button
     }
 
     @objc private func saveTapped() {
@@ -100,28 +126,31 @@ class EditorViewController: FeatureViewController, UIGestureRecognizerDelegate {
         closeEditor(animated: true)
     }
 
-    private func closeEditor(animated: Bool) {
+    private func closeEditor(animated: Bool, completion: (() -> Void)? = nil) {
         // Intake and the other editors are normally wrapped in a page-sheet
         // navigation controller. Dismiss that container after a successful
         // save so the editor does not remain visible on top of the updated
         // parent screen.
         if let navigationController,
+           navigationController.topViewController === self,
+           navigationController.viewControllers.count > 1 {
+            navigationController.popViewController(animated: animated)
+            completion?()
+            return
+        }
+        if let navigationController,
            navigationController.presentingViewController != nil
             || (navigationController.viewIfLoaded?.window != nil
                 && navigationController.modalPresentationStyle == .pageSheet) {
-            navigationController.dismiss(animated: animated)
+            navigationController.dismiss(animated: animated, completion: completion)
             return
         }
         if presentingViewController != nil
             || (viewIfLoaded?.window != nil && modalPresentationStyle == .pageSheet) {
-            dismiss(animated: animated)
+            dismiss(animated: animated, completion: completion)
             return
         }
-        if let navigationController,
-           navigationController.topViewController === self,
-           navigationController.viewControllers.count > 1 {
-            navigationController.popViewController(animated: animated)
-        }
+        completion?()
     }
 
     @objc private func endEditing() {
@@ -158,16 +187,18 @@ final class FormSectionView: PremiumCardView {
     let stackView = UIStackView()
     let titleLabel = UILabel()
 
-    init(title: String, views: [UIView]) {
+    init(title: String?, views: [UIView]) {
         super.init(frame: .zero)
-        titleLabel.text = title
-        titleLabel.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textPrimary)
-        titleLabel.numberOfLines = 0
 
         stackView.axis = .vertical
         stackView.spacing = WellnarioSpacing.small
-        stackView.addArrangedSubview(titleLabel)
-        stackView.setCustomSpacing(WellnarioSpacing.medium, after: titleLabel)
+        if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            titleLabel.text = title
+            titleLabel.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textPrimary)
+            titleLabel.numberOfLines = 0
+            stackView.addArrangedSubview(titleLabel)
+            stackView.setCustomSpacing(WellnarioSpacing.medium, after: titleLabel)
+        }
         views.forEach(stackView.addArrangedSubview)
         contentView.addForAutoLayout(stackView)
         stackView.pinEdges(to: contentView, insets: .all(WellnarioSpacing.cardPadding))
@@ -218,6 +249,8 @@ final class SelectionFieldView: UIView {
         button.clipsToBounds = true
         button.showsMenuAsPrimaryAction = true
         button.heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.fieldMinimumHeight).isActive = true
+        button.titleLabel?.numberOfLines = 0
+        button.titleLabel?.lineBreakMode = .byWordWrapping
 
         leadingImageView.contentMode = .scaleAspectFit
         leadingImageView.clipsToBounds = true
@@ -232,7 +265,7 @@ final class SelectionFieldView: UIView {
         NSLayoutConstraint.activate([
             leadingImageView.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 12),
             leadingImageView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
-            leadingImageView.widthAnchor.constraint(equalToConstant: 34),
+            leadingImageView.widthAnchor.constraint(equalToConstant: 20),
             leadingImageView.heightAnchor.constraint(equalTo: leadingImageView.widthAnchor),
             accessoryImageView.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -16),
             accessoryImageView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
@@ -256,11 +289,12 @@ final class SelectionFieldView: UIView {
             leadingInset = usesCompactHorizontalPadding ? 48 : 56
         }
         configuration.contentInsets = NSDirectionalEdgeInsets(
-            top: 10,
+            top: 2,
             leading: leadingInset,
-            bottom: 10,
+            bottom: 2,
             trailing: usesCompactHorizontalPadding ? 30 : 44
         )
+        configuration.titleLineBreakMode = .byWordWrapping
         configuration.cornerStyle = .fixed
         configuration.background.backgroundColor = WellnarioPalette.fieldBackground
         configuration.background.cornerRadius = WellnarioRadius.control

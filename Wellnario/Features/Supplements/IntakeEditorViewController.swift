@@ -16,6 +16,8 @@ final class IntakeEditorViewController: EditorViewController {
     private var supplements: [Supplement] = []
     private var selectedInstanceID: UUID?
 
+    override var usesNavigationBackButton: Bool { true }
+
     init(
         repository: WellnarioRepositoryProtocol,
         consumption: Consumption? = nil,
@@ -69,13 +71,25 @@ final class IntakeEditorViewController: EditorViewController {
             notes: normalized(notesField.text)
         )
 
+        let supplementsTabBarController = consumption == nil
+            ? view.window?.rootViewController as? RootTabBarController
+            : nil
+
         do {
             if let consumption {
                 _ = try repository.updateConsumption(id: consumption.id, with: draft)
             } else {
                 _ = try repository.createConsumption(draft)
             }
-            finishSaving(message: L10n.text("intake.saved"))
+            finishSaving(
+                message: L10n.text("intake.saved"),
+                onEditorClosed: { [weak supplementsTabBarController] in
+                    supplementsTabBarController?.select(
+                        index: AppLaunchConfiguration.InitialTab.supplements.rawValue,
+                        animated: false
+                    )
+                }
+            )
         } catch {
             saveButton.isLoading = false
             showError(error)
@@ -117,7 +131,8 @@ final class IntakeEditorViewController: EditorViewController {
         )
         quantityField.textField.accessibilityIdentifier = "intake.quantity"
         quantityField.textField.addTarget(self, action: #selector(quantityChanged), for: .editingChanged)
-        quantityField.helperText = L10n.text("intake.quantity.helper")
+        quantityField.helperText = nil
+        quantityField.unitIsSelectable = false
         updateQuantityUnit()
 
         datePicker.datePickerMode = .dateAndTime
@@ -141,20 +156,32 @@ final class IntakeEditorViewController: EditorViewController {
     }
 
     private func buildForm() {
-        addSection(
-            title: L10n.Form.basics,
-            views: [instanceField, fixedInstanceLabel, warningLabel, quantityField]
-        )
-
         let dateTitle = UILabel()
         dateTitle.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
         dateTitle.text = "\(L10n.Form.date) · \(L10n.Form.time)"
         let dateStack = UIStackView(arrangedSubviews: [dateTitle, datePicker], axis: .vertical, spacing: 7)
-        addSection(title: L10n.Form.details, views: [dateStack, notesField])
 
         previewStack.axis = .vertical
         previewStack.spacing = WellnarioSpacing.xSmall
-        addSection(title: L10n.Form.activeContribution, views: [previewStack])
+        let contributionTitle = UILabel()
+        contributionTitle.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
+        contributionTitle.text = L10n.Form.activeContribution
+
+        let section = addSection(
+            title: nil,
+            views: [
+                instanceField,
+                fixedInstanceLabel,
+                warningLabel,
+                quantityField,
+                dateStack,
+                notesField,
+                contributionTitle,
+                previewStack
+            ]
+        )
+        section.stackView.setCustomSpacing(WellnarioSpacing.medium, after: notesField)
+        section.stackView.setCustomSpacing(WellnarioSpacing.small, after: contributionTitle)
         addSaveButton()
     }
 
@@ -277,8 +304,6 @@ final class IntakeEditorViewController: EditorViewController {
     }
 
     private func previewRow(name: String, amount: Decimal, unit: DoseUnit) -> UIView {
-        let icon = UIImageView(image: UIImage(systemName: "sparkle"))
-        icon.tintColor = WellnarioPalette.cyan
         let nameLabel = UILabel()
         nameLabel.applyWellnarioStyle(.body, color: WellnarioPalette.textPrimary)
         nameLabel.text = name
@@ -286,7 +311,7 @@ final class IntakeEditorViewController: EditorViewController {
         valueLabel.applyWellnarioStyle(.secondary, color: WellnarioPalette.cyan)
         valueLabel.text = "\(FeatureFormatting.decimal(amount)) \(unit.symbol(languageCode: catalogLanguage.rawValue))"
         valueLabel.setContentHuggingPriority(.required, for: .horizontal)
-        return UIStackView(arrangedSubviews: [icon, nameLabel, valueLabel], axis: .horizontal, spacing: 10, alignment: .center)
+        return UIStackView(arrangedSubviews: [nameLabel, valueLabel], axis: .horizontal, spacing: 10, alignment: .center)
     }
 
     private func normalized(_ value: String?) -> String? {

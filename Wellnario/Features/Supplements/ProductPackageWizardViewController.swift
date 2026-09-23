@@ -1064,6 +1064,8 @@ private final class ProductPackageReminderStepViewController: EditorViewControll
                 presentationTypeID: presentationID,
                 basisQuantity: state.basisQuantity,
                 basisUnit: state.basisUnit,
+                packageQuantity: state.totalQuantity,
+                packageUnit: state.totalUnit,
                 components: state.components
             ))
             createdSupplement = supplement
@@ -1182,6 +1184,8 @@ private final class ProductPackageReminderStepViewController: EditorViewControll
             presentationTypeID: presentationID,
             basisQuantity: state.basisQuantity,
             basisUnit: state.basisUnit,
+            packageQuantity: state.totalQuantity,
+            packageUnit: state.totalUnit,
             components: components,
             createdAt: now,
             updatedAt: now,

@@ -20,7 +20,7 @@ Wellnario es una app multiplataforma (iOS, macOS, Web) para gestionar aspectos d
 - La app permitirá que el usuario cree:
     - Suplementos. Un suplemento es una marca y un modelo concretos. El tipo de presentación será: polvo, pastillas, cápsulas, etc. Para cada suplemento, el usuario indicará los activos que contiene y que le interesa monitorizar, indicando la cantidad por unidad de presentación
     - Instancia de suplementos. Una instancia representa un lote o unidad específica del suplemento almacenada por el usuario, permitiendo registrar información como la etiqueta identificativa, la fecha de caducidad y notas adicionales.
-    - Activos. Un activo es una sustancia química o componente específico (por ejemplo, vitamina C, omega-3, cafeína). El usuario podrá indicar cuál es su consumo objetivo de cada componente.
+    - Activos. Un activo es una sustancia química o componente específico (por ejemplo, vitamina C, omega-3, cafeína). El usuario podrá indicar cuál es su consumo objetivo de cada componente y desde qué fecha se aplica. La aplicación conservará el historial de objetivos por períodos y permitirá modificar la cantidad de cada período.
 - El usuario podrá registrar el consumo de suplementos, incluyendo la instancia del suplemento, la cantidad consumida, la fecha y hora del consumo
 - El usuario podrá ver gráficas de consumo semanal, mensual, anual o en intervalo especificado. En las gráficas se mostrarán las bandas de consumo objetivo, además del consumo diario y la línea media de consumo en el período
 
@@ -73,6 +73,8 @@ Wellnario es una app multiplataforma (iOS, macOS, Web) para gestionar aspectos d
     - activo_id (UUID)
     - limite_inferior_consumo_objetivo (DECIMAL)
     - limite_superior_consumo_objetivo (DECIMAL)
+    - fecha_inicio_vigencia (DATE)
+    - fecha_fin_vigencia (DATE, nullable)
     - fecha_creacion (TIMESTAMP)
     - fecha_actualizacion (TIMESTAMP)
 - Instancia_Suplemento. Atributos:
@@ -136,11 +138,11 @@ Wellnario es una app multiplataforma (iOS, macOS, Web) para gestionar aspectos d
 - El hipnograma representa Despierto, REM, Ligero y Profundo a lo largo de la noche, e indica a la derecha la duración total de cada fase con formato compacto, por ejemplo `1h 43m`.
 - La tarjeta de estado de Apple Health sólo aparece cuando la integración está configurada. Permanece fija bajo el título, utiliza un 45 % de opacidad y conserva el mismo tamaño durante la sincronización y una vez completada.
 - La gráfica de tendencia permite seleccionar las métricas Calidad, Duración, REM, Profundo y Ligero. Calidad corresponde a la puntuación de sueño disponible en Apple Health.
-- Los intervalos disponibles son 7 días, 30 días, 6 meses y Desde el principio:
+- Los intervalos disponibles son 7 días, 30 días, 6 meses y Todo el período. Un quinto segmento con icono de calendario, integrado en el mismo selector, permite además escoger un intervalo personalizado con fechas inicial y final inclusivas:
     - 7 días y 30 días: un dato por día.
     - 6 meses: una media por semana cuando existe al menos un mes de datos; en caso contrario, un dato por día.
-    - Desde el principio: una media por año cuando existen al menos dos años de datos; en caso contrario, un dato por día.
-- Las curvas de 6 meses y Desde el principio se suavizan para facilitar la lectura.
+    - Todo el período: una media por año cuando existen al menos dos años de datos, por mes cuando existen al menos tres meses y, en caso contrario, un dato por día.
+    - Intervalo personalizado: datos diarios hasta 31 días, medias semanales hasta 183 días, mensuales hasta 731 días y anuales para intervalos más largos.
 - La escala vertical se ajusta al rango real visible y muestra sus valores mínimo y máximo.
 - El usuario puede mantener el dedo y arrastrarlo por la gráfica para consultar fecha y valor, con respuesta háptica al cambiar de punto.
 - Un selector persistente permite mostrar exclusivamente Media o Tendencia. La opción predeterminada es Tendencia:

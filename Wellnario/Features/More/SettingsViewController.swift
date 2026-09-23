@@ -214,9 +214,10 @@ final class SettingsViewController: UIViewController, WellnarioPreservesScrollPo
             identifier: "settings.advanced.fitness.card"
         )
         fitnessRow.addAction(UIAction { [weak self] _ in
-            self?.navigationController?.pushViewController(
-                AdvancedOptionsPlaceholderViewController(
-                    title: L10n.text("settings.advanced.fitness.title")
+            guard let self else { return }
+            self.navigationController?.pushViewController(
+                FitnessAdvancedOptionsViewController(
+                    appleHealthService: self.appleHealthService
                 ),
                 animated: true
             )
@@ -691,10 +692,16 @@ private final class SleepQualityOptionsViewController: UIViewController {
     private let regularitySlider = UISlider()
     private let interruptionSlider = UISlider()
     private let heartRateDropSlider = UISlider()
+    private let sleepStressSlider = UISlider()
+    private let remDeepSleepSlider = UISlider()
+    private let sleepLatencySlider = UISlider()
     private let durationWeightLabel = UILabel()
     private let regularityWeightLabel = UILabel()
     private let interruptionWeightLabel = UILabel()
     private let heartRateDropWeightLabel = UILabel()
+    private let sleepStressWeightLabel = UILabel()
+    private let remDeepSleepWeightLabel = UILabel()
+    private let sleepLatencyWeightLabel = UILabel()
     private let formulaLabel = UILabel()
     private var isUpdatingControls = false
 
@@ -829,6 +836,9 @@ private final class SleepQualityOptionsViewController: UIViewController {
         configureWeightSlider(regularitySlider, index: 1, identifier: "regularity")
         configureWeightSlider(interruptionSlider, index: 2, identifier: "interruptions")
         configureWeightSlider(heartRateDropSlider, index: 3, identifier: "heart_rate_drop")
+        configureWeightSlider(sleepStressSlider, index: 4, identifier: "sleep_stress")
+        configureWeightSlider(remDeepSleepSlider, index: 5, identifier: "rem_deep_sleep")
+        configureWeightSlider(sleepLatencySlider, index: 6, identifier: "sleep_latency")
 
         formulaLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.fuchsia)
         formulaLabel.numberOfLines = 0
@@ -858,6 +868,21 @@ private final class SleepQualityOptionsViewController: UIViewController {
                     title: L10n.text("settings.advanced.sleep.quality.weight.heart_rate_drop"),
                     slider: heartRateDropSlider,
                     valueLabel: heartRateDropWeightLabel
+                ),
+                makeWeightRow(
+                    title: L10n.text("settings.advanced.sleep.quality.weight.sleep_stress"),
+                    slider: sleepStressSlider,
+                    valueLabel: sleepStressWeightLabel
+                ),
+                makeWeightRow(
+                    title: L10n.text("settings.advanced.sleep.quality.weight.rem_deep_sleep"),
+                    slider: remDeepSleepSlider,
+                    valueLabel: remDeepSleepWeightLabel
+                ),
+                makeWeightRow(
+                    title: L10n.text("settings.advanced.sleep.quality.weight.sleep_latency"),
+                    slider: sleepLatencySlider,
+                    valueLabel: sleepLatencyWeightLabel
                 ),
                 formulaLabel
             ],
@@ -931,13 +956,31 @@ private final class SleepQualityOptionsViewController: UIViewController {
             title: L10n.text("settings.advanced.sleep.quality.weight.heart_rate_drop"),
             body: L10n.text("settings.advanced.sleep.quality.method.heart_rate_drop")
         )
+        let sleepStress = makeMethodRow(
+            symbolName: "waveform.path.ecg",
+            title: L10n.text("settings.advanced.sleep.quality.weight.sleep_stress"),
+            body: L10n.text("settings.advanced.sleep.quality.method.sleep_stress")
+        )
+        let remDeepSleep = makeMethodRow(
+            symbolName: "brain.head.profile",
+            title: L10n.text("settings.advanced.sleep.quality.weight.rem_deep_sleep"),
+            body: L10n.text("settings.advanced.sleep.quality.method.rem_deep_sleep")
+        )
+        let sleepLatency = makeMethodRow(
+            symbolName: "hourglass",
+            title: L10n.text("settings.advanced.sleep.quality.weight.sleep_latency"),
+            body: L10n.text("settings.advanced.sleep.quality.method.sleep_latency")
+        )
         let content = UIStackView(
             arrangedSubviews: [
                 titleLabel,
                 duration,
                 regularity,
                 interruptions,
-                heartRateDrop
+                heartRateDrop,
+                sleepStress,
+                remDeepSleep,
+                sleepLatency
             ],
             axis: .vertical,
             spacing: WellnarioSpacing.medium
@@ -1097,6 +1140,9 @@ private final class SleepQualityOptionsViewController: UIViewController {
         regularitySlider.value = Float(configuration.weights.regularity)
         interruptionSlider.value = Float(configuration.weights.interruptions)
         heartRateDropSlider.value = Float(configuration.weights.heartRateDrop)
+        sleepStressSlider.value = Float(configuration.weights.sleepStress)
+        remDeepSleepSlider.value = Float(configuration.weights.remDeepSleep)
+        sleepLatencySlider.value = Float(configuration.weights.sleepLatency)
         updateProfileLabel(recommendation)
         updateDisplayedValues()
         isUpdatingControls = false
@@ -1130,6 +1176,9 @@ private final class SleepQualityOptionsViewController: UIViewController {
         let regularity = Int(regularitySlider.value.rounded())
         let interruptions = Int(interruptionSlider.value.rounded())
         let heartRateDrop = Int(heartRateDropSlider.value.rounded())
+        let sleepStress = Int(sleepStressSlider.value.rounded())
+        let remDeepSleep = Int(remDeepSleepSlider.value.rounded())
+        let sleepLatency = Int(sleepLatencySlider.value.rounded())
         durationWeightLabel.text = L10n.text(
             "settings.advanced.sleep.quality.weight.value",
             duration
@@ -1146,12 +1195,27 @@ private final class SleepQualityOptionsViewController: UIViewController {
             "settings.advanced.sleep.quality.weight.value",
             heartRateDrop
         )
+        sleepStressWeightLabel.text = L10n.text(
+            "settings.advanced.sleep.quality.weight.value",
+            sleepStress
+        )
+        remDeepSleepWeightLabel.text = L10n.text(
+            "settings.advanced.sleep.quality.weight.value",
+            remDeepSleep
+        )
+        sleepLatencyWeightLabel.text = L10n.text(
+            "settings.advanced.sleep.quality.weight.value",
+            sleepLatency
+        )
         formulaLabel.text = L10n.text(
             "settings.advanced.sleep.quality.weights.summary",
             duration,
             regularity,
             interruptions,
-            heartRateDrop
+            heartRateDrop,
+            sleepStress,
+            remDeepSleep,
+            sleepLatency
         )
         let target = targetPicker.countDownDuration
         let targetText = AppleHealthUIFormatting.duration(target)
@@ -1183,7 +1247,10 @@ private final class SleepQualityOptionsViewController: UIViewController {
             Int(durationSlider.value.rounded()),
             Int(regularitySlider.value.rounded()),
             Int(interruptionSlider.value.rounded()),
-            Int(heartRateDropSlider.value.rounded())
+            Int(heartRateDropSlider.value.rounded()),
+            Int(sleepStressSlider.value.rounded()),
+            Int(remDeepSleepSlider.value.rounded()),
+            Int(sleepLatencySlider.value.rounded())
         ]
         let changedIndex = sender.tag
         let remainingIndices = values.indices.filter { $0 != changedIndex }
@@ -1213,11 +1280,17 @@ private final class SleepQualityOptionsViewController: UIViewController {
         regularitySlider.value = Float(values[1])
         interruptionSlider.value = Float(values[2])
         heartRateDropSlider.value = Float(values[3])
+        sleepStressSlider.value = Float(values[4])
+        remDeepSleepSlider.value = Float(values[5])
+        sleepLatencySlider.value = Float(values[6])
         _ = preferences.setWeights(SleepQualityWeights(
             duration: values[0],
             regularity: values[1],
             interruptions: values[2],
-            heartRateDrop: values[3]
+            heartRateDrop: values[3],
+            sleepStress: values[4],
+            remDeepSleep: values[5],
+            sleepLatency: values[6]
         ))
         updateDisplayedValues()
         isUpdatingControls = false
@@ -1606,6 +1679,276 @@ private final class ManualSleepDataViewController: UIViewController,
         guard let dateComponents,
               let date = Calendar.autoupdatingCurrent.date(from: dateComponents) else { return false }
         return date <= Date()
+    }
+}
+
+@MainActor
+private final class FitnessAdvancedOptionsViewController: UIViewController {
+    private let appleHealthService: AppleHealthSyncing
+    private let maximumHeartRatePreferences: FitnessMaximumHeartRatePreferences
+    private let valueLabel = UILabel()
+    private var automaticEstimate: FitnessMaximumHeartRateEstimate?
+
+    init(
+        appleHealthService: AppleHealthSyncing,
+        maximumHeartRatePreferences: FitnessMaximumHeartRatePreferences = FitnessMaximumHeartRatePreferences()
+    ) {
+        self.appleHealthService = appleHealthService
+        self.maximumHeartRatePreferences = maximumHeartRatePreferences
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = WellnarioPalette.background
+        view.accessibilityIdentifier = "settings.advanced.fitness.root"
+        title = L10n.text("settings.advanced.fitness.title")
+        navigationItem.largeTitleDisplayMode = .never
+
+        let introduction = UILabel()
+        introduction.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
+        introduction.text = L10n.text("settings.advanced.fitness.max_heart_rate.body")
+        introduction.numberOfLines = 0
+
+        let setting = makeMaximumHeartRateCard()
+        let stack = UIStackView(
+            arrangedSubviews: [introduction, setting],
+            axis: .vertical,
+            spacing: WellnarioSpacing.cardGap
+        )
+        view.addForAutoLayout(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.leadingAnchor,
+                constant: WellnarioSpacing.screenHorizontal
+            ),
+            stack.trailingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.trailingAnchor,
+                constant: -WellnarioSpacing.screenHorizontal
+            ),
+            stack.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.topAnchor,
+                constant: WellnarioSpacing.medium
+            )
+        ])
+        updateValuePresentation()
+        loadAutomaticEstimate()
+    }
+
+    private func makeMaximumHeartRateCard() -> PremiumCardView {
+        let icon = UIImageView(image: UIImage(systemName: "heart.circle.fill"))
+        icon.tintColor = WellnarioPalette.danger
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 25,
+            weight: .semibold
+        )
+        icon.setContentHuggingPriority(.required, for: .horizontal)
+
+        let titleLabel = UILabel()
+        titleLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textPrimary)
+        titleLabel.text = L10n.text("settings.advanced.fitness.max_heart_rate.title")
+        titleLabel.numberOfLines = 1
+        titleLabel.adjustsFontSizeToFitWidth = true
+        titleLabel.minimumScaleFactor = 0.8
+
+        valueLabel.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.fuchsia)
+        valueLabel.numberOfLines = 1
+        valueLabel.textAlignment = .left
+        valueLabel.setContentHuggingPriority(.required, for: .horizontal)
+        let labels = UIStackView(
+            arrangedSubviews: [titleLabel, valueLabel],
+            axis: .vertical,
+            spacing: 0
+        )
+        labels.alignment = .leading
+        labels.setContentHuggingPriority(.required, for: .horizontal)
+        labels.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let chevron = UIImageView(image: UIImage(systemName: "chevron.forward"))
+        chevron.tintColor = WellnarioPalette.textTertiary
+        chevron.setContentHuggingPriority(.required, for: .horizontal)
+
+        let row = UIStackView(
+            arrangedSubviews: [icon, labels, UIView(), chevron],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.small,
+            alignment: .center
+        )
+        let card = PremiumCardView()
+        card.isPressable = true
+        card.accessibilityIdentifier = "settings.advanced.fitness.max_heart_rate"
+        card.contentView.addForAutoLayout(row)
+        row.pinEdges(to: card.contentView, insets: .all(WellnarioSpacing.xSmall))
+        card.heightAnchor.constraint(equalToConstant: 64).isActive = true
+        card.addAction(UIAction { [weak self] _ in
+            self?.showMaximumHeartRatePicker()
+        }, for: .touchUpInside)
+        return card
+    }
+
+    private func loadAutomaticEstimate() {
+        guard maximumHeartRatePreferences.manualMaximumHeartRate == nil else {
+            automaticEstimate = nil
+            updateValuePresentation()
+            return
+        }
+        automaticEstimate = nil
+        updateValuePresentation()
+        let endDate = Date()
+        let startDate = Calendar.autoupdatingCurrent.date(
+            byAdding: .day,
+            value: -30,
+            to: endDate
+        ) ?? endDate
+        Task { [weak self] in
+            guard let self else { return }
+            let samples = await appleHealthService.restingHeartRateSamples(
+                from: startDate,
+                through: endDate
+            )
+            guard !Task.isCancelled else { return }
+            let validSamples = samples.filter { $0.value > 0 }
+            let average = validSamples.isEmpty
+                ? nil
+                : validSamples.map(\.value).reduce(0, +) / Double(validSamples.count)
+            automaticEstimate = FitnessMaximumHeartRateEstimator.estimate(
+                snapshot: appleHealthService.snapshot,
+                restingHeartRate: average,
+                referenceDate: endDate
+            )
+            updateValuePresentation()
+        }
+    }
+
+    private func updateValuePresentation() {
+        if let manualMaximum = maximumHeartRatePreferences.manualMaximumHeartRate {
+            valueLabel.text = L10n.text(
+                "settings.advanced.fitness.max_heart_rate.value",
+                manualMaximum
+            )
+        } else if let automaticEstimate {
+            valueLabel.text = L10n.text(
+                "settings.advanced.fitness.max_heart_rate.value",
+                automaticEstimate.value
+            )
+        } else {
+            valueLabel.text = "—"
+        }
+    }
+
+    private func showMaximumHeartRatePicker() {
+        let suggestedValue = automaticEstimate?.value ?? FitnessMaximumHeartRateEstimator.estimate(
+            snapshot: appleHealthService.snapshot,
+            restingHeartRate: nil
+        ).value
+        let picker = FitnessMaximumHeartRatePickerViewController(
+            preferences: maximumHeartRatePreferences,
+            suggestedValue: suggestedValue
+        )
+        picker.onPreferenceChanged = { [weak self] in
+            self?.loadAutomaticEstimate()
+        }
+        navigationController?.pushViewController(picker, animated: true)
+    }
+}
+
+@MainActor
+private final class FitnessMaximumHeartRatePickerViewController: UIViewController, UIPickerViewDataSource, UIPickerViewDelegate {
+    var onPreferenceChanged: (() -> Void)?
+
+    private let preferences: FitnessMaximumHeartRatePreferences
+    private let suggestedValue: Int
+    private let picker = UIPickerView()
+    private let values = Array(FitnessMaximumHeartRatePreferences.supportedRange)
+
+    init(preferences: FitnessMaximumHeartRatePreferences, suggestedValue: Int) {
+        self.preferences = preferences
+        self.suggestedValue = suggestedValue
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = WellnarioPalette.background
+        view.accessibilityIdentifier = "settings.advanced.fitness.max_heart_rate.picker"
+        title = L10n.text("settings.advanced.fitness.max_heart_rate.picker.title")
+        navigationItem.largeTitleDisplayMode = .never
+        navigationItem.rightBarButtonItem = WellnarioNavigationButton.item(
+            title: L10n.Common.save,
+            style: .done,
+            target: self,
+            action: #selector(save)
+        )
+
+        let body = UILabel()
+        body.applyWellnarioStyle(.secondary, color: WellnarioPalette.textSecondary)
+        body.text = L10n.text("settings.advanced.fitness.max_heart_rate.picker.body")
+        body.numberOfLines = 0
+
+        picker.dataSource = self
+        picker.delegate = self
+        picker.accessibilityIdentifier = "settings.advanced.fitness.max_heart_rate.wheel"
+        picker.heightAnchor.constraint(equalToConstant: 180).isActive = true
+        let selectedValue = preferences.manualMaximumHeartRate ?? suggestedValue
+        if let selectedIndex = values.firstIndex(of: selectedValue) {
+            picker.selectRow(selectedIndex, inComponent: 0, animated: false)
+        }
+
+        let automatic = PrimaryButton(
+            title: L10n.text("settings.advanced.fitness.max_heart_rate.use_automatic"),
+            style: .secondary
+        )
+        automatic.accessibilityIdentifier = "settings.advanced.fitness.max_heart_rate.use_automatic"
+        automatic.addTarget(self, action: #selector(useAutomaticEstimate), for: .touchUpInside)
+
+        let stack = UIStackView(
+            arrangedSubviews: [body, picker, automatic],
+            axis: .vertical,
+            spacing: WellnarioSpacing.medium
+        )
+        view.addForAutoLayout(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.leadingAnchor,
+                constant: WellnarioSpacing.screenHorizontal
+            ),
+            stack.trailingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.trailingAnchor,
+                constant: -WellnarioSpacing.screenHorizontal
+            ),
+            stack.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.topAnchor,
+                constant: WellnarioSpacing.medium
+            )
+        ])
+    }
+
+    func numberOfComponents(in pickerView: UIPickerView) -> Int { 1 }
+
+    func pickerView(_ pickerView: UIPickerView, numberOfRowsInComponent component: Int) -> Int {
+        values.count
+    }
+
+    func pickerView(_ pickerView: UIPickerView, titleForRow row: Int, forComponent component: Int) -> String? {
+        L10n.text("settings.advanced.fitness.max_heart_rate.value", values[row])
+    }
+
+    @objc private func save() {
+        preferences.setManualMaximumHeartRate(values[picker.selectedRow(inComponent: 0)])
+        onPreferenceChanged?()
+        navigationController?.popViewController(animated: true)
+    }
+
+    @objc private func useAutomaticEstimate() {
+        preferences.resetToAutomaticEstimate()
+        onPreferenceChanged?()
+        navigationController?.popViewController(animated: true)
     }
 }
 

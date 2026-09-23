@@ -183,11 +183,16 @@ enum WellnarioRadius {
 
 enum WellnarioLayout {
     static let minimumTouchTarget: CGFloat = 44
-    static let fieldMinimumHeight: CGFloat = 45
-    static let fieldVerticalPadding: CGFloat = 5
+    /// Visual height for compact buttons that present text, while icon-only
+    /// controls continue using `minimumTouchTarget`.
+    static let textButtonHeight: CGFloat = 24.75
+    /// Visual height for prominent text actions (25% shorter than the former 39 pt).
+    static let primaryButtonHeight: CGFloat = 29.25
+    /// Single-line fields and selectors match text actions throughout the app.
+    static let fieldMinimumHeight: CGFloat = primaryButtonHeight
+    static let fieldVerticalPadding: CGFloat = 2
     static let textAreaMinimumHeight: CGFloat = 88
     static let textAreaVerticalPadding: CGFloat = 11
-    static let primaryButtonHeight: CGFloat = 52
     static let floatingTabBarHeight: CGFloat = 72
     static let metricCardMinimumHeight: CGFloat = 172
     static let insightCardMinimumHeight: CGFloat = 138

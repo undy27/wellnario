@@ -362,7 +362,7 @@ final class TodayViewController: FeatureViewController {
         sleepCard.addTarget(self, action: #selector(openSleep), for: .touchUpInside)
         recoveryCard.addTarget(self, action: #selector(openRecovery), for: .touchUpInside)
         stressCard.addTarget(self, action: #selector(openStressDetails), for: .touchUpInside)
-        supplementsCard.addTarget(self, action: #selector(openSupplements), for: .touchUpInside)
+        supplementsCard.addTarget(self, action: #selector(openTodayIntakes), for: .touchUpInside)
         fitnessCard.addTarget(self, action: #selector(openFitness), for: .touchUpInside)
         reviewsCard.addTarget(self, action: #selector(openHealth), for: .touchUpInside)
     }
@@ -588,7 +588,10 @@ final class TodayViewController: FeatureViewController {
                 present(alert, animated: true)
                 return
             }
-            presentSheet(IntakeEditorViewController(repository: repository), largeOnly: true)
+            navigationController?.pushViewController(
+                IntakeEditorViewController(repository: repository),
+                animated: true
+            )
         } catch {
             showError(error)
         }
@@ -633,7 +636,15 @@ final class TodayViewController: FeatureViewController {
     }
 
     @objc private func openSettings() { onOpenSettings?() }
-    @objc private func openSupplements() { onShowSupplements?() }
+    @objc private func openTodayIntakes() {
+        navigationController?.pushViewController(
+            DiaryViewController(
+                repository: repository,
+                dayFilter: LocalDay(containing: Date(), in: .current)
+            ),
+            animated: true
+        )
+    }
     @objc private func openSleep() { onShowSleep?() }
     @objc private func openHealth() { onShowHealth?() }
     
@@ -712,18 +723,21 @@ enum TodaySleepQualityPresentation {
 
 @MainActor
 final class TodaySleepSummaryCard: PremiumCardView {
-    static let metricRingDiameter: CGFloat = 54
-    static let metricsHeight: CGFloat = 78
+    static let metricRingDiameter: CGFloat = 68
+    static let metricsHeight: CGFloat = 126
 
     private let symbolContainer = UIView()
     private let symbolView = UIImageView(image: UIImage(systemName: "moon.stars.fill"))
     private let titleLabel = UILabel()
     private let detailLabel = UILabel()
     private let qualityMetric = TodaySleepMetricView()
-    private let durationMetric = TodaySleepMetricView()
-    private let regularityMetric = TodaySleepMetricView()
-    private let interruptionsMetric = TodaySleepMetricView()
-    private let heartRateDropMetric = TodaySleepMetricView()
+    private let durationMetric = TodaySleepFactorMetricView()
+    private let regularityMetric = TodaySleepFactorMetricView()
+    private let interruptionsMetric = TodaySleepFactorMetricView()
+    private let heartRateDropMetric = TodaySleepFactorMetricView()
+    private let sleepStressMetric = TodaySleepFactorMetricView()
+    private let remDeepSleepMetric = TodaySleepFactorMetricView()
+    private let sleepLatencyMetric = TodaySleepFactorMetricView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -756,10 +770,9 @@ final class TodaySleepSummaryCard: PremiumCardView {
         } ?? "—"
         durationMetric.configure(
             title: L10n.text("sleep.duration"),
-            value: breakdown?.durationScore,
             valueText: durationText,
-            gradient: (WellnarioPalette.cyan, WellnarioPalette.information),
-            valueTextScale: 0.84
+            score: breakdown?.durationScore,
+            symbolName: "bed.double.fill"
         )
 
         let regularityText: String
@@ -770,48 +783,108 @@ final class TodaySleepSummaryCard: PremiumCardView {
         }
         regularityMetric.configure(
             title: L10n.text("settings.advanced.sleep.quality.weight.regularity"),
-            value: breakdown?.regularityScore,
             valueText: regularityText,
-            gradient: (WellnarioPalette.success, WellnarioPalette.cyan)
+            score: breakdown?.regularityScore,
+            symbolName: "calendar"
         )
 
         let interruptionsText: String
         if let breakdown, entry?.awakeHours != nil {
-            interruptionsText = "\(AppleHealthUIFormatting.number(breakdown.awakePercentage, maximumFractionDigits: 0))%"
+            interruptionsText = percentageText(breakdown.awakePercentage)
         } else {
             interruptionsText = "—"
         }
         interruptionsMetric.configure(
             title: L10n.text("settings.advanced.sleep.quality.weight.interruptions"),
-            value: entry?.awakeHours == nil ? nil : breakdown?.interruptionScore,
             valueText: interruptionsText,
-            gradient: (WellnarioPalette.pink, WellnarioPalette.warning)
+            score: entry?.awakeHours == nil ? nil : breakdown?.interruptionScore,
+            symbolName: "moon.zzz.fill"
         )
 
         let heartRateDropText = breakdown?.heartRateDropPercentage.map {
-            "\(AppleHealthUIFormatting.number($0, maximumFractionDigits: 1))%"
+            percentageText($0)
         } ?? "—"
         heartRateDropMetric.configure(
             title: L10n.text("today.sleep.metric.heart_rate_drop"),
-            value: breakdown?.heartRateDropScore,
             valueText: heartRateDropText,
-            gradient: (WellnarioPalette.orange, WellnarioPalette.danger),
-            valueTextScale: 0.90
+            score: breakdown?.heartRateDropScore,
+            symbolName: "heart.fill"
+        )
+
+        let sleepStressText = breakdown?.averageSleepStressScore.map {
+            percentageText($0)
+        } ?? "—"
+        sleepStressMetric.configure(
+            title: L10n.text("today.sleep.metric.sleep_stress"),
+            valueText: sleepStressText,
+            score: breakdown?.sleepStressScore,
+            symbolName: "waveform.path.ecg"
+        )
+
+        let remDeepSleepText = breakdown?.remDeepSleepPercentage.map {
+            percentageText($0)
+        } ?? "—"
+        remDeepSleepMetric.configure(
+            title: L10n.text("today.sleep.metric.rem_deep_sleep"),
+            valueText: remDeepSleepText,
+            score: breakdown?.remDeepSleepScore,
+            symbolName: "brain.head.profile"
+        )
+
+        let sleepLatencyText = breakdown?.sleepLatencyMinutes.map {
+            AppleHealthUIFormatting.compactDuration($0 * 60)
+        } ?? "—"
+        sleepLatencyMetric.configure(
+            title: L10n.text("today.sleep.metric.sleep_latency"),
+            valueText: sleepLatencyText,
+            score: breakdown?.sleepLatencyScore,
+            symbolName: "hourglass"
         )
 
         accessibilityLabel = titleLabel.text
         accessibilityValue = [
-            metricAccessibilityValue(for: qualityMetric),
-            metricAccessibilityValue(for: durationMetric),
-            metricAccessibilityValue(for: regularityMetric),
-            metricAccessibilityValue(for: interruptionsMetric),
-            metricAccessibilityValue(for: heartRateDropMetric),
+            metricAccessibilityValue(
+                title: qualityMetric.metricTitle,
+                value: qualityMetric.metricValue
+            ),
+            metricAccessibilityValue(
+                title: durationMetric.metricTitle,
+                value: durationMetric.metricValue
+            ),
+            metricAccessibilityValue(
+                title: regularityMetric.metricTitle,
+                value: regularityMetric.metricValue
+            ),
+            metricAccessibilityValue(
+                title: interruptionsMetric.metricTitle,
+                value: interruptionsMetric.metricValue
+            ),
+            metricAccessibilityValue(
+                title: heartRateDropMetric.metricTitle,
+                value: heartRateDropMetric.metricValue
+            ),
+            metricAccessibilityValue(
+                title: sleepStressMetric.metricTitle,
+                value: sleepStressMetric.metricValue
+            ),
+            metricAccessibilityValue(
+                title: remDeepSleepMetric.metricTitle,
+                value: remDeepSleepMetric.metricValue
+            ),
+            metricAccessibilityValue(
+                title: sleepLatencyMetric.metricTitle,
+                value: sleepLatencyMetric.metricValue
+            ),
             detail
         ].joined(separator: ". ")
     }
 
-    private func metricAccessibilityValue(for metric: TodaySleepMetricView) -> String {
-        [metric.metricTitle, metric.metricValue].joined(separator: ": ")
+    private func metricAccessibilityValue(title: String, value: String) -> String {
+        [title, value].joined(separator: ": ")
+    }
+
+    private func percentageText(_ percentage: Double) -> String {
+        "\(AppleHealthUIFormatting.number(percentage.rounded()))%"
     }
 
     private func setUp() {
@@ -845,6 +918,9 @@ final class TodaySleepSummaryCard: PremiumCardView {
         regularityMetric.accessibilityIdentifier = "today.sleep.metric.regularity"
         interruptionsMetric.accessibilityIdentifier = "today.sleep.metric.interruptions"
         heartRateDropMetric.accessibilityIdentifier = "today.sleep.metric.heart_rate_drop"
+        sleepStressMetric.accessibilityIdentifier = "today.sleep.metric.sleep_stress"
+        remDeepSleepMetric.accessibilityIdentifier = "today.sleep.metric.rem_deep_sleep"
+        sleepLatencyMetric.accessibilityIdentifier = "today.sleep.metric.sleep_latency"
 
         let header = UIStackView(
             arrangedSubviews: [symbolContainer, titleLabel, UIView(), detailLabel],
@@ -852,18 +928,25 @@ final class TodaySleepSummaryCard: PremiumCardView {
             spacing: 7,
             alignment: .center
         )
-        let metrics = UIStackView(
+        let factorMetrics = UIStackView(
             arrangedSubviews: [
-                qualityMetric,
                 durationMetric,
                 regularityMetric,
                 interruptionsMetric,
-                heartRateDropMetric
+                heartRateDropMetric,
+                sleepStressMetric,
+                remDeepSleepMetric,
+                sleepLatencyMetric
             ],
-            axis: .horizontal,
+            axis: .vertical,
             spacing: WellnarioSpacing.xxxSmall,
-            alignment: .top,
             distribution: .fillEqually
+        )
+        let metrics = UIStackView(
+            arrangedSubviews: [qualityMetric, factorMetrics],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.small,
+            alignment: .center
         )
         let content = UIStackView(
             arrangedSubviews: [header, metrics],
@@ -873,6 +956,8 @@ final class TodaySleepSummaryCard: PremiumCardView {
         contentView.addForAutoLayout(content)
         content.pinEdges(to: contentView, insets: .all(WellnarioSpacing.xSmall))
         metrics.heightAnchor.constraint(equalToConstant: Self.metricsHeight).isActive = true
+        qualityMetric.widthAnchor.constraint(equalToConstant: Self.metricRingDiameter).isActive = true
+        factorMetrics.heightAnchor.constraint(equalTo: metrics.heightAnchor).isActive = true
         isPressable = true
     }
 }
@@ -934,6 +1019,92 @@ private final class TodaySleepMetricView: UIView {
             ring.heightAnchor.constraint(equalTo: ring.widthAnchor),
             titleLabel.widthAnchor.constraint(equalTo: ring.widthAnchor)
         ])
+    }
+}
+
+@MainActor
+private final class TodaySleepFactorMetricView: UIView {
+    fileprivate private(set) var metricTitle = ""
+    fileprivate private(set) var metricValue = "—"
+
+    private let symbolView = UIImageView()
+    private let titleLabel = UILabel()
+    private let scoreBar = ScoreSegmentBarView(
+        segmentCount: 10,
+        spacing: 1.5,
+        cornerRadius: 1.5
+    )
+    private let valueLabel = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setUp()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setUp()
+    }
+
+    func configure(
+        title: String,
+        valueText: String,
+        score: Double?,
+        symbolName: String
+    ) {
+        metricTitle = title
+        metricValue = valueText
+        titleLabel.text = title
+        valueLabel.text = valueText
+        symbolView.image = UIImage(systemName: symbolName)
+        scoreBar.configure(score: score)
+        accessibilityElementsHidden = true
+    }
+
+    private func setUp() {
+        isAccessibilityElement = false
+
+        symbolView.tintColor = WellnarioPalette.violet
+        symbolView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 11,
+            weight: .semibold
+        )
+        symbolView.contentMode = .scaleAspectFit
+        NSLayoutConstraint.activate([
+            symbolView.widthAnchor.constraint(equalToConstant: 15),
+            symbolView.heightAnchor.constraint(equalTo: symbolView.widthAnchor)
+        ])
+
+        titleLabel.applyWellnarioStyle(.summaryDetail, color: WellnarioPalette.textSecondary)
+        titleLabel.numberOfLines = 1
+        titleLabel.adjustsFontSizeToFitWidth = true
+        titleLabel.minimumScaleFactor = 0.72
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        NSLayoutConstraint.activate([
+            titleLabel.widthAnchor.constraint(equalToConstant: 82)
+        ])
+
+        NSLayoutConstraint.activate([
+            scoreBar.widthAnchor.constraint(greaterThanOrEqualToConstant: 42),
+            scoreBar.heightAnchor.constraint(equalToConstant: 7)
+        ])
+
+        valueLabel.applyWellnarioStyle(.tab, color: WellnarioPalette.textPrimary)
+        valueLabel.textAlignment = .right
+        valueLabel.setContentHuggingPriority(.required, for: .horizontal)
+        valueLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        NSLayoutConstraint.activate([
+            valueLabel.widthAnchor.constraint(equalToConstant: 36)
+        ])
+
+        let row = UIStackView(
+            arrangedSubviews: [symbolView, titleLabel, scoreBar, valueLabel],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.xxxSmall,
+            alignment: .center
+        )
+        addForAutoLayout(row)
+        row.pinEdges(to: self)
     }
 }
 
@@ -1998,18 +2169,31 @@ extension TodayViewController: UIDocumentPickerDelegate {
 
 // MARK: - Recovery Components
 
-private final class RecoveryScoreSegmentBarView: UIView {
-    private static let segmentCount = 12
-    private let segments = (0..<RecoveryScoreSegmentBarView.segmentCount).map { _ in UIView() }
+private final class ScoreSegmentBarView: UIView {
+    private let segmentCount: Int
+    private let segmentSpacing: CGFloat
+    private let segmentCornerRadius: CGFloat
+    private var segments = [UIView]()
     private let stack = UIStackView()
     private var activeSegmentCount = 0
 
-    override init(frame: CGRect) {
+    init(
+        segmentCount: Int = 12,
+        spacing: CGFloat = 2,
+        cornerRadius: CGFloat = 2,
+        frame: CGRect = .zero
+    ) {
+        self.segmentCount = max(segmentCount, 1)
+        segmentSpacing = spacing
+        segmentCornerRadius = cornerRadius
         super.init(frame: frame)
         setUp()
     }
 
     required init?(coder: NSCoder) {
+        segmentCount = 12
+        segmentSpacing = 2
+        segmentCornerRadius = 2
         super.init(coder: coder)
         setUp()
     }
@@ -2022,7 +2206,7 @@ private final class RecoveryScoreSegmentBarView: UIView {
         }
         let normalized = min(max(score / 100, 0), 1)
         activeSegmentCount = Int(
-            (normalized * Double(Self.segmentCount)).rounded(.up)
+            (normalized * Double(segmentCount)).rounded(.up)
         )
         updateColors()
     }
@@ -2030,10 +2214,11 @@ private final class RecoveryScoreSegmentBarView: UIView {
     private func setUp() {
         isAccessibilityElement = false
         stack.axis = .horizontal
-        stack.spacing = 2
+        stack.spacing = segmentSpacing
         stack.distribution = .fillEqually
+        segments = (0..<segmentCount).map { _ in UIView() }
         segments.forEach { segment in
-            segment.applyContinuousCorners(2)
+            segment.applyContinuousCorners(segmentCornerRadius)
             stack.addArrangedSubview(segment)
         }
         addForAutoLayout(stack)
@@ -2041,7 +2226,7 @@ private final class RecoveryScoreSegmentBarView: UIView {
         updateColors()
 
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
-            (self: RecoveryScoreSegmentBarView, _: UITraitCollection) in
+            (self: ScoreSegmentBarView, _: UITraitCollection) in
             self.updateColors()
         }
     }
@@ -2059,7 +2244,7 @@ private final class RecoveryScoreSegmentBarView: UIView {
     }
 
     private func color(for index: Int) -> UIColor {
-        let progress = CGFloat(index) / CGFloat(max(Self.segmentCount - 1, 1))
+        let progress = CGFloat(index) / CGFloat(max(segmentCount - 1, 1))
         if progress <= 0.5 {
             return interpolate(
                 WellnarioPalette.danger,
@@ -2104,7 +2289,7 @@ final class TodayRecoverySummaryCard: PremiumCardView {
     let symbolContainer = UIView()
     private let symbolView = UIImageView()
     let titleLabel = UILabel()
-    private let currentScoreBar = RecoveryScoreSegmentBarView()
+    private let currentScoreBar = ScoreSegmentBarView()
     private let currentScoreValueLabel = UILabel()
     private let currentScoreRow = UIStackView()
     private let currentLevelLabel = UILabel()

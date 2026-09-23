@@ -45,7 +45,7 @@ struct SupplementPackageEntityQuery: EntityQuery {
 
 struct SupplementWidgetConfigurationIntent: WidgetConfigurationIntent {
     static let title: LocalizedStringResource = "Tomas de suplementos"
-    static let description = IntentDescription("Elige hasta ocho envases. El widget mediano muestra cuatro y el grande muestra ocho.")
+    static let description = IntentDescription("Elige hasta doce envases. El widget mediano muestra cuatro y el grande muestra doce.")
 
     @Parameter(title: "Envase 1") var package1: SupplementPackageEntity?
     @Parameter(title: "Envase 2") var package2: SupplementPackageEntity?
@@ -55,13 +55,18 @@ struct SupplementWidgetConfigurationIntent: WidgetConfigurationIntent {
     @Parameter(title: "Envase 6") var package6: SupplementPackageEntity?
     @Parameter(title: "Envase 7") var package7: SupplementPackageEntity?
     @Parameter(title: "Envase 8") var package8: SupplementPackageEntity?
+    @Parameter(title: "Envase 9") var package9: SupplementPackageEntity?
+    @Parameter(title: "Envase 10") var package10: SupplementPackageEntity?
+    @Parameter(title: "Envase 11") var package11: SupplementPackageEntity?
+    @Parameter(title: "Envase 12") var package12: SupplementPackageEntity?
 
     init() {}
 
     var selectedPackageIDs: [String] {
         [
             package1?.id, package2?.id, package3?.id, package4?.id,
-            package5?.id, package6?.id, package7?.id, package8?.id
+            package5?.id, package6?.id, package7?.id, package8?.id,
+            package9?.id, package10?.id, package11?.id, package12?.id
         ].compactMap { $0 }
     }
 }
@@ -116,7 +121,10 @@ struct SupplementWidgetProvider: AppIntentTimelineProvider {
         for configuration: SupplementWidgetConfigurationIntent,
         in context: Context
     ) async -> Timeline<SupplementWidgetEntry> {
-        Timeline(entries: [currentEntry(configuration: configuration)], policy: .never)
+        Timeline(
+            entries: [currentEntry(configuration: configuration)],
+            policy: .after(nextDayRefreshDate())
+        )
     }
 
     private func currentEntry(
@@ -127,6 +135,13 @@ struct SupplementWidgetProvider: AppIntentTimelineProvider {
             configuration: configuration,
             snapshot: SupplementWidgetDataStore().snapshot() ?? .placeholder
         )
+    }
+
+    private func nextDayRefreshDate(from date: Date = Date()) -> Date {
+        let calendar = Calendar.autoupdatingCurrent
+        let startOfToday = calendar.startOfDay(for: date)
+        return calendar.date(byAdding: .day, value: 1, to: startOfToday)
+            ?? date.addingTimeInterval(24 * 60 * 60)
     }
 }
 
@@ -140,7 +155,7 @@ struct SupplementIntakeWidget: Widget {
             SupplementIntakeWidgetView(entry: entry)
         }
         .configurationDisplayName("Registrar suplementos")
-        .description("Selecciona envases y confirma sus tomas juntas. El tamaño grande admite hasta ocho.")
+        .description("Selecciona envases y confirma sus tomas juntas. El tamaño grande admite hasta doce.")
         .supportedFamilies([.systemMedium, .systemLarge])
     }
 }
@@ -175,32 +190,48 @@ private struct SupplementIntakeWidgetView: View {
         packages.filter { selectedPackageIDs.contains($0.id) }
     }
 
+    private var snapshotRepresentsToday: Bool {
+        Calendar.autoupdatingCurrent.isDateInToday(entry.snapshot.updatedAt)
+    }
+
     private var isCompact: Bool { family == .systemMedium }
-    private var maximumPackageCount: Int { isCompact ? 4 : 8 }
+    /// The large widget reuses the denser 2×2-card treatment so it can hold
+    /// six rows without sacrificing the batch action at the bottom.
+    private var usesCompactCards: Bool { true }
+    private var gridSpacing: CGFloat { 5 }
+    private var maximumPackageCount: Int { isCompact ? 4 : 12 }
 
     var body: some View {
         if packages.isEmpty {
             emptyState
         } else {
-            VStack(alignment: .leading, spacing: isCompact ? 5 : 6) {
+            VStack(alignment: .leading, spacing: gridSpacing) {
                 LazyVGrid(
                     columns: [
-                        GridItem(.flexible(), spacing: isCompact ? 5 : 6),
-                        GridItem(.flexible(), spacing: isCompact ? 5 : 6)
+                        GridItem(.flexible(), spacing: gridSpacing),
+                        GridItem(.flexible(), spacing: gridSpacing)
                     ],
-                    spacing: isCompact ? 5 : 6
+                    spacing: gridSpacing
                 ) {
                     ForEach(packages) { package in
                         let isSelected = selectedPackageIDs.contains(package.id)
+                        let hasIntakeToday = snapshotRepresentsToday && package.hasIntakeToday
                         Button(intent: ToggleSupplementPackageSelectionIntent(packageID: package.id)) {
                             SupplementPackageCard(
                                 package: package,
                                 isSelected: isSelected,
-                                isCompact: isCompact
+                                hasIntakeToday: hasIntakeToday,
+                                isCompact: usesCompactCards
                             )
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(copy.accessibilityLabel(for: package, isSelected: isSelected))
+                        .accessibilityLabel(
+                            copy.accessibilityLabel(
+                                for: package,
+                                isSelected: isSelected,
+                                hasIntakeToday: hasIntakeToday
+                            )
+                        )
                     }
                 }
                 batchAction
@@ -262,7 +293,15 @@ private struct SupplementIntakeWidgetView: View {
 private struct SupplementPackageCard: View {
     let package: SupplementWidgetPackage
     let isSelected: Bool
+    let hasIntakeToday: Bool
     let isCompact: Bool
+
+    private var outlineColor: Color {
+        if hasIntakeToday {
+            return Color(red: 1.00, green: 0.82, blue: 0.20)
+        }
+        return isSelected ? Color(red: 0.40, green: 0.89, blue: 0.86) : .clear
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: isCompact ? 5 : 7) {
@@ -277,11 +316,11 @@ private struct SupplementPackageCard: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(package.supplementName)
-                    .font((isCompact ? Font.caption2 : .caption).weight(.semibold))
+                    .font(.system(size: isCompact ? 13 : 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(isCompact ? 1 : 2)
                 Text("\(package.instanceLabel) · \(package.doseDescription)")
-                    .font(.system(size: isCompact ? 9 : 10, weight: .medium))
+                    .font(.system(size: isCompact ? 11 : 10, weight: .medium))
                     .foregroundStyle(isSelected ? Color.white.opacity(0.82) : Color.white.opacity(0.68))
                     .lineLimit(isCompact ? 1 : 2)
             }
@@ -302,7 +341,7 @@ private struct SupplementPackageCard: View {
         )
         .overlay {
             RoundedRectangle(cornerRadius: isCompact ? 12 : 15)
-                .stroke(isSelected ? Color(red: 0.40, green: 0.89, blue: 0.86) : .clear, lineWidth: 1)
+                .stroke(outlineColor, lineWidth: hasIntakeToday ? 1.5 : 1)
         }
     }
 }
@@ -316,8 +355,8 @@ private struct SupplementWidgetCopy {
     var emptyTitle: String { isEnglish ? "No packages yet" : "Aún no hay envases" }
     var emptyMessage: String {
         isEnglish
-            ? "Add a discrete package in Wellnario, then choose it here."
-            : "Añade un envase en unidades discretas en Wellnario y elígelo aquí."
+            ? "Add a package in Wellnario, then choose it here."
+            : "Añade un envase en Wellnario y elígelo aquí."
     }
 
     func batchAction(_ count: Int) -> String {
@@ -327,11 +366,18 @@ private struct SupplementWidgetCopy {
         return count == 1 ? "Registrar 1 toma" : "Registrar \(count) tomas"
     }
 
-    func accessibilityLabel(for package: SupplementWidgetPackage, isSelected: Bool) -> String {
+    func accessibilityLabel(
+        for package: SupplementWidgetPackage,
+        isSelected: Bool,
+        hasIntakeToday: Bool
+    ) -> String {
         let action = isSelected
             ? (isEnglish ? "Deselect" : "Deseleccionar")
             : (isEnglish ? "Select" : "Seleccionar")
-        return "\(action): \(package.supplementName), \(package.instanceLabel), \(package.doseDescription)"
+        let intakeStatus = hasIntakeToday
+            ? (isEnglish ? ", intake recorded today" : ", toma registrada hoy")
+            : ""
+        return "\(action): \(package.supplementName), \(package.instanceLabel), \(package.doseDescription)\(intakeStatus)"
     }
 }
 
@@ -344,6 +390,7 @@ private extension SupplementWidgetPackage {
         case "presentation.gummy.name": "seal.fill"
         case "presentation.sachet.name": "envelope.fill"
         case "presentation.scoop.name": "cup.and.saucer.fill"
+        case "presentation.powder.name": "cube.fill"
         default: "pills.fill"
         }
     }

@@ -3,6 +3,7 @@ import UIKit
 @MainActor
 final class SleepViewController: WellnessScrollViewController {
     private static let trendReferenceLinePreferenceKey = "wellnario.sleep.trend.referenceLine"
+    private static let customTrendPeriodSegmentIndex = AppleHealthSleepTrendPeriod.allCases.count
     private static let sourceBannerHeight: CGFloat = 76
     private static let sourceBannerDisplayDuration: UInt64 = 10_000_000_000
 
@@ -32,6 +33,13 @@ final class SleepViewController: WellnessScrollViewController {
     private var isSourceBannerVisible = false
     private var appliedSourceBannerInset: CGFloat = 0
     private var selectedTrendPeriod = AppleHealthSleepTrendPeriod.sevenDays
+    private var isCustomTrendPeriodSelected = false
+    private var customTrendStartDate = Calendar.autoupdatingCurrent.date(
+        byAdding: .day,
+        value: -29,
+        to: Date()
+    ) ?? Date()
+    private var customTrendEndDate = Date()
     private var selectedTrendMetric = TrendMetric.duration
     private var selectedTrendReferenceLine: WellnessTrendReferenceLine
     private var terminalSourceBannerEvent: SourceBannerEvent?
@@ -343,17 +351,25 @@ final class SleepViewController: WellnessScrollViewController {
     }
 
     private func configureTrendChart(with snapshot: AppleHealthSnapshot) {
-        let series = AppleHealthSleepAggregator.trendSeries(
-            from: snapshot.sleepTrend,
-            period: selectedTrendPeriod
-        )
+        let series: AppleHealthSleepTrendSeries
+        if isCustomTrendPeriodSelected {
+            series = AppleHealthSleepAggregator.trendSeries(
+                from: snapshot.sleepTrend,
+                dateRange: customTrendStartDate...customTrendEndDate
+            )
+        } else {
+            series = AppleHealthSleepAggregator.trendSeries(
+                from: snapshot.sleepTrend,
+                period: selectedTrendPeriod
+            )
+        }
         let trend = series.entries
         let values = trend.map(trendValue)
         let dailyValues = series.dailyEntries.map(trendValue)
         trendChart.values = values
         trendChart.linearTrend = WellnessLinearRegression.fit(values: dailyValues)
         trendChart.referenceLine = selectedTrendReferenceLine
-        trendChart.labels = trendLabels(for: series, period: selectedTrendPeriod)
+        trendChart.labels = trendLabels(for: series)
         trendChart.selectionLabels = trendSelectionLabels(for: series)
         trendChart.lineColor = trendMetricColor(selectedTrendMetric)
         let emptyText = selectedTrendMetric == .quality
@@ -368,7 +384,7 @@ final class SleepViewController: WellnessScrollViewController {
         trendChart.accessibilityLabel = L10n.text(
             "sleep.trend.accessibility.format",
             trendMetricTitle(selectedTrendMetric),
-            trendPeriodTitle(selectedTrendPeriod)
+            selectedTrendPeriodAccessibilityTitle()
         )
         let validValues = values.compactMap { $0 }
         if let minimum = validValues.min(), let maximum = validValues.max() {
@@ -419,9 +435,19 @@ final class SleepViewController: WellnessScrollViewController {
     }
 
     private func makeTrendPeriodControl() -> UISegmentedControl {
-        let control = UISegmentedControl(items: AppleHealthSleepTrendPeriod.allCases.map(trendPeriodTitle))
+        var items: [Any] = AppleHealthSleepTrendPeriod.allCases.map(trendPeriodTitle)
+        if let calendar = UIImage(systemName: "calendar")?.withConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+        ) {
+            calendar.accessibilityLabel = L10n.text("sleep.trend.period.custom.accessibility")
+            items.append(calendar)
+        } else {
+            items.append(L10n.text("sleep.trend.period.custom.title"))
+        }
+        let control = UISegmentedControl(items: items)
         control.selectedSegmentIndex = selectedTrendPeriod.rawValue
         control.apportionsSegmentWidthsByContent = true
+        control.setWidth(40, forSegmentAt: Self.customTrendPeriodSegmentIndex)
         control.selectedSegmentTintColor = WellnarioPalette.fuchsia
         control.setTitleTextAttributes([
             .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
@@ -434,6 +460,12 @@ final class SleepViewController: WellnessScrollViewController {
         control.accessibilityIdentifier = "sleep.trend.period.selector"
         control.accessibilityLabel = L10n.text("sleep.trend.period.selector.accessibility")
         control.addTarget(self, action: #selector(trendPeriodDidChange), for: .valueChanged)
+        let tapRecognizer = UITapGestureRecognizer(
+            target: self,
+            action: #selector(trendPeriodDidTap(_:))
+        )
+        tapRecognizer.cancelsTouchesInView = false
+        control.addGestureRecognizer(tapRecognizer)
         return control
     }
 
@@ -515,17 +547,38 @@ final class SleepViewController: WellnessScrollViewController {
         }
     }
 
-    private func trendLabels(
-        for series: AppleHealthSleepTrendSeries,
-        period: AppleHealthSleepTrendPeriod
-    ) -> [String] {
+    private func selectedTrendPeriodAccessibilityTitle() -> String {
+        guard isCustomTrendPeriodSelected else {
+            return trendPeriodTitle(selectedTrendPeriod)
+        }
+        return L10n.text(
+            "sleep.trend.period.custom.accessibility.format",
+            customTrendRangeAccessibilityValue()
+        )
+    }
+
+    private func customTrendRangeAccessibilityValue() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = LocalizationManager.shared.locale
+        formatter.dateStyle = .medium
+        return L10n.text(
+            "sleep.trend.period.custom.range",
+            formatter.string(from: customTrendStartDate),
+            formatter.string(from: customTrendEndDate)
+        )
+    }
+
+    private func trendLabels(for series: AppleHealthSleepTrendSeries) -> [String] {
         let trend = series.entries
         guard !trend.isEmpty else { return [] }
-        if period == .sevenDays {
+        if !isCustomTrendPeriodSelected, selectedTrendPeriod == .sevenDays {
             return trend.map { AppleHealthUIFormatting.weekdayInitial(for: $0.date) }
         }
 
-        let labelCount = min(period == .thirtyDays ? 4 : 3, trend.count)
+        let labelCount = min(
+            !isCustomTrendPeriodSelected && selectedTrendPeriod == .thirtyDays ? 4 : 3,
+            trend.count
+        )
         let indexes = Set((0..<labelCount).map { labelIndex in
             guard labelCount > 1 else { return 0 }
             return Int((Double(labelIndex) * Double(trend.count - 1) / Double(labelCount - 1)).rounded())
@@ -823,6 +876,24 @@ final class SleepViewController: WellnessScrollViewController {
                 AppleHealthUIFormatting.number($0, maximumFractionDigits: 1)
             )
         } ?? L10n.text("sleep.latest.quality.heart_rate_drop.unavailable")
+        let sleepStressDetail = breakdown.averageSleepStressScore.map {
+            L10n.text(
+                "sleep.latest.quality.sleep_stress.detail",
+                AppleHealthUIFormatting.number($0, maximumFractionDigits: 1)
+            )
+        } ?? L10n.text("sleep.latest.quality.sleep_stress.unavailable")
+        let remDeepSleepDetail = breakdown.remDeepSleepPercentage.map {
+            L10n.text(
+                "sleep.latest.quality.rem_deep_sleep.detail",
+                AppleHealthUIFormatting.number($0, maximumFractionDigits: 1)
+            )
+        } ?? L10n.text("sleep.latest.quality.rem_deep_sleep.unavailable")
+        let sleepLatencyDetail = breakdown.sleepLatencyMinutes.map {
+            L10n.text(
+                "sleep.latest.quality.sleep_latency.detail",
+                AppleHealthUIFormatting.compactDuration($0 * 60)
+            )
+        } ?? L10n.text("sleep.latest.quality.sleep_latency.unavailable")
 
         let weights = configuration.weights
         let effectiveWeightTotal = max(breakdown.effectiveWeightTotal, 1)
@@ -872,6 +943,48 @@ final class SleepViewController: WellnessScrollViewController {
                 },
                 color: WellnarioPalette.fuchsia,
                 identifier: "sleep.latest.quality.heart_rate_drop"
+            ),
+            makeSleepQualityBreakdownRow(
+                title: L10n.text(
+                    "settings.advanced.sleep.quality.weight.sleep_stress"
+                ),
+                detail: sleepStressDetail,
+                contribution: breakdown.sleepStressScore.map {
+                    contribution($0, weights.sleepStress)
+                },
+                maximumContribution: breakdown.sleepStressScore.map { _ in
+                    maximumContribution(weights.sleepStress)
+                },
+                color: WellnarioPalette.warning,
+                identifier: "sleep.latest.quality.sleep_stress"
+            ),
+            makeSleepQualityBreakdownRow(
+                title: L10n.text(
+                    "settings.advanced.sleep.quality.weight.rem_deep_sleep"
+                ),
+                detail: remDeepSleepDetail,
+                contribution: breakdown.remDeepSleepScore.map {
+                    contribution($0, weights.remDeepSleep)
+                },
+                maximumContribution: breakdown.remDeepSleepScore.map { _ in
+                    maximumContribution(weights.remDeepSleep)
+                },
+                color: WellnarioPalette.information,
+                identifier: "sleep.latest.quality.rem_deep_sleep"
+            ),
+            makeSleepQualityBreakdownRow(
+                title: L10n.text(
+                    "settings.advanced.sleep.quality.weight.sleep_latency"
+                ),
+                detail: sleepLatencyDetail,
+                contribution: breakdown.sleepLatencyScore.map {
+                    contribution($0, weights.sleepLatency)
+                },
+                maximumContribution: breakdown.sleepLatencyScore.map { _ in
+                    maximumContribution(weights.sleepLatency)
+                },
+                color: WellnarioPalette.success,
+                identifier: "sleep.latest.quality.sleep_latency"
             )
         ]
         let content = UIStackView(arrangedSubviews: [header] + rows, axis: .vertical, spacing: 6)
@@ -1044,6 +1157,27 @@ final class SleepViewController: WellnessScrollViewController {
         Task { try? await appleHealthService.sync() }
     }
 
+    private func presentCustomTrendRangePicker() {
+        let snapshot = effectiveSnapshot()
+        let earliestDate = snapshot.sleepTrend.map(\.date).min()
+        let controller = SleepTrendCustomRangeViewController(
+            from: customTrendStartDate,
+            through: customTrendEndDate,
+            minimumDate: earliestDate,
+            maximumDate: Date()
+        )
+        controller.onApply = { [weak self] from, through in
+            guard let self else { return }
+            let calendar = Calendar.autoupdatingCurrent
+            self.customTrendStartDate = calendar.startOfDay(for: from)
+            self.customTrendEndDate = calendar.startOfDay(for: through)
+            self.isCustomTrendPeriodSelected = true
+            self.trendPeriodControl.selectedSegmentIndex = Self.customTrendPeriodSegmentIndex
+            self.configureTrendChart(with: self.effectiveSnapshot())
+        }
+        presentSheet(controller)
+    }
+
     @objc private func openSettings() { onOpenSettings?() }
     @objc private func openCardEditor() {
         let editor = SleepCardEditorViewController(preferences: cardLayoutPreferences)
@@ -1054,11 +1188,41 @@ final class SleepViewController: WellnessScrollViewController {
     @objc private func sleepManualOverridesDidChange() { buildContent() }
     @objc private func sleepQualityPreferencesDidChange() { buildContent() }
     @objc private func trendPeriodDidChange() {
+        if trendPeriodControl.selectedSegmentIndex == Self.customTrendPeriodSegmentIndex {
+            trendPeriodControl.selectedSegmentIndex = isCustomTrendPeriodSelected
+                ? Self.customTrendPeriodSegmentIndex
+                : selectedTrendPeriod.rawValue
+            presentCustomTrendRangePicker()
+            return
+        }
         guard let period = AppleHealthSleepTrendPeriod(rawValue: trendPeriodControl.selectedSegmentIndex) else {
             return
         }
+        isCustomTrendPeriodSelected = false
         selectedTrendPeriod = period
         configureTrendChart(with: effectiveSnapshot())
+    }
+    @objc private func trendPeriodDidTap(_ recognizer: UITapGestureRecognizer) {
+        guard isCustomTrendPeriodSelected,
+              trendPeriodControl.selectedSegmentIndex == Self.customTrendPeriodSegmentIndex else {
+            return
+        }
+
+        let location = recognizer.location(in: trendPeriodControl)
+        let customSegmentWidth = trendPeriodControl.widthForSegment(
+            at: Self.customTrendPeriodSegmentIndex
+        )
+        let isRightToLeft = trendPeriodControl.effectiveUserInterfaceLayoutDirection == .rightToLeft
+        let customSegmentFrame = CGRect(
+            x: isRightToLeft
+                ? trendPeriodControl.bounds.minX
+                : trendPeriodControl.bounds.maxX - customSegmentWidth,
+            y: trendPeriodControl.bounds.minY,
+            width: customSegmentWidth,
+            height: trendPeriodControl.bounds.height
+        )
+        guard customSegmentFrame.contains(location) else { return }
+        presentCustomTrendRangePicker()
     }
     @objc private func trendMetricDidChange() {
         guard let metric = TrendMetric(rawValue: trendMetricControl.selectedSegmentIndex) else {
@@ -1076,5 +1240,138 @@ final class SleepViewController: WellnessScrollViewController {
         selectedTrendReferenceLine = referenceLine
         defaults.set(referenceLine.rawValue, forKey: Self.trendReferenceLinePreferenceKey)
         trendChart.referenceLine = referenceLine
+    }
+}
+
+@MainActor
+private final class SleepTrendCustomRangeViewController: UIViewController {
+    var onApply: ((Date, Date) -> Void)?
+
+    private let fromPicker = UIDatePicker()
+    private let throughPicker = UIDatePicker()
+
+    init(
+        from: Date,
+        through: Date,
+        minimumDate: Date?,
+        maximumDate: Date
+    ) {
+        super.init(nibName: nil, bundle: nil)
+        let calendar = Calendar.autoupdatingCurrent
+        let minimum = minimumDate.map { calendar.startOfDay(for: $0) }
+        let maximum = calendar.startOfDay(for: maximumDate)
+        let initialFrom = min(max(calendar.startOfDay(for: from), minimum ?? .distantPast), maximum)
+        let initialThrough = min(max(calendar.startOfDay(for: through), initialFrom), maximum)
+
+        [fromPicker, throughPicker].forEach {
+            $0.datePickerMode = .date
+            $0.preferredDatePickerStyle = .compact
+            $0.minimumDate = minimum
+            $0.maximumDate = maximum
+            $0.locale = LocalizationManager.shared.locale
+            $0.tintColor = WellnarioPalette.fuchsia
+        }
+        fromPicker.date = initialFrom
+        throughPicker.date = initialThrough
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = L10n.text("sleep.trend.period.custom.title")
+        view.backgroundColor = WellnarioPalette.background
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            title: L10n.Common.cancel,
+            style: .plain,
+            target: self,
+            action: #selector(cancelTapped)
+        )
+
+        fromPicker.accessibilityIdentifier = "sleep.trend.period.custom.from"
+        throughPicker.accessibilityIdentifier = "sleep.trend.period.custom.through"
+        fromPicker.addTarget(self, action: #selector(dateDidChange(_:)), for: .valueChanged)
+        throughPicker.addTarget(self, action: #selector(dateDidChange(_:)), for: .valueChanged)
+
+        let applyButton = PrimaryButton(title: L10n.Common.done)
+        applyButton.accessibilityIdentifier = "sleep.trend.period.custom.apply"
+        applyButton.addTarget(self, action: #selector(applyTapped), for: .touchUpInside)
+
+        let stack = UIStackView(
+            arrangedSubviews: [
+                makeDateRow(
+                    title: L10n.text("sleep.trend.period.custom.from"),
+                    picker: fromPicker
+                ),
+                makeDateRow(
+                    title: L10n.text("sleep.trend.period.custom.through"),
+                    picker: throughPicker
+                ),
+                applyButton
+            ],
+            axis: .vertical,
+            spacing: WellnarioSpacing.small
+        )
+        view.addForAutoLayout(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.leadingAnchor,
+                constant: WellnarioSpacing.screenHorizontal
+            ),
+            stack.trailingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.trailingAnchor,
+                constant: -WellnarioSpacing.screenHorizontal
+            ),
+            stack.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.topAnchor,
+                constant: WellnarioSpacing.small
+            ),
+            stack.bottomAnchor.constraint(
+                lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor,
+                constant: -WellnarioSpacing.small
+            )
+        ])
+        preferredContentSize = CGSize(width: 360, height: 230)
+    }
+
+    private func makeDateRow(title: String, picker: UIDatePicker) -> UIView {
+        let label = UILabel()
+        label.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textPrimary)
+        label.text = title
+        return UIStackView(
+            arrangedSubviews: [label, UIView(), picker],
+            axis: .horizontal,
+            spacing: WellnarioSpacing.xSmall,
+            alignment: .center
+        )
+    }
+
+    @objc private func dateDidChange(_ sender: UIDatePicker) {
+        if sender === fromPicker, fromPicker.date > throughPicker.date {
+            throughPicker.setDate(fromPicker.date, animated: true)
+        } else if sender === throughPicker, throughPicker.date < fromPicker.date {
+            fromPicker.setDate(throughPicker.date, animated: true)
+        }
+    }
+
+    @objc private func cancelTapped() { dismiss(animated: true) }
+
+    @objc private func applyTapped() {
+        let calendar = Calendar.autoupdatingCurrent
+        let from = calendar.startOfDay(for: fromPicker.date)
+        let through = calendar.startOfDay(for: throughPicker.date)
+        guard from <= through else {
+            let alert = UIAlertController(
+                title: L10n.Common.error,
+                message: L10n.text("sleep.trend.period.custom.invalid"),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: L10n.Common.done, style: .default))
+            present(alert, animated: true)
+            return
+        }
+        onApply?(from, through)
+        dismiss(animated: true)
     }
 }

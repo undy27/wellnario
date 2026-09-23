@@ -536,6 +536,122 @@ enum SchemaMigrator {
             CREATE INDEX IF NOT EXISTS idx_strength_templates_name_key
                 ON strength_workout_templates(user_id, name_key);
             """
+        ),
+        Migration(
+            version: 18,
+            sql: """
+            CREATE TABLE IF NOT EXISTS strength_exercise_favorites (
+                user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                exercise_id TEXT NOT NULL REFERENCES strength_exercises(id) ON DELETE CASCADE,
+                created_at REAL NOT NULL,
+                PRIMARY KEY (user_id, exercise_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_strength_exercise_favorites_user
+                ON strength_exercise_favorites(user_id, created_at DESC);
+            """
+        ),
+        Migration(
+            version: 19,
+            sql: """
+            CREATE TABLE IF NOT EXISTS strength_exercise_custom_names (
+                user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                exercise_id TEXT NOT NULL REFERENCES strength_exercises(id) ON DELETE CASCADE,
+                name TEXT NOT NULL COLLATE NOCASE,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (user_id, exercise_id)
+            );
+            """
+        ),
+        Migration(
+            version: 20,
+            sql: """
+            CREATE TABLE IF NOT EXISTS strength_body_metrics (
+                id TEXT PRIMARY KEY NOT NULL,
+                user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL COLLATE NOCASE,
+                value TEXT NOT NULL,
+                unit TEXT,
+                measured_at REAL NOT NULL,
+                created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_strength_body_metrics_user_date
+                ON strength_body_metrics(user_id, measured_at DESC);
+            """
+        ),
+        Migration(
+            version: 21,
+            sql: """
+            CREATE TABLE IF NOT EXISTS strength_predefined_template_deletions (
+                user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                name_key TEXT NOT NULL,
+                deleted_at REAL NOT NULL,
+                PRIMARY KEY (user_id, name_key)
+            );
+            """
+        ),
+        Migration(
+            version: 22,
+            sql: """
+            CREATE TABLE IF NOT EXISTS strength_hidden_exercises (
+                user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                exercise_id TEXT NOT NULL REFERENCES strength_exercises(id) ON DELETE CASCADE,
+                hidden_at REAL NOT NULL,
+                PRIMARY KEY (user_id, exercise_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_strength_hidden_exercises_user
+                ON strength_hidden_exercises(user_id, hidden_at DESC);
+            """
+        ),
+        Migration(
+            version: 23,
+            sql: """
+            -- Package inventory started recording its original quantity after
+            -- remaining content had already been in use. For existing
+            -- packages, the earliest reliable baseline is the quantity that
+            -- was available at the time of this migration.
+            UPDATE supplement_instances
+            SET initial_quantity = total_quantity,
+                initial_unit = total_unit
+            WHERE total_quantity IS NOT NULL
+              AND total_unit IS NOT NULL
+              AND (initial_quantity IS NULL OR initial_unit IS NULL);
+            """
+        ),
+        Migration(
+            version: 24,
+            sql: """
+            ALTER TABLE supplements ADD COLUMN package_quantity TEXT;
+            ALTER TABLE supplements ADD COLUMN package_unit TEXT;
+            """
+        ),
+        Migration(
+            version: 25,
+            sql: """
+            -- Before package capacity belonged to the product, it was stored
+            -- only on individual packages. Use the largest known original
+            -- package as the best available nominal capacity for each product.
+            UPDATE supplements
+            SET package_quantity = (
+                    SELECT i.initial_quantity
+                    FROM supplement_instances i
+                    WHERE i.supplement_id = supplements.id
+                      AND i.initial_quantity IS NOT NULL
+                      AND i.initial_unit IS NOT NULL
+                    ORDER BY CAST(i.initial_quantity AS REAL) DESC
+                    LIMIT 1
+                ),
+                package_unit = (
+                    SELECT i.initial_unit
+                    FROM supplement_instances i
+                    WHERE i.supplement_id = supplements.id
+                      AND i.initial_quantity IS NOT NULL
+                      AND i.initial_unit IS NOT NULL
+                    ORDER BY CAST(i.initial_quantity AS REAL) DESC
+                    LIMIT 1
+                )
+            WHERE package_quantity IS NULL
+              AND package_unit IS NULL;
+            """
         )
     ]
 }

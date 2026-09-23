@@ -3,8 +3,8 @@
 Este documento describe cómo Wellnario construye las sesiones de sueño a partir
 de Apple Health y cómo calcula su **calidad del sueño** en una escala de 0 a
 100. Incluye las entradas, las reglas de ausencia de datos, la configuración
-de pesos, las correcciones manuales y la métrica de caída nocturna de la
-frecuencia cardíaca.
+de pesos, las correcciones manuales, la caída nocturna de la frecuencia
+cardíaca, el estrés medio, la proporción de sueño REM y profundo y la latencia.
 
 La puntuación es un indicador de bienestar configurable. No es una medición
 clínica ni un diagnóstico.
@@ -15,8 +15,8 @@ clínica ni un diagnóstico.
   - Importa los datos de HealthKit.
   - Agrega los segmentos de sueño.
   - Guarda el histórico bruto en `AppleHealthSnapshot.sleepTrend`.
-  - Define `SleepQualityCalculator`, `SleepHeartRateDropCalculator` y las
-    preferencias de calidad.
+  - Define `SleepQualityCalculator`, `SleepHeartRateDropCalculator`, el
+    cálculo de estrés nocturno y las preferencias de calidad.
 - `Wellnario/Features/Wellness/SleepViewController.swift`
   - Muestra el desglose de la última puntuación disponible.
 - `Wellnario/Features/More/SettingsViewController.swift`
@@ -29,7 +29,7 @@ clínica ni un diagnóstico.
 ## Flujo de datos
 
 ```text
-HealthKit: sleepAnalysis + heartRate
+HealthKit: sleepAnalysis + señales fisiológicas
               │
               ▼
 AppleHealthSleepAggregator
@@ -52,7 +52,8 @@ Durante una sincronización se siguen estos pasos:
    los últimos 35 días, respetando las fuentes que la persona haya desactivado.
    Así el histórico cardíaco completo no forma parte del camino crítico.
 3. Las sesiones se agregan por el día local en que terminan para crear
-   `AppleHealthSleepDay`.
+   `AppleHealthSleepDay`. En la sesión principal se deriva la latencia cuando
+   un intervalo `inBed` contiene el comienzo del primer tramo dormido.
 4. En esa agregación se calcula, cuando hay suficientes lecturas, la caída
    nocturna de frecuencia cardíaca de la sesión principal. Las muestras se
    ordenan una vez y cada sesión localiza su intervalo mediante búsqueda
@@ -62,7 +63,12 @@ Durante una sincronización se siguen estos pasos:
    usa una sola consulta de HealthKit, actualiza el histórico y persiste los
    días ya inspeccionados antes de continuar. Esta tarea no mantiene activo el
    indicador de sincronización.
-6. El snapshot conserva ese histórico **sin una puntuación fija**. Cada vez
+6. Para cada sesión principal con datos fisiológicos suficientes se estiman
+   cuatro puntos distribuidos durante la noche. Su media se guarda como
+   `averageSleepStressScore`; el trabajo comparte las observaciones y bases
+   históricas por fase, por lo que no genera una cronología completa por cada
+   muestra ni alarga linealmente la sincronización.
+7. El snapshot conserva ese histórico **sin una puntuación fija**. Cada vez
    que se presenta el sueño, `SleepManualOverrideStore` aplica las
    preferencias actuales y recalcula la calidad. Así, cambiar el objetivo o
    los pesos no obliga a volver a consultar HealthKit.
@@ -71,14 +77,23 @@ La tendencia efectiva de calidad también se pasa a los factores automáticos
 del sueño y al cálculo de estrés, de modo que ambos consumen la misma calidad
 que ve la persona en la aplicación.
 
-### Tendencia «Desde el principio»
+### Tendencia «Todo el período»
 
 La sincronización de sueño consulta todas las muestras `sleepAnalysis`
 autorizadas y guarda un `AppleHealthSleepDay` bruto por día. Por ello, la
 tendencia completa no depende de que la persona haya abierto o seleccionado
 previamente cada fecha en la pantalla **Hoy**.
 
-Al elegir «Desde el principio», la aplicación no vuelve a consultar
+El catálogo de fuentes de `sleepAnalysis` también se consulta sin limitarlo a
+los últimos meses. Cada fuente se identifica por la combinación del productor
+y su nombre, lo que permite presentar por separado, por ejemplo, un Apple
+Watch y un iPhone aunque HealthKit les asigne el mismo identificador de app.
+Las exclusiones antiguas que estaban guardadas sólo con ese identificador se
+expanden a todas las fuentes correspondientes. De este modo, una configuración
+que deja Oura como única fuente no vuelve a admitir silenciosamente muestras
+históricas de dispositivos que no aparecían en la ventana reciente.
+
+Al elegir «Todo el período», la aplicación no vuelve a consultar
 HealthKit. Parte del histórico guardado, recalcula sus puntuaciones en memoria
 y agrupa la visualización por meses o años según la amplitud temporal. Con
 unos cientos de días, este trabajo es lineal y pequeño.
@@ -95,8 +110,10 @@ histórico bruto cacheado
 puntuaciones y tendencia actualizadas
 ```
 
-La única operación histórica de HealthKit necesaria para esta métrica es la
-migración de la caída cardíaca. No se repite al cambiar pesos.
+La latencia no añade una consulta histórica: se deriva de los segmentos
+`sleepAnalysis` que ya se importan. La única operación histórica adicional de
+HealthKit es la migración de la caída cardíaca. Ninguna se repite al cambiar
+pesos.
 
 ## Construcción de sesiones y días de sueño
 
@@ -120,10 +137,15 @@ La sesión principal aporta:
 - `sleepStartDate`: primer tramo no despierto; si no hay fases, inicio de la
   sesión.
 - La caída de frecuencia cardíaca.
+- `averageSleepStressScore`: estrés fisiológico medio 0–100 de la sesión
+  principal, cuando hay suficientes datos para estimarlo.
+- `sleepLatencyMinutes`: diferencia entre el inicio del intervalo `inBed`
+  coincidente y el primer tramo dormido.
 
-La vigilia usada en el cálculo se limita a los tramos despiertos situados entre
-el primer y el último intervalo dormido. De esta forma no se penaliza el tiempo
-en cama antes de quedarse dormido o después de despertarse definitivamente.
+La vigilia usada en el cálculo suma todos los tramos que Apple Health marca como
+despierto dentro de cada sesión, incluidos los que aparezcan al principio o al
+final. Así, el porcentaje de interrupciones describe exactamente el mismo
+intervalo inicio-fin que se muestra al usuario para la sesión.
 
 `AppleHealthSleepDay` conserva, entre otros, estos campos:
 
@@ -131,8 +153,10 @@ en cama antes de quedarse dormido o después de despertarse definitivamente.
 |---|---|
 | `hours` | Duración total dormida del día. Es imprescindible para puntuar. |
 | `sleepStartDate` | Regularidad de la hora de acostarse. |
-| `awakeHours` y `sleepPeriodHours` | Porcentaje de interrupciones. |
+| `awakeHours` y `sleepPeriodHours` | Porcentaje de interrupciones: toda la vigilia registrada y la duración combinada de los intervalos inicio-fin de las sesiones. |
+| `remHours`, `deepHours` y `lightHours` | Proporción de sueño REM y profundo sobre las fases identificadas. |
 | `heartRateDropPercentage` | Caída nocturna porcentual de la sesión principal. |
+| `sleepLatencyMinutes` | Minutos hasta dormirse; es opcional si HealthKit no aporta un intervalo `inBed` fiable. |
 | `qualityScore` | Resultado efectivo calculado o corrección manual. |
 
 ## Duración objetivo
@@ -157,7 +181,7 @@ objetivo adulto de 8 horas.
 
 ## Factores de la puntuación
 
-La calidad usa cuatro subpuntuaciones en el intervalo `0...100`.
+La calidad usa siete subpuntuaciones en el intervalo `0...100`.
 
 ### 1. Duración
 
@@ -177,12 +201,19 @@ con `sleepStartDate` se convierten hora, minuto y segundo a minutos desde las
 00:00. La media se calcula de forma circular, por lo que 23:50 y 00:10 se
 consideran horarios cercanos, no separados por casi 24 horas.
 
-Un día cumple cuando su distancia circular a esa media es de como máximo 60
-minutos. Los días sin sesión no aportan cumplimiento. La puntuación es:
+La puntuación de cada día se obtiene con la distancia circular `d` entre su
+hora de inicio y esa media. Los días sin `sleepStartDate` obtienen 0 en este
+factor y no contribuyen a la media. La escala es:
 
 ```text
-R = 100 × noches_regulares / 7
+R = 100,                          si d ≤ 30 min
+R = 100 × (240 - d) / (240 - 30), si 30 min < d < 240 min
+R = 0,                            si d ≥ 240 min (4 h)
 ```
+
+El detalle de la interfaz indica además cuántas noches de la ventana quedaron
+dentro de la banda de puntuación máxima (±30 minutos), pero la puntuación del
+día es siempre la de su propia hora de inicio frente a la media semanal.
 
 ### 3. Interrupciones
 
@@ -197,6 +228,9 @@ I = 100 × max(0, 1 - vigilia_% / 15)
 Por tanto, 0 % despierto equivale a 100 y 15 % o más equivale a 0. Si
 `awakeHours` no está disponible, `I` queda en 0: los datos desconocidos no se
 convierten en una noche sin despertares.
+
+Por ejemplo, una sesión mostrada como 00:50–10:15 dura 9 h 25 min; si contiene
+1 h 17 min marcada como despierto, el factor usa `77 / 565 × 100 = 13,6 %`.
 
 ### 4. Caída de frecuencia cardíaca
 
@@ -230,6 +264,107 @@ Wellnario.
 Si no se cumplen los requisitos de datos, `H` no se calcula; no se infiere a
 partir de la frecuencia cardíaca en reposo ni se usa una muestra aislada.
 
+### 5. Estrés medio durante el sueño
+
+Se estima el StressScore fisiológico en cuatro puntos igualmente repartidos
+por la sesión principal (12,5 %, 37,5 %, 62,5 % y 87,5 % de su duración). Cada
+punto se calibra contra el mismo momento relativo de las noches anteriores y
+los valores válidos se promedian. Esto evita comparar el inicio de una noche
+con el final de otra y limita el coste de cálculo durante la sincronización.
+
+El valor medio `estrés_%` se limita a `0...100`. La puntuación de calidad baja
+linealmente hasta 0 cuando el estrés nocturno medio alcanza 50:
+
+```text
+S = 100 × max(0, 1 - estrés_% / 50)
+```
+
+Por tanto, 0 % de estrés equivale a 100 puntos, 20 % a 60 puntos, 25 % a 50
+puntos y cualquier media de 50 % o superior a 0. El umbral no es clínico: es
+una calibración de la escala interna. Una observación nocturna fisiológicamente
+normal se sitúa alrededor de 20/100, mientras que 50/100 ya representa una
+activación elevada y sostenida respecto a la referencia nocturna personal. De
+este modo el peor resultado es alcanzable sin exigir una media nocturna de
+100/100, extremadamente improbable.
+
+Si no hay suficientes estimaciones fisiológicas fiables, `S` no se calcula y
+su peso se redistribuye entre los demás factores: la ausencia de datos no se
+interpreta como estrés alto.
+
+### 6. Porcentaje de sueño REM y profundo
+
+La fase REM y la fase profunda (N3) se suman y se dividen únicamente entre el
+sueño con fase identificada. La vigilia y los tramos `asleepUnspecified` no
+forman parte del denominador:
+
+```text
+sueño_clasificado = REM + profundo + esencial
+RP_% = 100 × (REM + profundo) / sueño_clasificado
+```
+
+Para evitar porcentajes sesgados por una noche casi sin fases, el sueño
+clasificado debe representar al menos el 80 % de la duración dormida total. Si
+no alcanza esa cobertura, el factor no se calcula y su peso se redistribuye.
+
+La banda de 35–45 % obtiene la puntuación máxima. Por debajo se asciende
+linealmente desde 0; por encima se desciende de forma más gradual hasta 0 al
+llegar al 100 %:
+
+```text
+P = 100 × RP_% / 35,              si RP_% < 35
+P = 100,                            si 35 ≤ RP_% ≤ 45
+P = 100 × (100 - RP_%) / 55,     si RP_% > 45
+```
+
+El intervalo se basa en las referencias habituales para adultos: REM suele
+representar aproximadamente 20–25 % y el sueño profundo 15–25 %
+([NCBI](https://www.ncbi.nlm.nih.gov/books/NBK482512/)). Es una referencia de
+bienestar; Apple Watch estima las fases mediante sensores y aprendizaje
+automático, y no sustituye una polisomnografía
+([validación de Apple](https://www.apple.com/health/pdf/Estimating_Sleep_Stages_from_Apple_Watch_Oct_2025.pdf)).
+
+### 7. Latencia del sueño
+
+La latencia `L_min` se calcula solamente para la sesión principal. Se busca el
+primer segmento dormido (`asleepUnspecified`, `core`, `deep` o `REM`) y un
+segmento `inBed` que contenga ese instante. Si existen varios, se prefiere uno
+de la misma fuente que el inicio del sueño. Si esa fuente publica un intervalo
+completo y otros intervalos anidados, se toma el que haya comenzado antes, ya
+que representa el momento en que el usuario se acostó. Solo cuando falta un
+`inBed` de esa fuente se utiliza como respaldo el intervalo de otra fuente que
+haya comenzado más tarde, para evitar mezclar las fases de un wearable con una
+franja amplia programada en el teléfono:
+
+```text
+L_min = (inicio_primer_sueño - inicio_inBed) / 60
+```
+
+No se usa el comienzo de la sesión como sustituto: si HealthKit sólo aporta
+fases dormidas, hacerlo produciría una latencia ficticia de cero. Apple indica
+que la latencia puede derivarse comparando estos intervalos, pero también
+advierte de que las muestras de Apple Watch pueden no cubrir el principio o el
+final del periodo en cama
+([HealthKit](https://developer.apple.com/documentation/healthkit/hkcategoryvaluesleepanalysis)).
+
+La puntuación máxima usa una banda tolerante de 5–20 minutos. Fuera de ella se
+interpola linealmente hasta 0 en los extremos de 0 y 60 minutos:
+
+```text
+L = 100 × L_min / 5,                 si 0 ≤ L_min < 5
+L = 100,                               si 5 ≤ L_min ≤ 20
+L = 100 × (60 - L_min) / 40,       si 20 < L_min < 60
+L = 0,                                 si L_min ≥ 60
+```
+
+Oura usa 15–20 minutos como referencia ideal y señala que menos de 5 minutos
+puede indicar cansancio excesivo
+([Oura](https://support.ouraring.com/hc/en-us/articles/360057792293-Sleep-Contributors)).
+Wellnario amplía la banda máxima hasta 5 minutos para no sobrerreaccionar a la
+precisión limitada del inicio `inBed`. Es una calibración de bienestar, no un
+criterio diagnóstico.
+
+Si no hay un `inBed` coincidente, `L` no se calcula y su peso se redistribuye.
+
 ## Pesos y fórmula final
 
 Los pesos son enteros no negativos y deben sumar siempre 100. La configuración
@@ -237,43 +372,50 @@ inicial es:
 
 | Factor | Peso predeterminado |
 |---|---:|
-| Duración | 63 % |
-| Regularidad | 9 % |
-| Interrupciones | 18 % |
-| Caída de FC | 10 % |
+| Duración | 46 % |
+| Regularidad | 6 % |
+| Interrupciones | 14 % |
+| Caída de FC | 7 % |
+| Estrés durante el sueño | 8 % |
+| REM y profundo | 9 % |
+| Latencia | 10 % |
 
 La puntuación se obtiene de la media ponderada:
 
 ```text
-W = D×w_duración + R×w_regularidad + I×w_interrupciones + H×w_caída
+W = D×w_duración + R×w_regularidad + I×w_interrupciones + H×w_caída + S×w_estrés + P×w_REM_profundo + L×w_latencia
 Q = clamp(W / peso_efectivo, 0, 100)
 ```
 
-Si existe `H`, `peso_efectivo = 100`. Si no hay suficientes muestras de
-frecuencia cardíaca, se elimina sólo su peso del denominador:
+Si están disponibles `H`, `S`, `P` y `L`, `peso_efectivo = 100`. Si falta cualquiera
+de los factores derivados, se elimina únicamente su peso del denominador:
 
 ```text
-peso_efectivo = 100 - w_caída
+peso_efectivo = 100
+    - (w_caída si H no existe)
+    - (w_estrés si S no existe)
+    - (w_REM_profundo si P no existe)
+    - (w_latencia si L no existe)
 ```
 
-Así una ausencia de datos cardíacos no rebaja la calidad por sí misma. Con los
-pesos predeterminados, el resto se normaliza de forma equivalente a los pesos
-históricos 70 % de duración, 10 % de regularidad y 20 % de interrupciones.
+Así una ausencia de datos cardíacos, de estrés, de fases o de tiempo en cama no rebaja la calidad
+por sí misma.
 
 El caso límite en que el peso efectivo sea cero devuelve 0, ya que no existe
 ningún factor con el que construir una puntuación.
 
 ## Preferencias, migración y correcciones manuales
 
-`SleepQualityPreferences` guarda el objetivo y los cuatro pesos en
+`SleepQualityPreferences` guarda el objetivo y los siete pesos en
 `UserDefaults`. Los cambios publican
 `wellnarioSleepQualityPreferencesDidChange`, por lo que las pantallas y el
 widget pueden recalcularse sin sincronización.
 
-Las instalaciones que ya guardaban los tres pesos antiguos se migran al leer
-las preferencias: los pesos previos se escalan a 90 % y se reserva 10 % para la
-caída de frecuencia cardíaca. La corrección mantiene el total en 100 y evita
-que los factores existentes pierdan su proporción relativa.
+Las instalaciones que ya guardaban seis pesos los escalan a 90 % y reservan
+10 % para latencia. Las migraciones desde cinco, cuatro o tres pesos reservan
+también los factores derivados que aún no existían. En todos los casos se
+mantiene el total en 100 y, salvo el ajuste inevitable por redondeo, la
+proporción de los pesos existentes.
 
 Las correcciones manuales se guardan por `LocalDay` en
 `SleepManualOverrideStore`:
@@ -287,31 +429,42 @@ Las correcciones manuales se guardan por `LocalDay` en
 ## Presentación
 
 La pantalla de sueño muestra la puntuación total y un desglose de duración,
-regularidad, interrupciones y caída de frecuencia cardíaca. Las contribuciones
-que se muestran se normalizan con el mismo `peso_efectivo` de la fórmula; por
-ello suman el total visible. Si la caída cardíaca no está disponible, su fila
-explica que faltan lecturas y no muestra una contribución ficticia.
+regularidad, interrupciones, caída de frecuencia cardíaca, estrés durante el
+sueño, proporción REM y profunda y latencia. Las contribuciones se normalizan
+con el mismo `peso_efectivo` de la fórmula; por ello suman el total visible. Si
+falta un factor derivado, su fila explica la ausencia de datos y no muestra una
+contribución ficticia.
+
+La gráfica de tendencia ofrece los períodos 7 días, 30 días, 6 meses y todo el
+período, además de un quinto segmento con icono de calendario para escoger dos
+fechas inclusivas.
+Los intervalos personalizados se muestran por días hasta 31 días, por semanas
+hasta 183 días, por meses hasta 731 días y por años a partir de esa amplitud.
+El filtrado se aplica tanto a los valores dibujados como a la regresión lineal.
 
 La tarjeta de sueño de **Hoy** también usa el desglose recalculado con las
 preferencias actuales, nunca el `qualityScore` que pudiera contener una entrada
 cacheada. Al seleccionar un día histórico, la puntuación automática permanece
 vacía hasta que termine su actualización de Apple Health; una puntuación
-introducida manualmente sí se muestra de inmediato. La tarjeta presenta cinco
-anillos compactos: calidad, duración, regularidad, interrupciones y caída de
-frecuencia cardíaca. Este último muestra la caída porcentual y rellena el anillo
-con su puntuación normalizada.
+introducida manualmente sí se muestra de inmediato. La tarjeta presenta un
+anillo para la calidad global y siete filas compactas con barras segmentadas
+para duración, regularidad, interrupciones, caída de frecuencia cardíaca y
+estrés durante el sueño, REM y profundo y latencia. Los factores derivados
+muestran su medida y sus barras representan la puntuación normalizada.
 
-En **Ajustes → Sueño → Calidad del sueño** se pueden modificar los cuatro
+En **Ajustes → Sueño → Calidad del sueño** se pueden modificar los siete
 pesos. Al mover uno, los demás se reequilibran proporcionalmente para que el
 total siga siendo 100.
 
 ## Persistencia, migración histórica y compatibilidad
 
 El snapshot de Apple Health guarda `AppleHealthSleepDay` como `Codable`.
-`heartRateDropPercentage` es opcional, por lo que los snapshots de versiones
-anteriores se decodifican con el valor `nil`. La siguiente sincronización
-reconstruye primero el periodo reciente y conserva los valores históricos que
-pertenecen a la versión vigente del algoritmo.
+`heartRateDropPercentage`, `averageSleepStressScore` y `sleepLatencyMinutes`
+son opcionales, por lo que los snapshots de versiones anteriores se decodifican
+con el valor `nil`.
+La siguiente sincronización invalida la caché de factores automáticos y
+reconstruye hasta seis meses de estimaciones de estrés; las sincronizaciones
+posteriores usan una ventana incremental de 35 días.
 
 El snapshot guarda además:
 
@@ -339,12 +492,33 @@ bruta, no como una decisión inmutable de la sincronización. Esto permite que
 el histórico se adapte de inmediato a un nuevo objetivo, una nueva ponderación
 o una corrección manual, sin alterar los datos originales importados.
 
+### Objetivos históricos de suplementos
+
+Los factores automáticos de consumo diario y semanal comparan cada noche con
+el objetivo que estaba vigente en el día en que comenzó la sesión. Los
+objetivos de cada activo se almacenan como períodos inclusivos mediante
+`effectiveFrom` y `effectiveThrough`; los días sin objetivo no se clasifican
+como incumplimientos y quedan fuera del contraste estadístico.
+
+La ficha del activo permite elegir **Aplicar desde** al guardar un objetivo.
+También muestra el historial de períodos: al pulsar uno se cargan su cantidad,
+unidad y fecha inicial para poder corregirlo. Guardar en la misma fecha modifica
+ese período; escoger una fecha nueva inserta un cambio de objetivo y ajusta
+automáticamente el final del período anterior. Esto permite asignar de forma
+explícita un objetivo a consumos anteriores sin aplicar retrospectivamente, y
+de manera silenciosa, el objetivo actual a todo el historial.
+
 ## Pruebas relevantes
 
 `AppleHealthSyncTests` cubre al menos:
 
 - cálculo de duración, regularidad e interrupciones;
 - cálculo de la caída con mediana inicial y percentil bajo posterior;
+- inversión lineal del estrés medio durante el sueño y ausencia de penalización
+  cuando no puede estimarse;
+- banda óptima, pendientes y cobertura mínima del porcentaje REM y profundo;
+- derivación de latencia sólo con un intervalo `inBed` coincidente, curva de
+  puntuación y ausencia de penalización cuando falta;
 - cálculo por lotes limitado a las muestras de cada sesión;
 - división del histórico cardíaco en ventanas acotadas, empezando por las más
   recientes;
@@ -355,9 +529,9 @@ o una corrección manual, sin alterar los datos originales importados.
 - conservación del valor histórico fuera de la ventana incremental;
 - persistencia de la caída en la tendencia de sueño;
 - ausencia de penalización cuando faltan lecturas cardíacas;
-- migración de preferencias de tres a cuatro pesos;
+- migración de preferencias desde tres, cuatro, cinco y seis pesos;
 - decodificación de cachés antiguas;
-- presencia del cuarto factor en el desglose de la interfaz.
+- presencia de todos los factores en el desglose de la interfaz.
 
-Las pruebas de navegación verifican también que el control del cuarto peso se
-encuentra disponible en Ajustes.
+Las pruebas de navegación verifican también que los controles de todos los pesos
+se encuentran disponibles en Ajustes.

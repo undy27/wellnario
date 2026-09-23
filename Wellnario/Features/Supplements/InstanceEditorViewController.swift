@@ -134,7 +134,9 @@ final class InstanceEditorViewController: EditorViewController {
         remainingQuantityField.configure(
             title: L10n.text("inventory.remaining_content"),
             placeholder: "0",
-            text: instance?.totalQuantity.map { FeatureFormatting.decimal($0) },
+            text: (instance?.totalQuantity ?? selectedSupplement?.packageQuantity).map {
+                FeatureFormatting.decimal($0)
+            },
             keyboardType: .decimalPad
         )
         remainingQuantityField.textField.accessibilityIdentifier = "instance.remaining_quantity"
@@ -224,7 +226,7 @@ final class InstanceEditorViewController: EditorViewController {
         if instance?.supplementID == selectedSupplementID, let unit = instance?.totalUnit {
             return unit
         }
-        return selectedSupplement?.basisUnit
+        return selectedSupplement?.packageUnit ?? selectedSupplement?.basisUnit
     }
 
     private var presentationKind: PresentationKind {
@@ -244,6 +246,11 @@ final class InstanceEditorViewController: EditorViewController {
             ) { [weak self] _ in
                 self?.selectedSupplementID = supplement.id
                 self?.rebuildProductMenu()
+                if self?.instance == nil, self?.hasEditedRemainingQuantity == false {
+                    self?.remainingQuantityField.textField.text = supplement.packageQuantity.map {
+                        FeatureFormatting.decimal($0)
+                    }
+                }
                 self?.updateRemainingContentUnit()
                 self?.updateArtwork()
             }
@@ -279,12 +286,12 @@ final class InstanceEditorViewController: EditorViewController {
     @objc private func logIntake() {
         guard let instance, !instance.isArchived else { return }
         view.endEditing(true)
-        presentSheet(
+        navigationController?.pushViewController(
             IntakeEditorViewController(
                 repository: repository,
                 preferredInstanceID: instance.id
             ),
-            largeOnly: true
+            animated: true
         )
     }
 

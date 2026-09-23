@@ -134,6 +134,76 @@ final class RepositoryTests: XCTestCase {
         XCTAssertEqual(series.points.first?.amount, 5_000)
     }
 
+    func testInventoryMigrationBackfillsInitialContentForLegacyPackages() throws {
+        let (repository, url) = try makeRepository()
+        let presentation = try presentation(repository, key: "presentation.capsule.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Magnesio",
+            brand: "",
+            presentationTypeID: presentation.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        let instance = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 24,
+            totalUnit: .capsule
+        ))
+
+        try repository.database.execute(
+            "UPDATE supplement_instances SET initial_quantity = NULL, initial_unit = NULL WHERE id = ?;",
+            bindings: [.text(instance.id.uuidString)]
+        )
+        try repository.database.execute("DELETE FROM schema_migrations WHERE version = 23;")
+
+        let migrated = try WellnarioRepository(databaseURL: url)
+        let migratedInstance = try XCTUnwrap(try migrated.instance(id: instance.id))
+        XCTAssertEqual(migratedInstance.totalQuantity, 24)
+        XCTAssertEqual(migratedInstance.totalUnit, .capsule)
+        XCTAssertEqual(migratedInstance.initialQuantity, 24)
+        XCTAssertEqual(migratedInstance.initialUnit, .capsule)
+    }
+
+    func testProductPackageCapacityMigrationUsesLargestKnownPackage() throws {
+        let (repository, url) = try makeRepository()
+        let presentation = try presentation(repository, key: "presentation.capsule.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Magnesio",
+            brand: "",
+            presentationTypeID: presentation.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        _ = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 24,
+            totalUnit: .capsule
+        ))
+        _ = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 60,
+            totalUnit: .capsule
+        ))
+        try repository.database.execute("DELETE FROM schema_migrations WHERE version = 25;")
+
+        let migrated = try WellnarioRepository(databaseURL: url)
+        let migratedSupplement = try XCTUnwrap(try migrated.supplement(id: supplement.id))
+        XCTAssertEqual(migratedSupplement.packageQuantity, 60)
+        XCTAssertEqual(migratedSupplement.packageUnit, .capsule)
+    }
+
     func testInternationalUnitsCannotBeConvertedToMassWithoutAnActiveSpecificFactor() {
         XCTAssertFalse(DoseUnit.internationalUnit.isCompatible(with: .microgram))
         XCTAssertThrowsError(
@@ -435,6 +505,104 @@ final class RepositoryTests: XCTestCase {
         XCTAssertEqual(result.absentSampleCount, 7)
     }
 
+    @MainActor
+    func testSupplementSleepAnalysisUsesAHistoricalTargetAddedAfterTheIntakes() throws {
+        let (repository, _) = try makeRepository()
+        let timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let startDay = try LocalDay(year: 2026, month: 7, day: 1)
+        let currentTargetDay = try startDay.adding(days: 21)
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.melatonin.name" }
+        )
+        _ = try repository.setActiveFavorite(id: active.id, isFavorite: true)
+        _ = try repository.setTarget(
+            activeID: active.id,
+            lowerBound: 1,
+            upperBound: 1,
+            unit: .milligram,
+            effectiveFrom: currentTargetDay
+        )
+
+        let capsules = try presentation(repository, key: "presentation.capsule.name")
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Melatonina",
+            brand: "",
+            presentationTypeID: capsules.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 1, unit: .milligram)
+            ]
+        ))
+        let instance = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            totalQuantity: 30,
+            totalUnit: .capsule
+        ))
+        for offset in 0..<21 {
+            let day = try startDay.adding(days: offset)
+            _ = try repository.createConsumption(ConsumptionDraft(
+                instanceID: instance.id,
+                quantity: 1,
+                unit: .capsule,
+                consumedAt: try day.startDate(in: timeZone).addingTimeInterval(20 * 3_600),
+                timeZoneID: timeZone.identifier
+            ))
+        }
+
+        var snapshot = AppleHealthSnapshot.empty
+        snapshot.sleepTrend = try (0..<22).map { offset in
+            let sourceDay = try startDay.adding(days: offset)
+            let sleepStart = try sourceDay.startDate(in: timeZone).addingTimeInterval(23 * 3_600)
+            return AppleHealthSleepDay(
+                date: sleepStart.addingTimeInterval(8 * 3_600),
+                hours: 8,
+                sleepStartDate: sleepStart
+            )
+        }
+        let dailyFactor = try XCTUnwrap(
+            SleepSupplementFactorCatalog.definitions(repository: repository)
+                .first { $0.id.contains(".daily.") }
+        )
+
+        let beforeBackdating = SleepFactorAnalysisDataBuilder.impact(
+            for: dailyFactor,
+            outcome: .duration,
+            snapshot: snapshot,
+            log: [],
+            repository: repository,
+            calendar: calendar
+        )
+        guard case let .insufficient(_, beforeWithin, beforeOutside) = beforeBackdating else {
+            return XCTFail("Expected insufficient result before adding the historical target")
+        }
+        XCTAssertEqual(beforeWithin, 0)
+        XCTAssertEqual(beforeOutside, 1)
+
+        _ = try repository.setTarget(
+            activeID: active.id,
+            lowerBound: 1,
+            upperBound: 1,
+            unit: .milligram,
+            effectiveFrom: startDay
+        )
+        let afterBackdating = SleepFactorAnalysisDataBuilder.impact(
+            for: dailyFactor,
+            outcome: .duration,
+            snapshot: snapshot,
+            log: [],
+            repository: repository,
+            calendar: calendar
+        )
+        guard case let .insufficient(_, afterWithin, afterOutside) = afterBackdating else {
+            return XCTFail("Expected one remaining night outside the target")
+        }
+        XCTAssertEqual(afterWithin, 21)
+        XCTAssertEqual(afterOutside, 1)
+    }
+
     func testTargetPersistsSelectedCompatibleUnit() throws {
         let (repository, url) = try makeRepository()
         let active = try repository.createActive(
@@ -476,6 +644,8 @@ final class RepositoryTests: XCTestCase {
             presentationTypeID: presentation.id,
             basisQuantity: 100,
             basisUnit: .gram,
+            packageQuantity: 500,
+            packageUnit: .gram,
             components: [SupplementComponentDraft(activeID: active.id, amount: 100, unit: .gram)]
         ))
         let expiry = try LocalDay(year: 2028, month: 6, day: 30)
@@ -487,6 +657,8 @@ final class RepositoryTests: XCTestCase {
         ))
 
         XCTAssertEqual(supplement.brand, "")
+        XCTAssertEqual(supplement.packageQuantity, 500)
+        XCTAssertEqual(supplement.packageUnit, .gram)
         XCTAssertEqual(instance.label, "")
         XCTAssertEqual(instance.totalQuantity, 500)
         XCTAssertEqual(instance.totalUnit, .gram)
@@ -497,6 +669,8 @@ final class RepositoryTests: XCTestCase {
         let persistedSupplement = try XCTUnwrap(try reopened.supplement(id: supplement.id))
         let persistedInstance = try XCTUnwrap(try reopened.instance(id: instance.id))
         XCTAssertEqual(persistedSupplement.brand, "")
+        XCTAssertEqual(persistedSupplement.packageQuantity, 500)
+        XCTAssertEqual(persistedSupplement.packageUnit, .gram)
         XCTAssertEqual(persistedInstance.label, "")
         XCTAssertEqual(persistedInstance.expirationDay, expiry)
         XCTAssertEqual(persistedInstance.totalQuantity, 500)
@@ -1032,6 +1206,109 @@ final class RepositoryTests: XCTestCase {
     }
 
     @MainActor
+    func testActiveTargetHistoryLoadsAndUpdatesAnEarlierPeriod() throws {
+        let (repository, _) = try makeRepository()
+        let active = try repository.createActive(
+            ActiveDraft(name: "Objetivo histórico", baseUnit: .milligram)
+        )
+        let today = LocalDay(containing: Date(), in: .current)
+        let historicalDay = try today.adding(days: -30)
+        _ = try repository.setTarget(
+            activeID: active.id,
+            lowerBound: 10,
+            upperBound: 10,
+            unit: .milligram,
+            effectiveFrom: historicalDay
+        )
+        _ = try repository.setTarget(
+            activeID: active.id,
+            lowerBound: 20,
+            upperBound: 20,
+            unit: .milligram,
+            effectiveFrom: today
+        )
+
+        let root = UIViewController()
+        let navigationController = UINavigationController(rootViewController: root)
+        let detail = ActiveDetailViewController(repository: repository, activeID: active.id)
+        navigationController.pushViewController(detail, animated: false)
+        detail.loadViewIfNeeded()
+
+        let amountField = try XCTUnwrap(descendant(
+            of: UITextField.self,
+            identifier: "active.detail.target.amount",
+            in: detail.view
+        ))
+        let effectiveFromPicker = try XCTUnwrap(descendant(
+            of: UIDatePicker.self,
+            identifier: "active.detail.target.effective_from",
+            in: detail.view
+        ))
+        let historicalPeriod = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "active.detail.target.history.\(historicalDay.iso8601)",
+            in: detail.view
+        ))
+        historicalPeriod.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(FeatureFormatting.parseDecimal(amountField.text), 10)
+        XCTAssertEqual(
+            LocalDay(containing: effectiveFromPicker.date, in: .current),
+            historicalDay
+        )
+        amountField.text = "12"
+
+        let saveButton = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "active.detail.target.save",
+            in: detail.view
+        ))
+        UIView.setAnimationsEnabled(false)
+        defer { UIView.setAnimationsEnabled(true) }
+        saveButton.sendActions(for: .touchUpInside)
+
+        let history = try repository.targetHistory(activeID: active.id)
+        XCTAssertEqual(history.count, 2)
+        XCTAssertEqual(history.first?.effectiveFrom, historicalDay)
+        XCTAssertEqual(history.first?.effectiveThrough, try today.adding(days: -1))
+        XCTAssertEqual(history.first?.lowerBound, 12)
+        XCTAssertEqual(history.last?.lowerBound, 20)
+    }
+
+    @MainActor
+    func testEditingActiveMetadataDoesNotCreateARedundantTargetPeriod() throws {
+        let (repository, _) = try makeRepository()
+        let active = try repository.createActive(
+            ActiveDraft(name: "Activo con objetivo", baseUnit: .milligram)
+        )
+        let historicalDay = try LocalDay(containing: Date(), in: .current).adding(days: -30)
+        _ = try repository.setTarget(
+            activeID: active.id,
+            lowerBound: 10,
+            upperBound: 10,
+            unit: .milligram,
+            effectiveFrom: historicalDay
+        )
+        let loadedActive = try XCTUnwrap(repository.active(id: active.id))
+        let editor = ActiveEditorViewController(repository: repository, active: loadedActive)
+        editor.loadViewIfNeeded()
+
+        let saveButton = try XCTUnwrap(descendant(
+            of: UIButton.self,
+            identifier: "editor.save",
+            in: editor.view
+        ))
+        UIView.setAnimationsEnabled(false)
+        defer { UIView.setAnimationsEnabled(true) }
+        saveButton.sendActions(for: .touchUpInside)
+
+        let history = try repository.targetHistory(activeID: active.id)
+        XCTAssertEqual(history.count, 1)
+        XCTAssertEqual(history.first?.effectiveFrom, historicalDay)
+        XCTAssertNil(history.first?.effectiveThrough)
+    }
+
+    @MainActor
     func testInstanceEditorCorrectsRemainingContentWithoutChangingConsumptionHistory() throws {
         let (repository, _) = try makeRepository()
         let presentation = try presentation(repository, key: "presentation.capsule.name")
@@ -1232,6 +1509,46 @@ final class RepositoryTests: XCTestCase {
         XCTAssertFalse(photoPreview.isHidden)
         XCTAssertFalse(removePhoto.isHidden)
         XCTAssertTrue(choosePhoto.isEnabled)
+    }
+
+    @MainActor
+    func testSupplementEditorPlacesReferenceAmountInCompositionForContinuousProducts() throws {
+        let (repository, _) = try makeRepository()
+        let powder = try presentation(repository, key: "presentation.powder.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.creatine.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Creatina en polvo",
+            brand: "",
+            presentationTypeID: powder.id,
+            basisQuantity: 5,
+            basisUnit: .gram,
+            packageQuantity: 500,
+            packageUnit: .gram,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 5, unit: .gram)
+            ]
+        ))
+
+        let controller = SupplementEditorViewController(
+            repository: repository,
+            supplement: supplement
+        )
+        controller.loadViewIfNeeded()
+
+        let basisField = try XCTUnwrap(descendant(
+            of: FormFieldView.self,
+            identifier: "supplement.basis",
+            in: controller.view
+        ))
+        let sections = controller.contentStack.arrangedSubviews.compactMap { $0 as? FormSectionView }
+        let basics = try XCTUnwrap(sections.first { $0.titleLabel.text == L10n.Form.basics })
+        let composition = try XCTUnwrap(sections.first { $0.titleLabel.text == L10n.Supplements.composition })
+
+        XCTAssertEqual(basisField.title, L10n.text("supplements.wizard.composition_basis"))
+        XCTAssertFalse(basics.stackView.arrangedSubviews.contains { $0 === basisField })
+        XCTAssertTrue(composition.stackView.arrangedSubviews.contains { $0 === basisField })
     }
 
     @MainActor
@@ -1909,7 +2226,13 @@ final class RepositoryTests: XCTestCase {
             regularityScore: 80,
             regularityText: "6/7",
             interruptionsScore: 74,
-            interruptionsText: "8%"
+            interruptionsText: "8%",
+            heartRateDropScore: 68,
+            heartRateDropText: "13%",
+            sleepStressScore: 77,
+            sleepStressText: "23%",
+            remDeepSleepScore: 100,
+            remDeepSleepText: "40%"
         )
 
         store.save(snapshot)
@@ -1937,14 +2260,136 @@ final class RepositoryTests: XCTestCase {
         XCTAssertTrue(store.selectedPackageIDs().isEmpty)
     }
 
-    func testSupplementWidgetRejectsContinuousUnits() {
-        XCTAssertFalse(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .microgram))
-        XCTAssertFalse(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .gram))
-        XCTAssertFalse(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .milliliter))
-        XCTAssertFalse(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .liter))
+    func testSupplementWidgetSupportsContinuousAndDiscreteUnits() {
+        XCTAssertTrue(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .microgram))
+        XCTAssertTrue(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .gram))
+        XCTAssertTrue(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .milliliter))
+        XCTAssertTrue(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .liter))
         XCTAssertTrue(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .capsule))
         XCTAssertTrue(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .gummy))
         XCTAssertTrue(SupplementWidgetSnapshotUpdater.supportsWidgetRegistration(for: .internationalUnit))
+    }
+
+    @MainActor
+    func testSupplementWidgetSnapshotIncludesMassBasedPackage() throws {
+        let (repository, _) = try makeRepository()
+        let presentation = try presentation(repository, key: "presentation.powder.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.creatine.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Creatina para widget",
+            brand: "",
+            presentationTypeID: presentation.id,
+            basisQuantity: 5,
+            basisUnit: .gram,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 5, unit: .gram)
+            ]
+        ))
+        let package = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            label: "Envase de polvo"
+        ))
+
+        let snapshot = try SupplementWidgetSnapshotUpdater.makeSnapshot(
+            repository: repository,
+            languageCode: "es"
+        )
+
+        XCTAssertEqual(
+            snapshot.packages.first(where: { $0.id == package.id.uuidString })?.supplementName,
+            supplement.name
+        )
+    }
+
+    @MainActor
+    func testSupplementWidgetSnapshotKeepsPackagesBeyondConfigurationLimit() throws {
+        let (repository, _) = try makeRepository()
+        let presentation = try presentation(repository, key: "presentation.capsule.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Magnesio para selector",
+            brand: "",
+            presentationTypeID: presentation.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        let packages = try (1...25).map { number in
+            try repository.createInstance(SupplementInstanceDraft(
+                supplementID: supplement.id,
+                label: "Envase \(number)"
+            ))
+        }
+        let lastPackage = try XCTUnwrap(packages.last)
+
+        let snapshot = try SupplementWidgetSnapshotUpdater.makeSnapshot(
+            repository: repository,
+            languageCode: "es"
+        )
+
+        XCTAssertEqual(snapshot.packages.count, packages.count)
+        XCTAssertTrue(snapshot.packages.contains { $0.id == lastPackage.id.uuidString })
+    }
+
+    @MainActor
+    func testSupplementWidgetSnapshotMarksOnlyPackagesWithAnIntakeToday() throws {
+        let (repository, _) = try makeRepository()
+        let presentation = try presentation(repository, key: "presentation.capsule.name")
+        let active = try XCTUnwrap(
+            repository.fetchActives().first { $0.nameKey == "active.magnesium.name" }
+        )
+        let supplement = try repository.createSupplement(SupplementDraft(
+            name: "Widget magnesium",
+            brand: "",
+            presentationTypeID: presentation.id,
+            basisQuantity: 1,
+            basisUnit: .capsule,
+            components: [
+                SupplementComponentDraft(activeID: active.id, amount: 100, unit: .milligram)
+            ]
+        ))
+        let recordedToday = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            label: "Hoy"
+        ))
+        let recordedYesterday = try repository.createInstance(SupplementInstanceDraft(
+            supplementID: supplement.id,
+            label: "Ayer"
+        ))
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let today = try utcDate(2026, 8, 1, hour: 12)
+        let yesterday = try utcDate(2026, 7, 31, hour: 12)
+        _ = try repository.createConsumption(ConsumptionDraft(
+            instanceID: recordedToday.id,
+            quantity: 1,
+            unit: .capsule,
+            consumedAt: today,
+            timeZoneID: timeZone.identifier
+        ))
+        _ = try repository.createConsumption(ConsumptionDraft(
+            instanceID: recordedYesterday.id,
+            quantity: 1,
+            unit: .capsule,
+            consumedAt: yesterday,
+            timeZoneID: timeZone.identifier
+        ))
+
+        let snapshot = try SupplementWidgetSnapshotUpdater.makeSnapshot(
+            repository: repository,
+            languageCode: "es",
+            currentDate: today,
+            timeZone: timeZone
+        )
+        let packages = Dictionary(uniqueKeysWithValues: snapshot.packages.map { ($0.id, $0) })
+
+        XCTAssertTrue(packages[recordedToday.id.uuidString]?.hasIntakeToday == true)
+        XCTAssertFalse(packages[recordedYesterday.id.uuidString]?.hasIntakeToday == true)
     }
 
     func testCreateConsumptionsRegistersTheWholeBatchAndUpdatesEachPackage() throws {

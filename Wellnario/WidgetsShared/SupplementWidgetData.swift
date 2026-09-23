@@ -6,9 +6,9 @@ import Foundation
 enum WellnarioSupplementWidget {
     static let kind = "WellnarioSupplementIntakeWidget"
     static let appGroupID = "group.com.dtigl.wellnario"
-    // Versioning this key prevents a pre-filter snapshot from exposing
-    // mass- or volume-based packages after the widget becomes discrete-only.
-    static let snapshotKey = "wellnario.supplementWidget.snapshot.v2"
+    // Refresh stored widget data after expanding registration to all supported
+    // package units, including mass and volume.
+    static let snapshotKey = "wellnario.supplementWidget.snapshot.v3"
     static let selectedPackageIDsKey = "wellnario.supplementWidget.selectedPackageIDs.v1"
 }
 
@@ -18,6 +18,9 @@ struct SupplementWidgetPackage: Codable, Hashable, Identifiable, Sendable {
     let instanceLabel: String
     let doseDescription: String
     let inventoryDescription: String?
+    /// Whether this specific package has at least one intake recorded on the
+    /// day represented by the snapshot.
+    let hasIntakeToday: Bool
     /// Stable catalog key, so the widget can choose an icon without relying on
     /// localized presentation names.
     let presentationKey: String?
@@ -28,6 +31,7 @@ struct SupplementWidgetPackage: Codable, Hashable, Identifiable, Sendable {
         instanceLabel: String,
         doseDescription: String,
         inventoryDescription: String? = nil,
+        hasIntakeToday: Bool = false,
         presentationKey: String? = nil
     ) {
         self.id = id
@@ -35,7 +39,42 @@ struct SupplementWidgetPackage: Codable, Hashable, Identifiable, Sendable {
         self.instanceLabel = instanceLabel
         self.doseDescription = doseDescription
         self.inventoryDescription = inventoryDescription
+        self.hasIntakeToday = hasIntakeToday
         self.presentationKey = presentationKey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case supplementName
+        case instanceLabel
+        case doseDescription
+        case inventoryDescription
+        case hasIntakeToday
+        case presentationKey
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        supplementName = try container.decode(String.self, forKey: .supplementName)
+        instanceLabel = try container.decode(String.self, forKey: .instanceLabel)
+        doseDescription = try container.decode(String.self, forKey: .doseDescription)
+        inventoryDescription = try container.decodeIfPresent(String.self, forKey: .inventoryDescription)
+        // Existing widget data does not have this key. Decode it as false so
+        // an installed widget remains usable until the app refreshes it.
+        hasIntakeToday = try container.decodeIfPresent(Bool.self, forKey: .hasIntakeToday) ?? false
+        presentationKey = try container.decodeIfPresent(String.self, forKey: .presentationKey)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(supplementName, forKey: .supplementName)
+        try container.encode(instanceLabel, forKey: .instanceLabel)
+        try container.encode(doseDescription, forKey: .doseDescription)
+        try container.encodeIfPresent(inventoryDescription, forKey: .inventoryDescription)
+        try container.encode(hasIntakeToday, forKey: .hasIntakeToday)
+        try container.encodeIfPresent(presentationKey, forKey: .presentationKey)
     }
 }
 
@@ -49,7 +88,9 @@ struct SupplementWidgetSnapshot: Codable, Hashable, Sendable {
         languageCode: String,
         updatedAt: Date = Date()
     ) {
-        self.packages = Array(packages.prefix(24))
+        // The configuration picker must expose every active package. The widget
+        // itself decides how many of the selected packages it can render.
+        self.packages = packages
         self.languageCode = languageCode
         self.updatedAt = updatedAt
     }

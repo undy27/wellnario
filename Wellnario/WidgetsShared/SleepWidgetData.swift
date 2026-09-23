@@ -17,6 +17,14 @@ struct SleepWidgetSnapshot: Codable, Hashable, Sendable {
     let regularityText: String
     let interruptionsScore: Double?
     let interruptionsText: String
+    let heartRateDropScore: Double?
+    let heartRateDropText: String?
+    let sleepStressScore: Double?
+    let sleepStressText: String?
+    let remDeepSleepScore: Double?
+    let remDeepSleepText: String?
+    let sleepLatencyScore: Double?
+    let sleepLatencyText: String?
     let updatedAt: Date
 
     init(
@@ -30,6 +38,14 @@ struct SleepWidgetSnapshot: Codable, Hashable, Sendable {
         regularityText: String,
         interruptionsScore: Double?,
         interruptionsText: String,
+        heartRateDropScore: Double? = nil,
+        heartRateDropText: String? = nil,
+        sleepStressScore: Double? = nil,
+        sleepStressText: String? = nil,
+        remDeepSleepScore: Double? = nil,
+        remDeepSleepText: String? = nil,
+        sleepLatencyScore: Double? = nil,
+        sleepLatencyText: String? = nil,
         updatedAt: Date = Date()
     ) {
         self.languageCode = languageCode
@@ -42,6 +58,14 @@ struct SleepWidgetSnapshot: Codable, Hashable, Sendable {
         self.regularityText = regularityText
         self.interruptionsScore = interruptionsScore
         self.interruptionsText = interruptionsText
+        self.heartRateDropScore = heartRateDropScore
+        self.heartRateDropText = heartRateDropText
+        self.sleepStressScore = sleepStressScore
+        self.sleepStressText = sleepStressText
+        self.remDeepSleepScore = remDeepSleepScore
+        self.remDeepSleepText = remDeepSleepText
+        self.sleepLatencyScore = sleepLatencyScore
+        self.sleepLatencyText = sleepLatencyText
         self.updatedAt = updatedAt
     }
 

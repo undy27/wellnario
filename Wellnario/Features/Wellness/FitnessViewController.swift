@@ -405,7 +405,10 @@ final class FitnessViewController: WellnessScrollViewController {
     @objc private func openStrengthTraining() {
         guard let strengthDataStore else { return }
         navigationController?.pushViewController(
-            StrengthWorkoutStartViewController(store: strengthDataStore),
+            StrengthWorkoutStartViewController(
+                store: strengthDataStore,
+                appleHealthService: appleHealthService
+            ),
             animated: true
         )
     }

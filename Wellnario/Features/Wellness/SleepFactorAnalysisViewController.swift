@@ -478,9 +478,9 @@ final class SleepFactorAnalysisViewController: WellnessScrollViewController {
         toggle.addForAutoLayout(header)
         header.pinEdges(
             to: toggle,
-            insets: NSDirectionalEdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0)
+            insets: NSDirectionalEdgeInsets(top: 1.5, leading: 0, bottom: 1.5, trailing: 0)
         )
-        toggle.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        toggle.heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.textButtonHeight).isActive = true
         toggle.accessibilityIdentifier = "sleep.factors.analysis.insufficient_group.toggle"
         toggle.accessibilityLabel = title.text
         toggle.accessibilityValue = L10n.text(

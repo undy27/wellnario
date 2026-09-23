@@ -1,5 +1,57 @@
 import UIKit
 
+/// Shared symbols whose composition is part of the Wellnario visual language.
+enum WellnarioSymbols {
+    static func intake() -> UIImage? {
+        let faceConfiguration = UIImage.SymbolConfiguration(pointSize: 17, weight: .regular)
+        let utensilConfiguration = UIImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+        guard let face = UIImage(systemName: "face.smiling", withConfiguration: faceConfiguration),
+              let utensil = UIImage(systemName: "fork.knife", withConfiguration: utensilConfiguration) else {
+            return UIImage(systemName: "fork.knife.circle")
+        }
+
+        let size = CGSize(width: 27, height: 22)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            face.withTintColor(.black, renderingMode: .alwaysOriginal).draw(
+                in: CGRect(x: 0, y: 1, width: 20, height: 20)
+            )
+            utensil.withTintColor(.black, renderingMode: .alwaysOriginal).draw(
+                in: CGRect(x: 18, y: 11, width: 9, height: 9)
+            )
+        }.withRenderingMode(.alwaysTemplate)
+    }
+}
+
+/// Compact textual actions displayed in a navigation bar.
+@MainActor
+enum WellnarioNavigationButton {
+    static func item(
+        title: String,
+        style: UIBarButtonItem.Style = .plain,
+        target: Any?,
+        action: Selector
+    ) -> UIBarButtonItem {
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = title
+        configuration.contentInsets = .zero
+        configuration.baseForegroundColor = WellnarioPalette.cyan
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = WellnarioTypography.font(for: style == .done ? .button : .body)
+            return outgoing
+        }
+        button.configuration = configuration
+        button.accessibilityLabel = title
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.heightAnchor.constraint(equalToConstant: WellnarioLayout.textButtonHeight).isActive = true
+        button.addTarget(target, action: action, for: .touchUpInside)
+        return UIBarButtonItem(customView: button)
+    }
+}
+
 /// Primary actions and their quieter secondary variants.
 final class PrimaryButton: UIButton {
     enum Style: Sendable {
@@ -83,12 +135,12 @@ final class PrimaryButton: UIButton {
         let content = super.intrinsicContentSize
         return CGSize(
             width: content.width + 40,
-            height: max(WellnarioLayout.primaryButtonHeight, content.height + 24)
+            height: max(WellnarioLayout.primaryButtonHeight, content.height + 10)
         )
     }
 
     override func contentRect(forBounds bounds: CGRect) -> CGRect {
-        bounds.inset(by: UIEdgeInsets(top: 12, left: 20, bottom: 12, right: 20))
+        bounds.inset(by: UIEdgeInsets(top: 5, left: 20, bottom: 5, right: 20))
     }
 
     private func setUp() {
@@ -547,17 +599,17 @@ final class ChipButton: UIButton {
         let content = super.intrinsicContentSize
         return CGSize(
             width: content.width + 28,
-            height: max(WellnarioLayout.minimumTouchTarget, content.height + 16)
+            height: max(WellnarioLayout.textButtonHeight, content.height + 6)
         )
     }
 
     override func contentRect(forBounds bounds: CGRect) -> CGRect {
-        bounds.inset(by: UIEdgeInsets(top: 8, left: 14, bottom: 8, right: 14))
+        bounds.inset(by: UIEdgeInsets(top: 3, left: 14, bottom: 3, right: 14))
     }
 
     private func setUp() {
         translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.minimumTouchTarget).isActive = true
+        heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.textButtonHeight).isActive = true
         titleLabel?.font = WellnarioTypography.font(for: .caption)
         titleLabel?.adjustsFontForContentSizeCategory = true
         applyContinuousCorners(WellnarioRadius.control)
@@ -592,6 +644,10 @@ final class FormFieldView: UIView {
     let unitButton = UIButton(type: .system)
 
     var onUnitTap: (() -> Void)?
+    /// Use a static unit label when the value is determined by the selected item.
+    var unitIsSelectable = true {
+        didSet { updateUnitPresentation() }
+    }
 
     /// Horizontal gap between the unit selector and the field's trailing edge.
     /// Most fields keep a small inset; some compact editors can opt into a
@@ -630,7 +686,7 @@ final class FormFieldView: UIView {
                 .joined(separator: " ")
             unitButton.accessibilityLabel = L10n.Form.unit
             unitButton.accessibilityValue = unitTitle
-            unitButton.accessibilityHint = L10n.text("accessibility.opens_menu")
+            updateUnitPresentation()
         }
     }
 
@@ -686,7 +742,7 @@ final class FormFieldView: UIView {
         fieldContainer.applyContinuousCorners(WellnarioRadius.control)
         fieldContainer.layer.borderWidth = 1
         fieldContainer.layer.borderColor = WellnarioPalette.hairline.cgColor
-        fieldContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.fieldMinimumHeight).isActive = true
+        fieldContainer.heightAnchor.constraint(equalToConstant: WellnarioLayout.fieldMinimumHeight).isActive = true
 
         textField.textColor = WellnarioPalette.textPrimary
         textField.tintColor = WellnarioPalette.cyan
@@ -700,7 +756,7 @@ final class FormFieldView: UIView {
         textField.addTarget(self, action: #selector(textDidChange), for: .editingChanged)
 
         var unitConfiguration = UIButton.Configuration.plain()
-        unitConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10)
+        unitConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 10, bottom: 2, trailing: 10)
         unitConfiguration.image = UIImage(systemName: "chevron.down")
         unitConfiguration.imagePlacement = .trailing
         unitConfiguration.imagePadding = 4
@@ -747,7 +803,7 @@ final class FormFieldView: UIView {
             textToEdgeConstraint!,
             unitButtonTrailingConstraint!,
             unitButton.centerYAnchor.constraint(equalTo: fieldContainer.centerYAnchor),
-            unitButton.heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.minimumTouchTarget)
+            unitButton.heightAnchor.constraint(equalToConstant: WellnarioLayout.fieldMinimumHeight)
         ])
 
         let stack = UIStackView(
@@ -779,6 +835,21 @@ final class FormFieldView: UIView {
                 : WellnarioPalette.hairline.cgColor
             textField.accessibilityHint = helperText
         }
+    }
+
+    private func updateUnitPresentation() {
+        guard var configuration = unitButton.configuration else { return }
+        configuration.image = unitIsSelectable ? UIImage(systemName: "chevron.down") : nil
+        configuration.baseForegroundColor = unitIsSelectable
+            ? WellnarioPalette.cyan
+            : WellnarioPalette.textSecondary
+        unitButton.configuration = configuration
+        unitButton.backgroundColor = unitIsSelectable
+            ? WellnarioPalette.cyan.withAlphaComponent(0.10)
+            : .clear
+        unitButton.isUserInteractionEnabled = unitIsSelectable
+        unitButton.isAccessibilityElement = unitIsSelectable
+        unitButton.accessibilityHint = unitIsSelectable ? L10n.text("accessibility.opens_menu") : nil
     }
 
     @objc private func editingDidBegin() {

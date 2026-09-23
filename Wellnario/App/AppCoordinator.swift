@@ -390,67 +390,44 @@ final class AppCoordinator: NSObject {
             }
             navigationController.popToRootViewController(animated: false)
 
-            let languageCode = LocalizationManager.shared.language.rawValue
-            let descriptions = intakes.map { intake in
-                "\(intake.supplement.name) · \(amountDescription(for: intake, languageCode: languageCode))"
-            }
-            let singleIntake = intakes.count == 1
-            let title = L10n.text(
-                singleIntake
-                    ? "widget.intake.confirmation.title"
-                    : "widget.intake.batch.confirmation.title"
-            )
-            let message: String
-            if let intake = intakes.first, singleIntake {
-                message = L10n.text(
-                    "widget.intake.confirmation.message",
-                    amountDescription(for: intake, languageCode: languageCode),
-                    intake.supplement.name,
-                    intake.package.label
-                )
-            } else {
-                message = L10n.text(
-                    "widget.intake.batch.confirmation.message",
-                    descriptions.joined(separator: "\n")
-                )
-            }
-            let alert = UIAlertController(
-                title: title,
-                message: message,
-                preferredStyle: .alert
-            )
-            alert.addAction(UIAlertAction(title: L10n.Common.cancel, style: .cancel))
-            alert.addAction(UIAlertAction(title: L10n.Common.confirm, style: .default) { [weak self] _ in
-                guard let self else { return }
-                do {
-                    _ = try self.environment.repository.createConsumptions(intakes.map {
-                        ConsumptionDraft(
-                            instanceID: $0.package.id,
-                            quantity: $0.supplement.basisQuantity,
-                            unit: $0.supplement.basisUnit
-                        )
-                    })
-                    SupplementWidgetDataStore().clearSelectedPackageIDs()
-                    SupplementWidgetSnapshotUpdater.refresh(repository: self.environment.repository)
-                    let announcement = intakes.count == 1
-                        ? L10n.text("widget.intake.recorded")
-                        : L10n.text("widget.intake.batch.recorded", intakes.count)
-                    UIAccessibility.post(notification: .announcement, argument: announcement)
-                } catch {
-                    self.presentWidgetIntakeError(error)
+            let confirmation = WidgetIntakeConfirmationViewController(
+                intakes: intakes,
+                onConfirm: { [weak self] requests in
+                    guard let self else { throw CancellationError() }
+                    return try self.recordWidgetIntakes(requests)
                 }
-            })
-            navigationController.present(alert, animated: true)
+            )
+            let confirmationNavigation = WellnarioNavigationController(rootViewController: confirmation)
+            confirmationNavigation.modalPresentationStyle = .pageSheet
+            if let sheet = confirmationNavigation.sheetPresentationController {
+                sheet.detents = intakes.count > 3 ? [.large()] : [.medium(), .large()]
+                sheet.prefersGrabberVisible = true
+                sheet.preferredCornerRadius = WellnarioRadius.card
+                sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+            }
+            navigationController.present(confirmationNavigation, animated: true)
         } catch {
             presentWidgetIntakeError(error)
         }
     }
 
-    private func amountDescription(
-        for intake: WidgetPendingIntake,
-        languageCode: String
-    ) -> String {
-        "\(FeatureFormatting.decimal(intake.supplement.basisQuantity)) \(intake.supplement.basisUnit.symbol(languageCode: languageCode))"
+    private func recordWidgetIntakes(_ requests: [WidgetIntakeRequest]) throws -> Int {
+        let drafts = requests.flatMap { request in
+            Array(
+                repeating: ConsumptionDraft(
+                    instanceID: request.intake.package.id,
+                    quantity: request.amount,
+                    unit: request.unit
+                ),
+                count: request.repetitions
+            )
+        }
+        guard !drafts.isEmpty else { return 0 }
+
+        _ = try environment.repository.createConsumptions(drafts)
+        SupplementWidgetDataStore().clearSelectedPackageIDs()
+        SupplementWidgetSnapshotUpdater.refresh(repository: environment.repository)
+        return drafts.count
     }
 
     private func presentWidgetIntakeError(_ error: Error) {
@@ -576,4 +553,329 @@ final class AppCoordinator: NSObject {
 private struct WidgetPendingIntake {
     let package: SupplementInstance
     let supplement: Supplement
+}
+
+private struct WidgetIntakeRequest {
+    let intake: WidgetPendingIntake
+    let amount: Decimal
+    let unit: DoseUnit
+    let repetitions: Int
+}
+
+@MainActor
+private final class WidgetIntakeConfirmationViewController: UIViewController {
+    private let intakes: [WidgetPendingIntake]
+    private let onConfirm: ([WidgetIntakeRequest]) throws -> Int
+    private var quantities: [UUID: Int]
+
+    private let scrollView = UIScrollView()
+    private let contentStack = UIStackView()
+    private let confirmButton = PrimaryButton(
+        title: L10n.text("widget.intake.confirm"),
+        style: .primary
+    )
+    private var quantityLabels: [UUID: UILabel] = [:]
+    private var amountFields: [UUID: FormFieldView] = [:]
+
+    init(
+        intakes: [WidgetPendingIntake],
+        onConfirm: @escaping ([WidgetIntakeRequest]) throws -> Int
+    ) {
+        self.intakes = intakes
+        self.onConfirm = onConfirm
+        quantities = Dictionary(
+            uniqueKeysWithValues: intakes.map { ($0.package.id, 1) }
+        )
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = WellnarioPalette.background
+        view.accessibilityIdentifier = "widget.intake.confirmation"
+        navigationItem.title = L10n.text(
+            intakes.count == 1
+                ? "widget.intake.confirmation.title"
+                : "widget.intake.batch.confirmation.title"
+        )
+        navigationItem.largeTitleDisplayMode = .never
+        navigationItem.leftBarButtonItem = WellnarioNavigationButton.item(
+            title: L10n.Common.cancel,
+            target: self,
+            action: #selector(cancelTapped)
+        )
+
+        configureLayout()
+        configureContent()
+    }
+
+    private func configureLayout() {
+        scrollView.alwaysBounceVertical = true
+        scrollView.keyboardDismissMode = .interactive
+
+        contentStack.axis = .vertical
+        contentStack.spacing = WellnarioSpacing.cardGap
+        contentStack.alignment = .fill
+
+        view.addForAutoLayout(scrollView)
+        view.addForAutoLayout(confirmButton)
+        scrollView.addForAutoLayout(contentStack)
+
+        let safeArea = view.safeAreaLayoutGuide
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: safeArea.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: confirmButton.topAnchor, constant: -WellnarioSpacing.small),
+
+            contentStack.leadingAnchor.constraint(
+                equalTo: scrollView.contentLayoutGuide.leadingAnchor,
+                constant: WellnarioSpacing.screenHorizontal
+            ),
+            contentStack.trailingAnchor.constraint(
+                equalTo: scrollView.contentLayoutGuide.trailingAnchor,
+                constant: -WellnarioSpacing.screenHorizontal
+            ),
+            contentStack.topAnchor.constraint(
+                equalTo: scrollView.contentLayoutGuide.topAnchor,
+                constant: WellnarioSpacing.small
+            ),
+            contentStack.bottomAnchor.constraint(
+                equalTo: scrollView.contentLayoutGuide.bottomAnchor,
+                constant: -WellnarioSpacing.small
+            ),
+            contentStack.widthAnchor.constraint(
+                equalTo: scrollView.frameLayoutGuide.widthAnchor,
+                constant: -(WellnarioSpacing.screenHorizontal * 2)
+            ),
+
+            confirmButton.leadingAnchor.constraint(
+                equalTo: safeArea.leadingAnchor,
+                constant: WellnarioSpacing.screenHorizontal
+            ),
+            confirmButton.trailingAnchor.constraint(
+                equalTo: safeArea.trailingAnchor,
+                constant: -WellnarioSpacing.screenHorizontal
+            ),
+            confirmButton.bottomAnchor.constraint(
+                equalTo: safeArea.bottomAnchor,
+                constant: -WellnarioSpacing.xxSmall
+            )
+        ])
+        confirmButton.addTarget(self, action: #selector(confirmTapped), for: .touchUpInside)
+        confirmButton.accessibilityIdentifier = "widget.intake.confirm"
+    }
+
+    private func configureContent() {
+        let messageLabel = UILabel()
+        messageLabel.numberOfLines = 0
+        messageLabel.text = L10n.text("widget.intake.adjust.message")
+        messageLabel.applyWellnarioStyle(.body, color: WellnarioPalette.textSecondary)
+        contentStack.addArrangedSubview(messageLabel)
+
+        for (index, intake) in intakes.enumerated() {
+            contentStack.addArrangedSubview(makeIntakeCard(intake, index: index))
+        }
+    }
+
+    private func makeIntakeCard(_ intake: WidgetPendingIntake, index: Int) -> UIView {
+        let card = PremiumCardView()
+        card.accessibilityIdentifier = "widget.intake.package.\(intake.package.id.uuidString)"
+
+        let titleLabel = UILabel()
+        titleLabel.numberOfLines = 2
+        titleLabel.text = intake.supplement.name
+        titleLabel.applyWellnarioStyle(.cardTitle, color: WellnarioPalette.textPrimary)
+
+        let languageCode = LocalizationManager.shared.language.rawValue
+        let dose = "\(FeatureFormatting.decimal(intake.supplement.basisQuantity)) \(intake.supplement.basisUnit.symbol(languageCode: languageCode))"
+        let detailLabel = UILabel()
+        detailLabel.numberOfLines = 2
+        detailLabel.text = "\(intake.package.label) · \(dose)"
+        detailLabel.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
+
+        let supplementInfo = UIStackView(
+            arrangedSubviews: [titleLabel, detailLabel],
+            axis: .vertical,
+            spacing: WellnarioSpacing.xxxSmall
+        )
+
+        let content: UIStackView
+        var constraints: [NSLayoutConstraint] = []
+        if requiresAmountEntry(for: intake) {
+            let amountField = FormFieldView()
+            amountField.configure(
+                title: L10n.text("widget.intake.amount.title"),
+                placeholder: FeatureFormatting.decimal(intake.supplement.basisQuantity),
+                keyboardType: .decimalPad
+            )
+            amountField.unitTitle = intake.supplement.basisUnit.symbol(languageCode: languageCode)
+            amountField.unitIsSelectable = false
+            amountField.textField.autocorrectionType = .no
+            amountField.textField.accessibilityIdentifier = "widget.intake.amount.\(intake.package.id.uuidString)"
+            amountFields[intake.package.id] = amountField
+
+            content = UIStackView(
+                arrangedSubviews: [supplementInfo, amountField],
+                axis: .vertical,
+                spacing: WellnarioSpacing.small
+            )
+        } else {
+            let quantityTitle = UILabel()
+            quantityTitle.text = L10n.text("widget.intake.quantity.title")
+            quantityTitle.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
+
+            let quantityLabel = UILabel()
+            quantityLabel.text = "1"
+            quantityLabel.textAlignment = .center
+            quantityLabel.applyWellnarioStyle(.sectionTitle, color: WellnarioPalette.textPrimary)
+            quantityLabels[intake.package.id] = quantityLabel
+
+            let stepper = UIStepper()
+            stepper.minimumValue = 1
+            stepper.maximumValue = 99
+            stepper.stepValue = 1
+            stepper.value = 1
+            stepper.autorepeat = true
+            stepper.wraps = false
+            stepper.tintColor = WellnarioPalette.cyan
+            stepper.tag = index
+            stepper.accessibilityLabel = "\(L10n.text("widget.intake.quantity.title")) · \(intake.supplement.name)"
+            stepper.accessibilityIdentifier = "widget.intake.quantity.\(intake.package.id.uuidString)"
+            stepper.addTarget(self, action: #selector(quantityChanged(_:)), for: .valueChanged)
+
+            let quantityValueStack = UIStackView(
+                arrangedSubviews: [quantityLabel, stepper],
+                axis: .horizontal,
+                spacing: WellnarioSpacing.xxSmall,
+                alignment: .center
+            )
+            let quantityStack = UIStackView(
+                arrangedSubviews: [quantityTitle, quantityValueStack],
+                axis: .vertical,
+                spacing: WellnarioSpacing.xxxSmall,
+                alignment: .trailing
+            )
+            content = UIStackView(
+                arrangedSubviews: [supplementInfo, quantityStack],
+                axis: .horizontal,
+                spacing: WellnarioSpacing.xSmall,
+                alignment: .center
+            )
+            constraints += [
+                quantityLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 22),
+                stepper.heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.minimumTouchTarget)
+            ]
+        }
+
+        card.contentView.addForAutoLayout(content)
+        constraints += [
+            content.leadingAnchor.constraint(
+                equalTo: card.contentView.leadingAnchor,
+                constant: WellnarioSpacing.cardPadding
+            ),
+            content.trailingAnchor.constraint(
+                equalTo: card.contentView.trailingAnchor,
+                constant: -WellnarioSpacing.cardPadding
+            ),
+            content.topAnchor.constraint(
+                equalTo: card.contentView.topAnchor,
+                constant: WellnarioSpacing.small
+            ),
+            content.bottomAnchor.constraint(
+                equalTo: card.contentView.bottomAnchor,
+                constant: -WellnarioSpacing.small
+            )
+        ]
+        NSLayoutConstraint.activate(constraints)
+        return card
+    }
+
+    private func requiresAmountEntry(for intake: WidgetPendingIntake) -> Bool {
+        switch intake.supplement.basisUnit.family {
+        case .mass, .volume:
+            true
+        case .discrete, .internationalUnit:
+            false
+        }
+    }
+
+    @objc private func quantityChanged(_ sender: UIStepper) {
+        let intake = intakes[sender.tag]
+        let quantity = Int(sender.value)
+        quantities[intake.package.id] = quantity
+        quantityLabels[intake.package.id]?.text = "\(quantity)"
+    }
+
+    @objc private func cancelTapped() {
+        dismiss(animated: true)
+    }
+
+    @objc private func confirmTapped() {
+        view.endEditing(true)
+        guard let requests = makeIntakeRequests() else { return }
+        confirmButton.isLoading = true
+        navigationItem.leftBarButtonItem?.isEnabled = false
+
+        do {
+            let recordedCount = try onConfirm(requests)
+            let announcement = recordedCount == 1
+                ? L10n.text("widget.intake.recorded")
+                : L10n.text("widget.intake.batch.recorded", recordedCount)
+            UIImpactFeedbackGenerator.wellnarioSuccess()
+            UIAccessibility.post(notification: .announcement, argument: announcement)
+            dismiss(animated: true)
+        } catch {
+            confirmButton.isLoading = false
+            navigationItem.leftBarButtonItem?.isEnabled = true
+            presentError(error)
+        }
+    }
+
+    private func makeIntakeRequests() -> [WidgetIntakeRequest]? {
+        var requests: [WidgetIntakeRequest] = []
+        for intake in intakes {
+            if requiresAmountEntry(for: intake) {
+                let amountField = amountFields[intake.package.id]
+                amountField?.setError(nil)
+                guard let amount = FeatureFormatting.parseDecimal(amountField?.textField.text), amount > 0 else {
+                    amountField?.setError(L10n.Error.positiveAmount)
+                    amountField?.textField.becomeFirstResponder()
+                    return nil
+                }
+                requests.append(
+                    WidgetIntakeRequest(
+                        intake: intake,
+                        amount: amount,
+                        unit: intake.supplement.basisUnit,
+                        repetitions: 1
+                    )
+                )
+            } else {
+                requests.append(
+                    WidgetIntakeRequest(
+                        intake: intake,
+                        amount: intake.supplement.basisQuantity,
+                        unit: intake.supplement.basisUnit,
+                        repetitions: quantities[intake.package.id] ?? 1
+                    )
+                )
+            }
+        }
+        return requests
+    }
+
+    private func presentError(_ error: Error) {
+        let alert = UIAlertController(
+            title: L10n.Common.error,
+            message: error.localizedDescription,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: L10n.Common.done, style: .default))
+        present(alert, animated: true)
+    }
 }

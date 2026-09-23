@@ -10,14 +10,19 @@ final class DiaryViewController: FeatureViewController {
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let emptyState = EmptyStateView()
     private let presentationMode: PresentationMode
+    private let dayFilter: LocalDay?
     private var days: [DiaryDay] = []
     private var productPhotos: [UUID: UIImage] = [:]
 
+    private var showsSingleDay: Bool { dayFilter != nil }
+
     init(
         repository: WellnarioRepositoryProtocol,
-        presentationMode: PresentationMode = .diary
+        presentationMode: PresentationMode = .diary,
+        dayFilter: LocalDay? = nil
     ) {
         self.presentationMode = presentationMode
+        self.dayFilter = dayFilter
         super.init(repository: repository)
     }
 
@@ -39,7 +44,7 @@ final class DiaryViewController: FeatureViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(false, animated: false)
-        if presentationMode == .manage {
+        if presentationMode == .manage || showsSingleDay {
             navigationController?.navigationBar.prefersLargeTitles = false
             navigationItem.largeTitleDisplayMode = .never
         } else {
@@ -49,9 +54,13 @@ final class DiaryViewController: FeatureViewController {
     }
 
     override func applyLocalizedCopy() {
-        title = presentationMode == .manage
-            ? L10n.text("settings.advanced.intakes.title")
-            : L10n.Diary.title
+        if presentationMode == .manage {
+            title = L10n.text("settings.advanced.intakes.title")
+        } else if showsSingleDay {
+            title = L10n.text("diary.today")
+        } else {
+            title = L10n.Diary.title
+        }
         navigationItem.rightBarButtonItem?.accessibilityLabel = L10n.Today.logIntake
         tableView.reloadData()
         updateEmptyState()
@@ -59,7 +68,11 @@ final class DiaryViewController: FeatureViewController {
 
     override func reloadContent() {
         do {
-            let consumptions = try repository.fetchConsumptions(from: nil, through: nil, limit: nil)
+            let consumptions = try repository.fetchConsumptions(
+                from: dayFilter,
+                through: dayFilter,
+                limit: nil
+            )
             let instances = try repository.fetchInstances(supplementID: nil, includeArchived: true)
             let supplements = try repository.fetchSupplements(includeArchived: true)
             let supplementsByID = Dictionary(uniqueKeysWithValues: supplements.map { ($0.id, $0) })
@@ -99,7 +112,12 @@ final class DiaryViewController: FeatureViewController {
 
         tableView.backgroundColor = .clear
         tableView.separatorStyle = .none
-        tableView.contentInset = UIEdgeInsets(top: 8, left: 0, bottom: WellnarioSpacing.bottomNavigationInset, right: 0)
+        tableView.contentInset = UIEdgeInsets(
+            top: showsSingleDay ? 0 : 8,
+            left: 0,
+            bottom: WellnarioSpacing.bottomNavigationInset,
+            right: 0
+        )
         tableView.verticalScrollIndicatorInsets.bottom = WellnarioSpacing.bottomNavigationInset
         tableView.delegate = self
         tableView.dataSource = self
@@ -140,7 +158,10 @@ final class DiaryViewController: FeatureViewController {
     }
 
     private func edit(_ consumption: Consumption) {
-        presentSheet(IntakeEditorViewController(repository: repository, consumption: consumption), largeOnly: true)
+        navigationController?.pushViewController(
+            IntakeEditorViewController(repository: repository, consumption: consumption),
+            animated: true
+        )
     }
 
     private func duplicate(_ consumption: Consumption) {
@@ -181,7 +202,10 @@ final class DiaryViewController: FeatureViewController {
                 present(alert, animated: true)
                 return
             }
-            presentSheet(IntakeEditorViewController(repository: repository), largeOnly: true)
+            navigationController?.pushViewController(
+                IntakeEditorViewController(repository: repository),
+                animated: true
+            )
         } catch { showError(error) }
     }
 }
@@ -194,6 +218,7 @@ extension DiaryViewController: UITableViewDataSource, UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        guard !showsSingleDay else { return nil }
         guard let date = FeatureFormatting.localDayDate(days[section].day) else { return days[section].day.iso8601 }
         return WellnarioFormatters.relativeDay(date)
     }

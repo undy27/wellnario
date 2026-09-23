@@ -15,6 +15,7 @@ final class SupplementEditorViewController: EditorViewController, PHPickerViewCo
     private let descriptionField = TextAreaFieldView()
     private let priceField = FormFieldView()
     private let presentationField = SelectionFieldView(title: L10n.Form.presentation)
+    private let packageContentField = FormFieldView()
     private let basisField = FormFieldView()
     private let componentsStack = UIStackView()
     private let addComponentButton = PrimaryButton(style: .secondary)
@@ -25,14 +26,18 @@ final class SupplementEditorViewController: EditorViewController, PHPickerViewCo
     private var favoriteActives: [Active] = []
     private var selectedPresentationID: UUID?
     private var basisUnit: DoseUnit = .capsule
+    private var packageUnit: DoseUnit = .capsule
     private var componentRows: [ComponentEditorRow] = []
     private var selectedPhoto: UIImage?
     private var removesExistingPhoto = false
+    private var basicsSection: FormSectionView?
+    private var compositionSection: FormSectionView?
 
     init(repository: WellnarioRepositoryProtocol, supplement: Supplement? = nil) {
         self.supplement = supplement
         self.selectedPresentationID = supplement?.presentationTypeID
         self.basisUnit = supplement?.basisUnit ?? .capsule
+        self.packageUnit = supplement?.packageUnit ?? supplement?.basisUnit ?? .capsule
         super.init(repository: repository)
     }
 
@@ -65,6 +70,12 @@ final class SupplementEditorViewController: EditorViewController, PHPickerViewCo
         }
         guard let basis = FeatureFormatting.parseDecimal(basisField.textField.text), basis > 0 else {
             basisField.setError(L10n.Error.positiveAmount)
+            saveButton.isLoading = false
+            return
+        }
+        guard let packageQuantity = FeatureFormatting.parseDecimal(packageContentField.textField.text),
+              packageQuantity > 0 else {
+            packageContentField.setError(L10n.Error.positiveAmount)
             saveButton.isLoading = false
             return
         }
@@ -132,6 +143,8 @@ final class SupplementEditorViewController: EditorViewController, PHPickerViewCo
             presentationTypeID: presentationID,
             basisQuantity: basis,
             basisUnit: basisUnit,
+            packageQuantity: packageQuantity,
+            packageUnit: packageUnit,
             components: drafts
         )
 
@@ -161,6 +174,10 @@ final class SupplementEditorViewController: EditorViewController, PHPickerViewCo
 
     private var selectedPresentation: PresentationType? {
         presentations.first { $0.id == selectedPresentationID }
+    }
+
+    private var usesReferenceAmount: Bool {
+        basisUnit.family == .mass || basisUnit.family == .volume
     }
 
     private func loadOptions() {
@@ -210,12 +227,23 @@ final class SupplementEditorViewController: EditorViewController, PHPickerViewCo
             keyboardType: .decimalPad
         )
         priceField.unitTitle = supplement?.currencyCode ?? "EUR"
+        packageContentField.configure(
+            title: L10n.text("supplements.package_capacity"),
+            placeholder: "60",
+            text: supplement?.packageQuantity.map { FeatureFormatting.decimal($0) },
+            keyboardType: .decimalPad
+        )
+        packageContentField.textField.accessibilityIdentifier = "supplement.package_quantity"
+        packageContentField.unitButton.accessibilityIdentifier = "supplement.package_unit"
+        packageContentField.unitButton.showsMenuAsPrimaryAction = true
+        packageContentField.helperText = L10n.text("supplements.package_capacity.helper")
         basisField.configure(
-            title: L10n.Form.supplementAmount,
-            placeholder: "1",
+            title: basisFieldTitle,
+            placeholder: basisFieldPlaceholder,
             text: supplement.map { FeatureFormatting.decimal($0.basisQuantity) } ?? "1",
             keyboardType: .decimalPad
         )
+        basisField.accessibilityIdentifier = "supplement.basis"
         basisField.helperText = L10n.text("supplements.basis.helper")
         rebuildPresentationMenu()
         updatePresentationArtwork()
@@ -270,7 +298,10 @@ final class SupplementEditorViewController: EditorViewController, PHPickerViewCo
         removePhotoButton.addTarget(self, action: #selector(removePhoto), for: .touchUpInside)
         updatePhotoPresentation()
 
-        addSection(title: L10n.Form.basics, views: [artContainer, nameField, brandField, presentationField, basisField])
+        basicsSection = addSection(
+            title: L10n.Form.basics,
+            views: basicsViews(artContainer: artContainer)
+        )
         addSection(title: L10n.Form.details, views: [categoryField, descriptionField, priceField])
 
         componentsStack.axis = .vertical
@@ -284,9 +315,9 @@ final class SupplementEditorViewController: EditorViewController, PHPickerViewCo
         favoriteActivesHint.numberOfLines = 0
         favoriteActivesHint.isHidden = !favoriteActives.isEmpty || supplement != nil
         addComponentButton.isHidden = favoriteActives.isEmpty
-        addSection(
+        compositionSection = addSection(
             title: L10n.Supplements.composition,
-            views: [componentsStack, favoriteActivesHint, addComponentButton]
+            views: compositionViews()
         )
         addSaveButton()
     }
@@ -353,11 +384,81 @@ final class SupplementEditorViewController: EditorViewController, PHPickerViewCo
                 guard let self else { return }
                 self.selectedPresentationID = presentation.id
                 self.basisUnit = presentation.defaultUnit
+                if !self.packageUnit.isCompatible(with: self.basisUnit) {
+                    self.packageUnit = self.basisUnit
+                }
                 self.rebuildPresentationMenu()
+                self.updateBasisFieldPlacement()
                 self.updatePresentationArtwork()
             }
         })
+        basisField.title = basisFieldTitle
+        basisField.textField.placeholder = basisFieldPlaceholder
         basisField.unitTitle = basisUnit.symbol(languageCode: catalogLanguage.rawValue)
+        rebuildPackageUnitMenu()
+    }
+
+    private var basisFieldTitle: String {
+        usesReferenceAmount
+            ? L10n.text("supplements.wizard.composition_basis")
+            : L10n.Form.supplementAmount
+    }
+
+    private var basisFieldPlaceholder: String {
+        usesReferenceAmount ? "100" : "1"
+    }
+
+    private func basicsViews(artContainer: UIView) -> [UIView] {
+        var views: [UIView] = [
+            artContainer,
+            nameField,
+            brandField,
+            presentationField,
+            packageContentField
+        ]
+        if !usesReferenceAmount { views.append(basisField) }
+        return views
+    }
+
+    private func compositionViews() -> [UIView] {
+        var views: [UIView] = []
+        if usesReferenceAmount { views.append(basisField) }
+        views += [componentsStack, favoriteActivesHint, addComponentButton]
+        return views
+    }
+
+    private func updateBasisFieldPlacement() {
+        guard let basicsSection, let compositionSection else { return }
+        let destination = usesReferenceAmount ? compositionSection.stackView : basicsSection.stackView
+        guard basisField.superview !== destination else { return }
+
+        if let source = basisField.superview as? UIStackView {
+            source.removeArrangedSubview(basisField)
+        }
+        basisField.removeFromSuperview()
+
+        if usesReferenceAmount {
+            destination.insertArrangedSubview(basisField, at: 1)
+        } else {
+            destination.addArrangedSubview(basisField)
+        }
+    }
+
+    private func rebuildPackageUnitMenu() {
+        let compatibleUnits = DoseUnit.allCases.filter { $0.isCompatible(with: basisUnit) }
+        if !compatibleUnits.contains(packageUnit) {
+            packageUnit = basisUnit
+        }
+        packageContentField.unitTitle = packageUnit.symbol(languageCode: catalogLanguage.rawValue)
+        packageContentField.unitButton.menu = UIMenu(children: compatibleUnits.map { unit in
+            UIAction(
+                title: unit.symbol(languageCode: catalogLanguage.rawValue),
+                state: unit == packageUnit ? .on : .off
+            ) { [weak self] _ in
+                self?.packageUnit = unit
+                self?.rebuildPackageUnitMenu()
+            }
+        })
     }
 
     private func updatePresentationArtwork() {
@@ -425,6 +526,7 @@ final class SupplementEditorViewController: EditorViewController, PHPickerViewCo
     private func clearErrors() {
         nameField.setError(nil)
         brandField.setError(nil)
+        packageContentField.setError(nil)
         basisField.setError(nil)
         priceField.setError(nil)
         componentRows.forEach { $0.amountField.setError(nil) }

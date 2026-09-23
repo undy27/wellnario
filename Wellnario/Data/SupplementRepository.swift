@@ -25,8 +25,9 @@ extension WellnarioRepository {
                     INSERT INTO supplements (
                         id, user_id, name, brand, details, category, price_amount,
                         currency_code, image_reference, presentation_type_id,
-                        basis_quantity, basis_unit, created_at, updated_at, archived_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL);
+                        basis_quantity, basis_unit, package_quantity, package_unit,
+                        created_at, updated_at, archived_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL);
                     """,
                     bindings: [
                         .text(id.uuidString), .text(userID.uuidString), .text(values.name), .text(values.brand),
@@ -34,6 +35,7 @@ extension WellnarioRepository {
                         binding(values.currencyCode), binding(values.imageReference),
                         .text(draft.presentationTypeID.uuidString),
                         .text(try DecimalCodec.encode(draft.basisQuantity)), .text(draft.basisUnit.rawValue),
+                        try decimalBinding(values.packageQuantity), binding(values.packageUnit?.rawValue),
                         .real(now), .real(now)
                     ]
                 )
@@ -66,7 +68,8 @@ extension WellnarioRepository {
                     UPDATE supplements SET
                         name = ?, brand = ?, details = ?, category = ?, price_amount = ?,
                         currency_code = ?, image_reference = ?, presentation_type_id = ?,
-                        basis_quantity = ?, basis_unit = ?, updated_at = ?
+                        basis_quantity = ?, basis_unit = ?, package_quantity = ?, package_unit = ?,
+                        updated_at = ?
                     WHERE id = ? AND user_id = ?;
                     """,
                     bindings: [
@@ -74,6 +77,7 @@ extension WellnarioRepository {
                         try decimalBinding(values.price), binding(values.currencyCode), binding(values.imageReference),
                         .text(draft.presentationTypeID.uuidString),
                         .text(try DecimalCodec.encode(draft.basisQuantity)), .text(draft.basisUnit.rawValue),
+                        try decimalBinding(values.packageQuantity), binding(values.packageUnit?.rawValue),
                         .real(Date().timeIntervalSince1970), .text(id.uuidString), .text(userID.uuidString)
                     ]
                 )
@@ -330,6 +334,8 @@ extension WellnarioRepository {
         let price: Decimal?
         let currencyCode: String?
         let imageReference: String?
+        let packageQuantity: Decimal?
+        let packageUnit: DoseUnit?
     }
 
     private func validateSupplementDraft(
@@ -342,6 +348,16 @@ extension WellnarioRepository {
         let category = try optionalTrimmed(draft.category, field: "Category", maximum: 120)
         let imageReference = try optionalTrimmed(draft.imageReference, field: "Image reference", maximum: 1_024)
         try requirePositive(draft.basisQuantity, field: "Serving quantity")
+        guard (draft.packageQuantity == nil) == (draft.packageUnit == nil) else {
+            throw RepositoryError.validation("Package content requires both an amount and a unit.")
+        }
+        if let packageQuantity = draft.packageQuantity {
+            try requirePositive(packageQuantity, field: "Package content")
+            guard let packageUnit = draft.packageUnit,
+                  packageUnit.isCompatible(with: draft.basisUnit) else {
+                throw RepositoryError.validation("Package content unit is incompatible with the serving unit.")
+            }
+        }
 
         guard try database.scalarInteger(
             "SELECT COUNT(*) AS count FROM presentation_types WHERE id = ?;",
@@ -387,7 +403,9 @@ extension WellnarioRepository {
             category: category,
             price: draft.price,
             currencyCode: currencyCode,
-            imageReference: imageReference
+            imageReference: imageReference,
+            packageQuantity: draft.packageQuantity,
+            packageUnit: draft.packageUnit
         )
     }
 

@@ -30,6 +30,10 @@ struct AppleHealthSleepSession: Codable, Equatable, Sendable {
     let coreSeconds: TimeInterval
     let deepSeconds: TimeInterval
     let remSeconds: TimeInterval
+    /// Time between the beginning of the matching HealthKit `inBed` interval
+    /// and the first asleep sample. It is unavailable when no reliable
+    /// `inBed` interval contains the sleep onset.
+    let sleepLatencySeconds: TimeInterval?
     let sourceNames: [String]
     let stageIntervals: [AppleHealthSleepStageInterval]
 
@@ -42,6 +46,7 @@ struct AppleHealthSleepSession: Codable, Equatable, Sendable {
         coreSeconds: TimeInterval,
         deepSeconds: TimeInterval,
         remSeconds: TimeInterval,
+        sleepLatencySeconds: TimeInterval? = nil,
         sourceNames: [String],
         stageIntervals: [AppleHealthSleepStageInterval] = []
     ) {
@@ -53,6 +58,7 @@ struct AppleHealthSleepSession: Codable, Equatable, Sendable {
         self.coreSeconds = coreSeconds
         self.deepSeconds = deepSeconds
         self.remSeconds = remSeconds
+        self.sleepLatencySeconds = sleepLatencySeconds
         self.sourceNames = sourceNames
         self.stageIntervals = stageIntervals
     }
@@ -66,6 +72,7 @@ struct AppleHealthSleepSession: Codable, Equatable, Sendable {
         case coreSeconds
         case deepSeconds
         case remSeconds
+        case sleepLatencySeconds
         case sourceNames
         case stageIntervals
     }
@@ -80,6 +87,10 @@ struct AppleHealthSleepSession: Codable, Equatable, Sendable {
         coreSeconds = try container.decode(TimeInterval.self, forKey: .coreSeconds)
         deepSeconds = try container.decode(TimeInterval.self, forKey: .deepSeconds)
         remSeconds = try container.decode(TimeInterval.self, forKey: .remSeconds)
+        sleepLatencySeconds = try container.decodeIfPresent(
+            TimeInterval.self,
+            forKey: .sleepLatencySeconds
+        )
         sourceNames = try container.decode([String].self, forKey: .sourceNames)
         stageIntervals = try container.decodeIfPresent(
             [AppleHealthSleepStageInterval].self,
@@ -98,13 +109,22 @@ struct AppleHealthSleepDay: Codable, Equatable, Sendable {
     /// Start of the main sleep session ending on this day. It is retained so
     /// Wellnario can assess bedtime regularity without querying HealthKit again.
     let sleepStartDate: Date?
-    /// Awake time explicitly reported inside the sleep sessions for this day.
+    /// Awake time explicitly reported anywhere within the sleep sessions for
+    /// this day, including the beginning and end of each displayed session.
     let awakeHours: Double?
-    /// Total scored sleep period (asleep plus explicitly awake time).
+    /// Combined start-to-end duration of the displayed sleep sessions for this
+    /// day. It is the denominator used with `awakeHours` for interruptions.
     let sleepPeriodHours: Double?
     /// Percentage decrease from the initial sleeping heart rate to the
     /// stable low heart rate reached later in the same main sleep session.
     let heartRateDropPercentage: Double?
+    /// Mean 0–100 physiological StressScore estimated at evenly distributed
+    /// points of the main sleep session. It remains optional when HealthKit
+    /// does not provide enough data to produce a reliable estimate.
+    let averageSleepStressScore: Double?
+    /// Minutes from the start of the matching HealthKit `inBed` interval to
+    /// the first asleep sample of the main sleep session.
+    let sleepLatencyMinutes: Double?
 
     init(
         date: Date,
@@ -116,7 +136,9 @@ struct AppleHealthSleepDay: Codable, Equatable, Sendable {
         sleepStartDate: Date? = nil,
         awakeHours: Double? = nil,
         sleepPeriodHours: Double? = nil,
-        heartRateDropPercentage: Double? = nil
+        heartRateDropPercentage: Double? = nil,
+        averageSleepStressScore: Double? = nil,
+        sleepLatencyMinutes: Double? = nil
     ) {
         self.date = date
         self.hours = hours
@@ -128,6 +150,8 @@ struct AppleHealthSleepDay: Codable, Equatable, Sendable {
         self.awakeHours = awakeHours
         self.sleepPeriodHours = sleepPeriodHours
         self.heartRateDropPercentage = heartRateDropPercentage
+        self.averageSleepStressScore = averageSleepStressScore
+        self.sleepLatencyMinutes = sleepLatencyMinutes
     }
 }
 
@@ -184,6 +208,9 @@ struct AppleHealthWorkout: Codable, Equatable, Sendable {
 
 struct AppleHealthAutomaticSleepFactors: Codable, Equatable, Sendable {
     let date: Date
+    /// Start date of the source session. It identifies the main session when
+    /// multiple sessions finish on the same sleep day.
+    var sleepSessionStartDate: Date? = nil
     let steps: Double?
     /// Legacy persisted backing value for the binary strength-training factor.
     /// A positive value means that a strength workout was recorded before the
@@ -195,6 +222,9 @@ struct AppleHealthAutomaticSleepFactors: Codable, Equatable, Sendable {
     /// Personal 0–100 physiological StressScore calculated before sleep from
     /// HRV, resting heart rate, respiratory rate, and sleep quality.
     let preSleepStressScore: Double?
+    /// Mean StressScore measured during this sleep session. This is separate
+    /// from the pre-sleep score because it participates in sleep quality.
+    var averageSleepStressScore: Double? = nil
     /// Full breakdown retained for the current stress detail screen. It is
     /// optional so snapshots written before the breakdown was introduced
     /// remain readable.
@@ -620,6 +650,16 @@ enum AppleHealthAutomaticSleepFactorBuilder {
             calendar: calendar
         )
         let stressScores = stressDetails.compactMapValues(\.score)
+        let averageSleepStressBySession = averageSleepStressScores(
+            for: orderedSessions,
+            workouts: workouts,
+            hrvSamples: hrvSamples,
+            restingHeartRateSamples: restingHeartRateSamples,
+            heartRateSamples: heartRateSamples,
+            respiratoryRateSamples: respiratoryRateSamples,
+            sleepQualityByDay: sleepQualityByDay,
+            calendar: calendar
+        )
 
         let factors = orderedSessions.enumerated().map { index, session in
             let sleepDate = calendar.startOfDay(for: session.endDate)
@@ -660,11 +700,13 @@ enum AppleHealthAutomaticSleepFactorBuilder {
 
             return AppleHealthAutomaticSleepFactors(
                 date: sleepDate,
+                sleepSessionStartDate: session.startDate,
                 steps: stepsByDay[activityDay],
                 strengthTrainingMinutes: hasStrengthTraining ? 1 : 0,
                 daylightMinutes: daylightMinutes,
                 earlyDaylightMinutes: earlyDaylight,
                 preSleepStressScore: stressScores[session.startDate],
+                averageSleepStressScore: averageSleepStressBySession[session.startDate],
                 preSleepStressDetails: stressDetails[session.startDate]
             )
         }
@@ -695,6 +737,68 @@ enum AppleHealthAutomaticSleepFactorBuilder {
                 calendar: calendar
             )
         )
+    }
+
+    /// Samples four equally spaced portions of each qualifying sleep session.
+    /// For every portion, the score is calibrated against the same relative
+    /// sleep phase in earlier sessions, then the valid estimates are averaged.
+    /// This keeps the mean representative of the whole night without turning
+    /// a synchronization into one full stress-timeline calculation per sample.
+    private static func averageSleepStressScores(
+        for sessions: [AppleHealthSleepSession],
+        workouts: [AppleHealthWorkout],
+        hrvSamples: [AppleHealthTimedQuantity],
+        restingHeartRateSamples: [AppleHealthTimedQuantity],
+        heartRateSamples: [AppleHealthTimedQuantity],
+        respiratoryRateSamples: [AppleHealthTimedQuantity],
+        sleepQualityByDay: [LocalDay: Double],
+        calendar: Calendar
+    ) -> [Date: Double] {
+        let minimumComparableSleepDuration: TimeInterval = 2 * 3_600
+        let qualifyingSessions = sessions.filter {
+            $0.endDate.timeIntervalSince($0.startDate) >= minimumComparableSleepDuration
+        }
+        let sampleProgresses = [0.125, 0.375, 0.625, 0.875]
+        var scoresBySession: [Date: [Double]] = [:]
+
+        for progress in sampleProgresses {
+            let observations = qualifyingSessions.map { session -> AppleHealthStressObservation in
+                let duration = session.endDate.timeIntervalSince(session.startDate)
+                let date = session.startDate.addingTimeInterval(duration * progress)
+                return makeStressObservation(
+                    at: date,
+                    sleepQuality: sleepQualityByDay[
+                        LocalDay(containing: session.endDate, in: calendar.timeZone)
+                    ],
+                    workouts: workouts,
+                    hrvSamples: hrvSamples,
+                    restingHeartRateSamples: restingHeartRateSamples,
+                    heartRateSamples: heartRateSamples,
+                    respiratoryRateSamples: respiratoryRateSamples,
+                    usesRealtimeInputs: true
+                )
+            }
+            let details = AppleHealthStressScoreCalculator.details(
+                for: observations,
+                calendar: calendar
+            )
+            for (session, observation) in zip(qualifyingSessions, observations) {
+                guard let detail = details[observation.date],
+                      let score = AppleHealthStressScoreCalculator
+                          .calibratedForSleep(detail).score,
+                      score.isFinite else {
+                    continue
+                }
+                scoresBySession[session.startDate, default: []].append(
+                    min(max(score, 0), 100)
+                )
+            }
+        }
+
+        return scoresBySession.compactMapValues { scores in
+            guard !scores.isEmpty else { return nil }
+            return scores.reduce(0, +) / Double(scores.count)
+        }
     }
 
     /// Builds a 24-hour stress evolution for a previously selected day. The
@@ -1208,8 +1312,23 @@ struct AppleHealthDataSource: Codable, Equatable, Identifiable, Sendable {
     let identifier: String
     let name: String
     let dataKinds: [AppleHealthDataKind]
+    /// Bundle identifier shared by revisions of the same producer. Older
+    /// preferences used this value directly as the source identifier.
+    var sourceBundleIdentifier: String? = nil
 
     var id: String { identifier }
+}
+
+enum AppleHealthSourceIdentity {
+    private static let separator = "::"
+
+    static func identifier(bundleIdentifier: String, name: String) -> String {
+        "\(bundleIdentifier)\(separator)\(name)"
+    }
+
+    static func identifier(for source: HKSource) -> String {
+        identifier(bundleIdentifier: source.bundleIdentifier, name: source.name)
+    }
 }
 
 struct AppleHealthSourceSelection: Codable, Equatable, Hashable, Sendable {
@@ -1222,6 +1341,89 @@ enum AppleHealthBiologicalSex: String, Codable, Equatable, Sendable {
     case male
     case other
     case notSet
+}
+
+struct FitnessMaximumHeartRateEstimate: Equatable, Sendable {
+    let value: Int
+    let usesFullProfile: Bool
+}
+
+enum FitnessMaximumHeartRateEstimator {
+    static func estimate(
+        snapshot: AppleHealthSnapshot,
+        restingHeartRate: Double?,
+        referenceDate: Date = Date()
+    ) -> FitnessMaximumHeartRateEstimate {
+        let calendar = Calendar.autoupdatingCurrent
+        let age: Int?
+        if let components = snapshot.dateOfBirthComponents,
+           let birthDate = calendar.date(from: components),
+           let years = calendar.dateComponents([.year], from: birthDate, to: referenceDate).year,
+           (12...110).contains(years) {
+            age = years
+        } else {
+            age = nil
+        }
+        let sex = snapshot.biologicalSex
+        let hasSex = sex == .female || sex == .male
+        let validRestingHeartRate = restingHeartRate.flatMap { value in
+            (35...100).contains(value) ? value : nil
+        }
+
+        let ageBasedMaximum: Double
+        if let age {
+            switch sex {
+            case .some(.male):
+                ageBasedMaximum = 211 - (0.64 * Double(age))
+            case .some(.female):
+                ageBasedMaximum = 206 - (0.88 * Double(age))
+            default:
+                ageBasedMaximum = 208 - (0.7 * Double(age))
+            }
+        } else {
+            ageBasedMaximum = 185
+        }
+
+        // Heart-rate maximum is driven mainly by age. The resting-rate adjustment
+        // is deliberately small, so it personalizes the estimate without turning
+        // it into a clinical measurement.
+        let restingRateAdjustment = validRestingHeartRate.map { (65 - $0) * 0.2 } ?? 0
+        let value = Int((ageBasedMaximum + restingRateAdjustment).rounded())
+        return FitnessMaximumHeartRateEstimate(
+            value: min(max(value, FitnessMaximumHeartRatePreferences.supportedRange.lowerBound), FitnessMaximumHeartRatePreferences.supportedRange.upperBound),
+            usesFullProfile: age != nil && hasSex && validRestingHeartRate != nil
+        )
+    }
+}
+
+struct FitnessMaximumHeartRatePreferences {
+    static let supportedRange = 120...230
+
+    private let defaults: UserDefaults
+    private let manualMaximumKey: String
+
+    init(
+        defaults: UserDefaults = .standard,
+        manualMaximumKey: String = "wellnario.fitness.manualMaximumHeartRate.v1"
+    ) {
+        self.defaults = defaults
+        self.manualMaximumKey = manualMaximumKey
+    }
+
+    var manualMaximumHeartRate: Int? {
+        guard defaults.object(forKey: manualMaximumKey) != nil else { return nil }
+        let value = defaults.integer(forKey: manualMaximumKey)
+        return Self.supportedRange.contains(value) ? value : nil
+    }
+
+    func setManualMaximumHeartRate(_ value: Int) {
+        guard Self.supportedRange.contains(value) else { return }
+        defaults.set(value, forKey: manualMaximumKey)
+    }
+
+    func resetToAutomaticEstimate() {
+        defaults.removeObject(forKey: manualMaximumKey)
+    }
 }
 
 struct AppleHealthSnapshot: Codable, Equatable, Sendable {
@@ -1315,6 +1517,8 @@ protocol AppleHealthSyncing: AnyObject {
     func sync() async throws
     func syncIfConfigured() async
     func stressTimeline(for day: LocalDay) async -> AppleHealthStressDayTimeline?
+    func heartRateSamples(from startDate: Date, through endDate: Date) async -> [AppleHealthTimedQuantity]
+    func restingHeartRateSamples(from startDate: Date, through endDate: Date) async -> [AppleHealthTimedQuantity]
     /// Returns true only once when HealthKit reports that a connected app has
     /// a read authorization that still needs the person's decision.
     func consumePendingAuthorizationWarning() async -> Bool
@@ -1329,6 +1533,8 @@ extension AppleHealthSyncing {
     var requiresManualBloodPressureAuthorization: Bool { false }
     func consumePendingAuthorizationWarning() async -> Bool { false }
     func stressTimeline(for day: LocalDay) async -> AppleHealthStressDayTimeline? { nil }
+    func heartRateSamples(from startDate: Date, through endDate: Date) async -> [AppleHealthTimedQuantity] { [] }
+    func restingHeartRateSamples(from startDate: Date, through endDate: Date) async -> [AppleHealthTimedQuantity] { [] }
 }
 
 struct AppleHealthSnapshotCache {
@@ -1414,6 +1620,31 @@ struct AppleHealthSourcePreferences {
         guard let data = try? JSONEncoder().encode(selections) else { return }
         defaults.set(data, forKey: disabledSelectionsKey)
     }
+
+    /// Expands the old bundle-wide exclusions into the source identities now
+    /// shown by the app. This keeps an existing "Oura only" choice intact when
+    /// older Apple Watch or iPhone sources become visible again.
+    func migratingLegacyDisabledSourceSelections(
+        _ selections: Set<AppleHealthSourceSelection>,
+        to sources: [AppleHealthDataSource]
+    ) -> Set<AppleHealthSourceSelection> {
+        var migrated = selections
+        for selection in selections {
+            let matches = sources.filter {
+                $0.sourceBundleIdentifier == selection.sourceIdentifier
+                    && $0.dataKinds.contains(selection.dataKind)
+            }
+            guard !matches.isEmpty else { continue }
+            migrated.remove(selection)
+            migrated.formUnion(matches.map {
+                AppleHealthSourceSelection(
+                    sourceIdentifier: $0.identifier,
+                    dataKind: selection.dataKind
+                )
+            })
+        }
+        return migrated
+    }
 }
 
 struct SleepDurationRecommendation: Equatable, Sendable {
@@ -1483,24 +1714,36 @@ struct SleepQualityWeights: Equatable, Sendable {
     let regularity: Int
     let interruptions: Int
     let heartRateDrop: Int
+    let sleepStress: Int
+    let remDeepSleep: Int
+    let sleepLatency: Int
 
     init(
         duration: Int,
         regularity: Int,
         interruptions: Int,
-        heartRateDrop: Int = 0
+        heartRateDrop: Int = 0,
+        sleepStress: Int = 0,
+        remDeepSleep: Int = 0,
+        sleepLatency: Int = 0
     ) {
         self.duration = duration
         self.regularity = regularity
         self.interruptions = interruptions
         self.heartRateDrop = heartRateDrop
+        self.sleepStress = sleepStress
+        self.remDeepSleep = remDeepSleep
+        self.sleepLatency = sleepLatency
     }
 
     static let `default` = SleepQualityWeights(
-        duration: 63,
-        regularity: 9,
-        interruptions: 18,
-        heartRateDrop: 10
+        duration: 46,
+        regularity: 6,
+        interruptions: 14,
+        heartRateDrop: 7,
+        sleepStress: 8,
+        remDeepSleep: 9,
+        sleepLatency: 10
     )
 
     var isValid: Bool {
@@ -1508,7 +1751,11 @@ struct SleepQualityWeights: Equatable, Sendable {
             && regularity >= 0
             && interruptions >= 0
             && heartRateDrop >= 0
-            && duration + regularity + interruptions + heartRateDrop == 100
+            && sleepStress >= 0
+            && remDeepSleep >= 0
+            && sleepLatency >= 0
+            && duration + regularity + interruptions + heartRateDrop
+                + sleepStress + remDeepSleep + sleepLatency == 100
     }
 }
 
@@ -1525,6 +1772,9 @@ struct SleepQualityPreferences {
     private let regularityWeightKey = "wellnario.sleep.quality.regularityWeight.v1"
     private let interruptionWeightKey = "wellnario.sleep.quality.interruptionWeight.v1"
     private let heartRateDropWeightKey = "wellnario.sleep.quality.heartRateDropWeight.v1"
+    private let sleepStressWeightKey = "wellnario.sleep.quality.sleepStressWeight.v1"
+    private let remDeepSleepWeightKey = "wellnario.sleep.quality.remDeepSleepWeight.v1"
+    private let sleepLatencyWeightKey = "wellnario.sleep.quality.sleepLatencyWeight.v1"
     private let customTargetKey = "wellnario.sleep.quality.customTargetHours.v1"
 
     init(defaults: UserDefaults = .standard) {
@@ -1532,8 +1782,8 @@ struct SleepQualityPreferences {
     }
 
     var weights: SleepQualityWeights {
-        let legacyKeys = [durationWeightKey, regularityWeightKey, interruptionWeightKey]
-        guard legacyKeys.allSatisfy({ defaults.object(forKey: $0) != nil }) else {
+        let baseWeightKeys = [durationWeightKey, regularityWeightKey, interruptionWeightKey]
+        guard baseWeightKeys.allSatisfy({ defaults.object(forKey: $0) != nil }) else {
             return .default
         }
         if defaults.object(forKey: heartRateDropWeightKey) == nil {
@@ -1546,20 +1796,103 @@ struct SleepQualityPreferences {
                   legacyDuration + legacyRegularity + legacyInterruptions == 100 else {
                 return .default
             }
-            let duration = Int((Double(legacyDuration) * 0.9).rounded())
-            let regularity = Int((Double(legacyRegularity) * 0.9).rounded())
+            let duration = Int((Double(legacyDuration) * 0.6).rounded())
+            let regularity = Int((Double(legacyRegularity) * 0.6).rounded())
             return SleepQualityWeights(
                 duration: duration,
                 regularity: regularity,
-                interruptions: 90 - duration - regularity,
-                heartRateDrop: 10
+                interruptions: 60 - duration - regularity,
+                heartRateDrop: 10,
+                sleepStress: 10,
+                remDeepSleep: 10,
+                sleepLatency: 10
+            )
+        }
+        if defaults.object(forKey: sleepStressWeightKey) == nil {
+            let previous = SleepQualityWeights(
+                duration: defaults.integer(forKey: durationWeightKey),
+                regularity: defaults.integer(forKey: regularityWeightKey),
+                interruptions: defaults.integer(forKey: interruptionWeightKey),
+                heartRateDrop: defaults.integer(forKey: heartRateDropWeightKey)
+            )
+            guard previous.duration >= 0,
+                  previous.regularity >= 0,
+                  previous.interruptions >= 0,
+                  previous.heartRateDrop >= 0,
+                  previous.duration + previous.regularity
+                    + previous.interruptions + previous.heartRateDrop == 100 else {
+                return .default
+            }
+            let duration = Int((Double(previous.duration) * 0.7).rounded())
+            let regularity = Int((Double(previous.regularity) * 0.7).rounded())
+            let heartRateDrop = Int((Double(previous.heartRateDrop) * 0.7).rounded())
+            return SleepQualityWeights(
+                duration: duration,
+                regularity: regularity,
+                interruptions: 70 - duration - regularity - heartRateDrop,
+                heartRateDrop: heartRateDrop,
+                sleepStress: 10,
+                remDeepSleep: 10,
+                sleepLatency: 10
+            )
+        }
+        if defaults.object(forKey: remDeepSleepWeightKey) == nil {
+            let previous = SleepQualityWeights(
+                duration: defaults.integer(forKey: durationWeightKey),
+                regularity: defaults.integer(forKey: regularityWeightKey),
+                interruptions: defaults.integer(forKey: interruptionWeightKey),
+                heartRateDrop: defaults.integer(forKey: heartRateDropWeightKey),
+                sleepStress: defaults.integer(forKey: sleepStressWeightKey)
+            )
+            guard previous.isValid else { return .default }
+            let duration = Int((Double(previous.duration) * 0.8).rounded())
+            let regularity = Int((Double(previous.regularity) * 0.8).rounded())
+            let heartRateDrop = Int((Double(previous.heartRateDrop) * 0.8).rounded())
+            let sleepStress = Int((Double(previous.sleepStress) * 0.8).rounded())
+            return SleepQualityWeights(
+                duration: duration,
+                regularity: regularity,
+                interruptions: 80 - duration - regularity - heartRateDrop - sleepStress,
+                heartRateDrop: heartRateDrop,
+                sleepStress: sleepStress,
+                remDeepSleep: 10,
+                sleepLatency: 10
+            )
+        }
+        if defaults.object(forKey: sleepLatencyWeightKey) == nil {
+            let previous = SleepQualityWeights(
+                duration: defaults.integer(forKey: durationWeightKey),
+                regularity: defaults.integer(forKey: regularityWeightKey),
+                interruptions: defaults.integer(forKey: interruptionWeightKey),
+                heartRateDrop: defaults.integer(forKey: heartRateDropWeightKey),
+                sleepStress: defaults.integer(forKey: sleepStressWeightKey),
+                remDeepSleep: defaults.integer(forKey: remDeepSleepWeightKey)
+            )
+            guard previous.isValid else { return .default }
+            let duration = Int((Double(previous.duration) * 0.9).rounded())
+            let regularity = Int((Double(previous.regularity) * 0.9).rounded())
+            let heartRateDrop = Int((Double(previous.heartRateDrop) * 0.9).rounded())
+            let sleepStress = Int((Double(previous.sleepStress) * 0.9).rounded())
+            let remDeepSleep = Int((Double(previous.remDeepSleep) * 0.9).rounded())
+            return SleepQualityWeights(
+                duration: duration,
+                regularity: regularity,
+                interruptions: 90 - duration - regularity - heartRateDrop
+                    - sleepStress - remDeepSleep,
+                heartRateDrop: heartRateDrop,
+                sleepStress: sleepStress,
+                remDeepSleep: remDeepSleep,
+                sleepLatency: 10
             )
         }
         let stored = SleepQualityWeights(
             duration: defaults.integer(forKey: durationWeightKey),
             regularity: defaults.integer(forKey: regularityWeightKey),
             interruptions: defaults.integer(forKey: interruptionWeightKey),
-            heartRateDrop: defaults.integer(forKey: heartRateDropWeightKey)
+            heartRateDrop: defaults.integer(forKey: heartRateDropWeightKey),
+            sleepStress: defaults.integer(forKey: sleepStressWeightKey),
+            remDeepSleep: defaults.integer(forKey: remDeepSleepWeightKey),
+            sleepLatency: defaults.integer(forKey: sleepLatencyWeightKey)
         )
         return stored.isValid ? stored : .default
     }
@@ -1607,6 +1940,9 @@ struct SleepQualityPreferences {
         defaults.set(weights.regularity, forKey: regularityWeightKey)
         defaults.set(weights.interruptions, forKey: interruptionWeightKey)
         defaults.set(weights.heartRateDrop, forKey: heartRateDropWeightKey)
+        defaults.set(weights.sleepStress, forKey: sleepStressWeightKey)
+        defaults.set(weights.remDeepSleep, forKey: remDeepSleepWeightKey)
+        defaults.set(weights.sleepLatency, forKey: sleepLatencyWeightKey)
         notifyChange()
         return true
     }
@@ -1631,6 +1967,9 @@ struct SleepQualityPreferences {
             regularityWeightKey,
             interruptionWeightKey,
             heartRateDropWeightKey,
+            sleepStressWeightKey,
+            remDeepSleepWeightKey,
+            sleepLatencyWeightKey,
             customTargetKey
         ].forEach(defaults.removeObject(forKey:))
         if notify { notifyChange() }
@@ -1646,18 +1985,35 @@ struct SleepQualityBreakdown: Equatable, Sendable {
     let regularityScore: Double
     let interruptionScore: Double
     let heartRateDropScore: Double?
+    var sleepStressScore: Double? = nil
+    var remDeepSleepScore: Double? = nil
+    var sleepLatencyScore: Double? = nil
+    /// Number of available nights in the seven-day window that are within
+    /// the maximum-score regularity band (±30 minutes from the circular mean).
     let compliantDays: Int
     let awakePercentage: Double
     let heartRateDropPercentage: Double?
+    var averageSleepStressScore: Double? = nil
+    var remDeepSleepPercentage: Double? = nil
+    var sleepLatencyMinutes: Double? = nil
     let effectiveWeightTotal: Int
     let totalScore: Double
 }
 
 enum SleepQualityCalculator {
     static let regularityWindowDays = 7
-    static let bedtimeToleranceMinutes = 60.0
+    static let fullRegularityScoreWithinMinutes = 30.0
+    static let zeroRegularityScoreAtMinutes = 4 * 60.0
     static let zeroInterruptionScoreAtPercentage = 15.0
     static let fullHeartRateDropScoreAtPercentage = 25.0
+    /// The sleep-calibrated StressScore maps an ordinary nocturnal observation
+    /// to 20/100. An average of 50/100 already represents sustained elevated
+    /// activation, so values at or above it receive no quality points.
+    static let zeroSleepStressQualityAtAverageScore = 50.0
+    static let fullRemDeepSleepScoreRange = 35.0...45.0
+    static let minimumClassifiedSleepCoverage = 0.8
+    static let fullSleepLatencyScoreRangeMinutes = 5.0...20.0
+    static let zeroLongSleepLatencyScoreAtMinutes = 60.0
 
     static func applying(
         to history: [AppleHealthSleepDay],
@@ -1683,7 +2039,9 @@ enum SleepQualityCalculator {
                 sleepStartDate: entry.sleepStartDate,
                 awakeHours: entry.awakeHours,
                 sleepPeriodHours: entry.sleepPeriodHours,
-                heartRateDropPercentage: entry.heartRateDropPercentage
+                heartRateDropPercentage: entry.heartRateDropPercentage,
+                averageSleepStressScore: entry.averageSleepStressScore,
+                sleepLatencyMinutes: entry.sleepLatencyMinutes
             )
         }
     }
@@ -1726,12 +2084,13 @@ enum SleepQualityCalculator {
             awakePercentage = 0
             interruptionScore = 0
         }
-        let compliantDays = regularityComplianceDays(
+        let regularity = regularity(
             endingOn: entry.date,
             startsByDay: startsByDay,
             calendar: calendar
         )
-        let regularityScore = Double(compliantDays) / Double(regularityWindowDays) * 100
+        let compliantDays = regularity.fullScoreDays
+        let regularityScore = regularity.score
         let weights = configuration.weights
         let heartRateDropPercentage = entry.heartRateDropPercentage.flatMap {
             $0.isFinite && $0 >= 0 ? $0 : nil
@@ -1739,12 +2098,57 @@ enum SleepQualityCalculator {
         let heartRateDropScore = heartRateDropPercentage.map {
             min($0 / fullHeartRateDropScoreAtPercentage, 1) * 100
         }
-        let effectiveWeightTotal = 100 - (heartRateDropScore == nil ? weights.heartRateDrop : 0)
+        let averageSleepStressScore = entry.averageSleepStressScore.flatMap {
+            $0.isFinite ? min(max($0, 0), 100) : nil
+        }
+        let sleepStressScore = averageSleepStressScore.map {
+            max(0, 1 - $0 / zeroSleepStressQualityAtAverageScore) * 100
+        }
+        let remDeepSleepPercentage = remDeepSleepPercentage(for: entry)
+        let remDeepSleepScore = remDeepSleepPercentage.map { percentage in
+            if percentage < fullRemDeepSleepScoreRange.lowerBound {
+                return percentage / fullRemDeepSleepScoreRange.lowerBound * 100
+            }
+            if percentage <= fullRemDeepSleepScoreRange.upperBound {
+                return 100
+            }
+            return max(
+                0,
+                (100 - percentage)
+                    / (100 - fullRemDeepSleepScoreRange.upperBound) * 100
+            )
+        }
+        let sleepLatencyMinutes = entry.sleepLatencyMinutes.flatMap {
+            $0.isFinite && $0 >= 0 ? $0 : nil
+        }
+        let sleepLatencyScore = sleepLatencyMinutes.map { minutes in
+            if minutes < fullSleepLatencyScoreRangeMinutes.lowerBound {
+                return minutes / fullSleepLatencyScoreRangeMinutes.lowerBound * 100
+            }
+            if minutes <= fullSleepLatencyScoreRangeMinutes.upperBound {
+                return 100
+            }
+            return max(
+                0,
+                (zeroLongSleepLatencyScoreAtMinutes - minutes)
+                    / (zeroLongSleepLatencyScoreAtMinutes
+                        - fullSleepLatencyScoreRangeMinutes.upperBound) * 100
+            )
+        }
+        let unavailableWeight =
+            (heartRateDropScore == nil ? weights.heartRateDrop : 0)
+            + (sleepStressScore == nil ? weights.sleepStress : 0)
+            + (remDeepSleepScore == nil ? weights.remDeepSleep : 0)
+            + (sleepLatencyScore == nil ? weights.sleepLatency : 0)
+        let effectiveWeightTotal = 100 - unavailableWeight
         let weightedTotal = (
             durationScore * Double(weights.duration)
                 + regularityScore * Double(weights.regularity)
                 + interruptionScore * Double(weights.interruptions)
                 + (heartRateDropScore ?? 0) * Double(weights.heartRateDrop)
+                + (sleepStressScore ?? 0) * Double(weights.sleepStress)
+                + (remDeepSleepScore ?? 0) * Double(weights.remDeepSleep)
+                + (sleepLatencyScore ?? 0) * Double(weights.sleepLatency)
         )
         let total = effectiveWeightTotal > 0
             ? weightedTotal / Double(effectiveWeightTotal)
@@ -1755,19 +2159,47 @@ enum SleepQualityCalculator {
             regularityScore: regularityScore,
             interruptionScore: interruptionScore,
             heartRateDropScore: heartRateDropScore,
+            sleepStressScore: sleepStressScore,
+            remDeepSleepScore: remDeepSleepScore,
+            sleepLatencyScore: sleepLatencyScore,
             compliantDays: compliantDays,
             awakePercentage: awakePercentage,
             heartRateDropPercentage: heartRateDropPercentage,
+            averageSleepStressScore: averageSleepStressScore,
+            remDeepSleepPercentage: remDeepSleepPercentage,
+            sleepLatencyMinutes: sleepLatencyMinutes,
             effectiveWeightTotal: effectiveWeightTotal,
             totalScore: min(max(total, 0), 100)
         )
     }
 
-    private static func regularityComplianceDays(
+    private static func remDeepSleepPercentage(
+        for entry: AppleHealthSleepDay
+    ) -> Double? {
+        guard let totalSleepHours = entry.hours,
+              totalSleepHours.isFinite,
+              totalSleepHours > 0 else {
+            return nil
+        }
+        let stages = [entry.remHours, entry.deepHours, entry.lightHours]
+        guard stages.contains(where: { $0 != nil }) else { return nil }
+        let values = stages.map { value -> Double in
+            guard let value, value.isFinite else { return 0 }
+            return max(value, 0)
+        }
+        let classifiedHours = values.reduce(0, +)
+        guard classifiedHours > 0,
+              classifiedHours / totalSleepHours >= minimumClassifiedSleepCoverage else {
+            return nil
+        }
+        return min(max((values[0] + values[1]) / classifiedHours * 100, 0), 100)
+    }
+
+    private static func regularity(
         endingOn endDate: Date,
         startsByDay: [Date: Date],
         calendar: Calendar
-    ) -> Int {
+    ) -> (score: Double, fullScoreDays: Int) {
         let endDay = calendar.startOfDay(for: endDate)
         let starts = (0..<regularityWindowDays).compactMap { offset -> Date? in
             guard let day = calendar.date(byAdding: .day, value: -offset, to: endDay) else {
@@ -1781,10 +2213,35 @@ enum SleepQualityCalculator {
                 + Double(components.minute ?? 0)
                 + Double(components.second ?? 0) / 60
         }
-        guard let mean = circularMeanMinutes(minutes) else { return 0 }
-        return minutes.filter {
-            circularDistanceMinutes($0, mean) <= bedtimeToleranceMinutes
+        guard let currentStart = startsByDay[endDay],
+              let mean = circularMeanMinutes(minutes) else {
+            return (0, 0)
+        }
+        let currentComponents = calendar.dateComponents(
+            [.hour, .minute, .second],
+            from: currentStart
+        )
+        let currentMinutes = Double(currentComponents.hour ?? 0) * 60
+            + Double(currentComponents.minute ?? 0)
+            + Double(currentComponents.second ?? 0) / 60
+        let distances = minutes.map { circularDistanceMinutes($0, mean) }
+        let fullScoreDays = distances.filter {
+            $0 <= fullRegularityScoreWithinMinutes
         }.count
+        return (
+            regularityScore(forDeviationInMinutes: circularDistanceMinutes(currentMinutes, mean)),
+            fullScoreDays
+        )
+    }
+
+    private static func regularityScore(
+        forDeviationInMinutes deviation: Double
+    ) -> Double {
+        guard deviation.isFinite else { return 0 }
+        if deviation <= fullRegularityScoreWithinMinutes { return 100 }
+        if deviation >= zeroRegularityScoreAtMinutes { return 0 }
+        let span = zeroRegularityScoreAtMinutes - fullRegularityScoreWithinMinutes
+        return (zeroRegularityScoreAtMinutes - deviation) / span * 100
     }
 
     private static func sleepStartsByDay(
@@ -2087,6 +2544,7 @@ struct SleepManualOverrideStore {
                 coreSeconds: session.coreSeconds,
                 deepSeconds: session.deepSeconds,
                 remSeconds: session.remSeconds,
+                sleepLatencySeconds: session.sleepLatencySeconds,
                 sourceNames: session.sourceNames,
                 stageIntervals: session.stageIntervals
             )
@@ -2121,7 +2579,9 @@ struct SleepManualOverrideStore {
                 sleepStartDate: existing?.sleepStartDate,
                 awakeHours: existing?.awakeHours,
                 sleepPeriodHours: existing?.sleepPeriodHours,
-                heartRateDropPercentage: existing?.heartRateDropPercentage
+                heartRateDropPercentage: existing?.heartRateDropPercentage,
+                averageSleepStressScore: existing?.averageSleepStressScore,
+                sleepLatencyMinutes: existing?.sleepLatencyMinutes
             )
         }
 
@@ -2143,7 +2603,9 @@ struct SleepManualOverrideStore {
                 sleepStartDate: entry.sleepStartDate,
                 awakeHours: entry.awakeHours,
                 sleepPeriodHours: entry.sleepPeriodHours,
-                heartRateDropPercentage: entry.heartRateDropPercentage
+                heartRateDropPercentage: entry.heartRateDropPercentage,
+                averageSleepStressScore: entry.averageSleepStressScore,
+                sleepLatencyMinutes: entry.sleepLatencyMinutes
             )
         }
     }
@@ -2285,7 +2747,57 @@ enum AppleHealthSleepAggregator {
                 sleepStartDate: entry.sleepStartDate,
                 awakeHours: entry.awakeHours,
                 sleepPeriodHours: entry.sleepPeriodHours,
-                heartRateDropPercentage: cachedDrop
+                heartRateDropPercentage: cachedDrop,
+                averageSleepStressScore: entry.averageSleepStressScore,
+                sleepLatencyMinutes: entry.sleepLatencyMinutes
+            )
+        }
+    }
+
+    static func applyingAverageSleepStress(
+        from factors: [AppleHealthAutomaticSleepFactors],
+        sessions: [AppleHealthSleepSession],
+        to trend: [AppleHealthSleepDay],
+        calendar: Calendar
+    ) -> [AppleHealthSleepDay] {
+        let scoresBySessionStart = Dictionary(
+            factors.compactMap { factor -> (Date, Double)? in
+                guard let startDate = factor.sleepSessionStartDate,
+                      let score = factor.averageSleepStressScore,
+                      score.isFinite else {
+                    return nil
+                }
+                return (startDate, min(max(score, 0), 100))
+            },
+            uniquingKeysWith: { _, newest in newest }
+        )
+        let sessionsByDay = Dictionary(
+            grouping: sessions,
+            by: { calendar.startOfDay(for: $0.endDate) }
+        )
+        return trend.map { entry in
+            let day = calendar.startOfDay(for: entry.date)
+            guard let mainSession = sessionsByDay[day]?.max(by: { lhs, rhs in
+                if lhs.asleepSeconds != rhs.asleepSeconds {
+                    return lhs.asleepSeconds < rhs.asleepSeconds
+                }
+                return lhs.endDate < rhs.endDate
+            }) else {
+                return entry
+            }
+            return AppleHealthSleepDay(
+                date: entry.date,
+                hours: entry.hours,
+                qualityScore: entry.qualityScore,
+                remHours: entry.remHours,
+                deepHours: entry.deepHours,
+                lightHours: entry.lightHours,
+                sleepStartDate: entry.sleepStartDate,
+                awakeHours: entry.awakeHours,
+                sleepPeriodHours: entry.sleepPeriodHours,
+                heartRateDropPercentage: entry.heartRateDropPercentage,
+                averageSleepStressScore: scoresBySessionStart[mainSession.startDate],
+                sleepLatencyMinutes: entry.sleepLatencyMinutes
             )
         }
     }
@@ -2326,27 +2838,12 @@ enum AppleHealthSleepAggregator {
             start = min(calendar.startOfDay(for: earliest), today)
         }
 
-        var entriesByDay: [Date: AppleHealthSleepDay] = [:]
-        for entry in history {
-            entriesByDay[calendar.startOfDay(for: entry.date)] = entry
-        }
-        let dailyEntries = daySequence(from: start, through: today, calendar: calendar).map { day in
-            guard let entry = entriesByDay[day] else {
-                return AppleHealthSleepDay(date: day, hours: nil)
-            }
-            return AppleHealthSleepDay(
-                date: day,
-                hours: entry.hours,
-                qualityScore: entry.qualityScore,
-                remHours: entry.remHours,
-                deepHours: entry.deepHours,
-                lightHours: entry.lightHours,
-                sleepStartDate: entry.sleepStartDate,
-                awakeHours: entry.awakeHours,
-                sleepPeriodHours: entry.sleepPeriodHours,
-                heartRateDropPercentage: entry.heartRateDropPercentage
-            )
-        }
+        let dailyEntries = trendDailyEntries(
+            from: history,
+            startingAt: start,
+            through: today,
+            calendar: calendar
+        )
 
         switch period {
         case .sevenDays, .thirtyDays:
@@ -2375,6 +2872,85 @@ enum AppleHealthSleepAggregator {
                 entries: aggregate(dailyEntries, by: .month, calendar: calendar),
                 dailyEntries: dailyEntries,
                 granularity: .month
+            )
+        }
+    }
+
+    static func trendSeries(
+        from history: [AppleHealthSleepDay],
+        dateRange: ClosedRange<Date>,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> AppleHealthSleepTrendSeries {
+        let start = calendar.startOfDay(for: dateRange.lowerBound)
+        let end = calendar.startOfDay(for: dateRange.upperBound)
+        guard start <= end else {
+            return AppleHealthSleepTrendSeries(entries: [], dailyEntries: [], granularity: .day)
+        }
+
+        let dailyEntries = trendDailyEntries(
+            from: history,
+            startingAt: start,
+            through: end,
+            calendar: calendar
+        )
+        let dayCount = max(
+            (calendar.dateComponents([.day], from: start, to: end).day ?? 0) + 1,
+            1
+        )
+        let component: Calendar.Component?
+        let granularity: AppleHealthSleepTrendGranularity
+        switch dayCount {
+        case ...31:
+            component = nil
+            granularity = .day
+        case ...183:
+            component = .weekOfYear
+            granularity = .week
+        case ...731:
+            component = .month
+            granularity = .month
+        default:
+            component = .year
+            granularity = .year
+        }
+
+        guard let component else {
+            return AppleHealthSleepTrendSeries(entries: dailyEntries, granularity: granularity)
+        }
+        return AppleHealthSleepTrendSeries(
+            entries: aggregate(dailyEntries, by: component, calendar: calendar),
+            dailyEntries: dailyEntries,
+            granularity: granularity
+        )
+    }
+
+    private static func trendDailyEntries(
+        from history: [AppleHealthSleepDay],
+        startingAt start: Date,
+        through end: Date,
+        calendar: Calendar
+    ) -> [AppleHealthSleepDay] {
+        var entriesByDay: [Date: AppleHealthSleepDay] = [:]
+        for entry in history {
+            entriesByDay[calendar.startOfDay(for: entry.date)] = entry
+        }
+        return daySequence(from: start, through: end, calendar: calendar).map { day in
+            guard let entry = entriesByDay[day] else {
+                return AppleHealthSleepDay(date: day, hours: nil)
+            }
+            return AppleHealthSleepDay(
+                date: day,
+                hours: entry.hours,
+                qualityScore: entry.qualityScore,
+                remHours: entry.remHours,
+                deepHours: entry.deepHours,
+                lightHours: entry.lightHours,
+                sleepStartDate: entry.sleepStartDate,
+                awakeHours: entry.awakeHours,
+                sleepPeriodHours: entry.sleepPeriodHours,
+                heartRateDropPercentage: entry.heartRateDropPercentage,
+                averageSleepStressScore: entry.averageSleepStressScore,
+                sleepLatencyMinutes: entry.sleepLatencyMinutes
             )
         }
     }
@@ -2417,7 +2993,11 @@ enum AppleHealthSleepAggregator {
                 sleepPeriodHours: average(bucketEntries.map(\.sleepPeriodHours)),
                 heartRateDropPercentage: average(
                     bucketEntries.map(\.heartRateDropPercentage)
-                )
+                ),
+                averageSleepStressScore: average(
+                    bucketEntries.map(\.averageSleepStressScore)
+                ),
+                sleepLatencyMinutes: average(bucketEntries.map(\.sleepLatencyMinutes))
             )
         }
     }
@@ -2435,6 +3015,7 @@ enum AppleHealthSleepAggregator {
             || entry.deepHours != nil
             || entry.lightHours != nil
             || entry.heartRateDropPercentage != nil
+            || entry.averageSleepStressScore != nil
     }
 
     private static func dailyTrend(
@@ -2458,8 +3039,14 @@ enum AppleHealthSleepAggregator {
         return days.map { day in
             let dailySessions = sessionsByDay[day, default: []]
             let asleepSeconds = dailySessions.reduce(0) { $0 + $1.asleepSeconds }
-            let awakeSeconds = dailySessions.reduce(0) {
-                $0 + interruptionAwakeSeconds(in: $1)
+            // The interruption percentage must describe the same interval
+            // displayed to the person as their sleep session. Do not discard
+            // awake stages at either end: HealthKit has explicitly recorded
+            // them as part of that session and the UI includes them in its
+            // start-to-end range.
+            let awakeSeconds = dailySessions.reduce(0) { $0 + $1.awakeSeconds }
+            let sessionSpanSeconds = dailySessions.reduce(0) { total, session in
+                total + max(session.endDate.timeIntervalSince(session.startDate), 0)
             }
             let remSeconds = dailySessions.reduce(0) { $0 + $1.remSeconds }
             let deepSeconds = dailySessions.reduce(0) { $0 + $1.deepSeconds }
@@ -2482,29 +3069,13 @@ enum AppleHealthSleepAggregator {
                 awakeHours: dailySessions.isEmpty ? nil : awakeSeconds / 3_600,
                 sleepPeriodHours: dailySessions.isEmpty
                     ? nil
-                    : (asleepSeconds + awakeSeconds) / 3_600,
+                    : sessionSpanSeconds / 3_600,
                 heartRateDropPercentage: mainSession.flatMap {
                     heartRateDrops[$0.startDate]
-                }
+                },
+                sleepLatencyMinutes: mainSession?.sleepLatencySeconds.map { $0 / 60 }
             )
         }
-    }
-
-    private static func interruptionAwakeSeconds(
-        in session: AppleHealthSleepSession
-    ) -> TimeInterval {
-        let asleepIntervals = session.stageIntervals.filter { $0.stage != .awake }
-        guard let firstAsleep = asleepIntervals.map(\.startDate).min(),
-              let lastAsleep = asleepIntervals.map(\.endDate).max() else {
-            return session.awakeSeconds
-        }
-        return session.stageIntervals
-            .filter { $0.stage == .awake }
-            .reduce(0) { total, interval in
-                let start = max(interval.startDate, firstAsleep)
-                let end = min(interval.endDate, lastAsleep)
-                return total + max(end.timeIntervalSince(start), 0)
-            }
     }
 
     private static func sleepStartDate(in session: AppleHealthSleepSession) -> Date {
@@ -2537,8 +3108,14 @@ enum AppleHealthSleepAggregator {
             return nil
         }
 
-        let asleep = unionDuration(segments.filter { $0.kind.isAsleep })
+        let asleepSegments = segments.filter { $0.kind.isAsleep }
+        let asleep = unionDuration(asleepSegments)
         guard asleep >= 20 * 60 else { return nil }
+
+        let sleepLatencySeconds = sleepLatencySeconds(
+            asleepSegments: asleepSegments,
+            inBedSegments: segments.filter { $0.kind == .inBed }
+        )
 
         return AppleHealthSleepSession(
             startDate: startDate,
@@ -2549,9 +3126,40 @@ enum AppleHealthSleepAggregator {
             coreSeconds: unionDuration(segments.filter { $0.kind == .core }),
             deepSeconds: unionDuration(segments.filter { $0.kind == .deep }),
             remSeconds: unionDuration(segments.filter { $0.kind == .rem }),
+            sleepLatencySeconds: sleepLatencySeconds,
             sourceNames: Array(Set(segments.map(\.sourceName))).sorted(),
             stageIntervals: stageTimeline(from: segments)
         )
+    }
+
+    private static func sleepLatencySeconds(
+        asleepSegments: [Segment],
+        inBedSegments: [Segment]
+    ) -> TimeInterval? {
+        guard let firstAsleepStart = asleepSegments.map(\.startDate).min() else {
+            return nil
+        }
+        let onsetSources = Set(
+            asleepSegments
+                .filter { $0.startDate == firstAsleepStart }
+                .map(\.sourceName)
+        )
+        let containing = inBedSegments.filter {
+            $0.startDate <= firstAsleepStart && $0.endDate >= firstAsleepStart
+        }
+        let preferred = containing.filter { onsetSources.contains($0.sourceName) }
+        // HealthKit can expose both the complete in-bed interval and a nested
+        // interval from the same source. The complete interval is the one that
+        // represents when the user went to bed; choosing the nested interval
+        // would artificially shorten latency. If the onset source has no in-bed
+        // data, retain the conservative fallback to the latest foreign-source
+        // interval so a broad phone schedule is not mixed with wearable stages.
+        let inBed = preferred.min(by: { $0.startDate < $1.startDate })
+            ?? containing.max(by: { $0.startDate < $1.startDate })
+        guard let inBed else {
+            return nil
+        }
+        return max(firstAsleepStart.timeIntervalSince(inBed.startDate), 0)
     }
 
     private static func stageTimeline(from segments: [Segment]) -> [AppleHealthSleepStageInterval] {
@@ -2709,7 +3317,9 @@ enum AppleHealthHeartRateDropBackfill {
                 sleepStartDate: entry.sleepStartDate,
                 awakeHours: entry.awakeHours,
                 sleepPeriodHours: entry.sleepPeriodHours,
-                heartRateDropPercentage: drops[mainSession.startDate]
+                heartRateDropPercentage: drops[mainSession.startDate],
+                averageSleepStressScore: entry.averageSleepStressScore,
+                sleepLatencyMinutes: entry.sleepLatencyMinutes
             )
         }
     }
@@ -2775,7 +3385,9 @@ final class AppleHealthSyncService: AppleHealthSyncing {
         "appleHealth.bloodPressureAuthorizationReviewed.v1"
     private static let pendingAuthorizationWarningShownKey =
         "appleHealth.pendingAuthorizationWarningShown.v1"
-    private static let currentAutomaticSleepFactorsVersion = 6
+    // The automatic factors use sleep quality as an input. Bump this when a
+    // quality component changes so their cached historical values are rebuilt.
+    private static let currentAutomaticSleepFactorsVersion = 11
     private static let currentHeartRateDropCalculationVersion = 1
     private static let historicalHeartRateBackfillDaySpan = 30
 
@@ -2786,6 +3398,7 @@ final class AppleHealthSyncService: AppleHealthSyncing {
 
     private struct SourceAccumulator {
         var name: String
+        var bundleIdentifier: String
         var dataKinds: Set<AppleHealthDataKind>
     }
 
@@ -3011,6 +3624,31 @@ final class AppleHealthSyncService: AppleHealthSyncing {
         } catch {
             return nil
         }
+    }
+
+    func heartRateSamples(from startDate: Date, through endDate: Date) async -> [AppleHealthTimedQuantity] {
+        guard let healthStore, isConfigured, startDate < endDate else { return [] }
+        return (try? await fetchTimedQuantities(
+            from: healthStore,
+            identifier: .heartRate,
+            unit: .count().unitDivided(by: .minute()),
+            start: startDate,
+            end: endDate
+        )) ?? []
+    }
+
+    func restingHeartRateSamples(
+        from startDate: Date,
+        through endDate: Date
+    ) async -> [AppleHealthTimedQuantity] {
+        guard let healthStore, isConfigured, startDate < endDate else { return [] }
+        return (try? await fetchTimedQuantities(
+            from: healthStore,
+            identifier: .restingHeartRate,
+            unit: .count().unitDivided(by: .minute()),
+            start: startDate,
+            end: endDate
+        )) ?? []
     }
 
     func consumePendingAuthorizationWarning() async -> Bool {
@@ -3244,11 +3882,18 @@ final class AppleHealthSyncService: AppleHealthSyncing {
                 workoutsTask,
                 automaticSleepFactorHistoryTask
             )
+            let sleepTrendWithAverageStress =
+                AppleHealthSleepAggregator.applyingAverageSleepStress(
+                    from: automaticSleepFactorHistory.factors,
+                    sessions: sleepSessions,
+                    to: sleepTrend,
+                    calendar: calendar
+                )
 
             var updated = AppleHealthSnapshot(
                 lastSyncedAt: now,
                 latestSleepSession: sleepSessions.last,
-                sleepTrend: sleepTrend,
+                sleepTrend: sleepTrendWithAverageStress,
                 heartRateVariability: hrv,
                 restingHeartRate: restingHeartRate,
                 vo2Max: vo2Max,
@@ -3402,9 +4047,11 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             HKObjectType.quantityType(forIdentifier: .respiratoryRate),
             HKObjectType.quantityType(forIdentifier: .vo2Max),
             HKObjectType.quantityType(forIdentifier: .bloodGlucose),
-            // HealthKit exposes a single Blood Pressure authorization backed by
-            // a correlation containing systolic and diastolic samples.
-            HKObjectType.correlationType(forIdentifier: .bloodPressure),
+            // Authorize the constituent quantities, not the correlation itself.
+            // HealthKit rejects blood-pressure correlations in authorization
+            // requests with an Objective-C exception (including on iOS 27).
+            HKObjectType.quantityType(forIdentifier: .bloodPressureSystolic),
+            HKObjectType.quantityType(forIdentifier: .bloodPressureDiastolic),
             HKObjectType.quantityType(forIdentifier: .stepCount),
             HKObjectType.quantityType(forIdentifier: .activeEnergyBurned),
             HKObjectType.quantityType(forIdentifier: .timeInDaylight)
@@ -3423,13 +4070,19 @@ final class AppleHealthSyncService: AppleHealthSyncing {
     }
 
     private var readTypes: Set<HKObjectType> {
-        guard requiresManualBloodPressureAuthorization,
-              let bloodPressure = HKObjectType.correlationType(
-                forIdentifier: .bloodPressure
-              ) else {
-            return Self.authorizationReadTypes
+        Self.authorizationReadTypes(for: ProcessInfo.processInfo.operatingSystemVersion)
+    }
+
+    static func authorizationReadTypes(for version: OperatingSystemVersion) -> Set<HKObjectType> {
+        guard requiresManualBloodPressureAuthorization(for: version) else {
+            return authorizationReadTypes
         }
-        return Self.authorizationReadTypes.subtracting([bloodPressure])
+        // Preserve the manual-authorization workaround for iOS 26.5.
+        let bloodPressureTypes: Set<HKObjectType> = Set([
+            HKObjectType.quantityType(forIdentifier: .bloodPressureSystolic),
+            HKObjectType.quantityType(forIdentifier: .bloodPressureDiastolic)
+        ].compactMap { $0 })
+        return authorizationReadTypes.subtracting(bloodPressureTypes)
     }
 
     static func requiresManualBloodPressureAuthorization(
@@ -3539,12 +4192,21 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             }
             .sorted { $0.identifier < $1.identifier }
             
-        let sixMonthsAgo = calendar.date(byAdding: .month, value: -6, to: Date())
-        let predicate = HKQuery.predicateForSamples(withStart: sixMonthsAgo, end: nil, options: .strictStartDate)
+        let now = Date()
+        let sixMonthsAgo = calendar.date(byAdding: .month, value: -6, to: now)
+        let recentPredicate = HKQuery.predicateForSamples(
+            withStart: sixMonthsAgo,
+            end: nil,
+            options: .strictStartDate
+        )
         var catalog: [String: Set<HKSource>] = [:]
         var accumulators: [String: SourceAccumulator] = [:]
 
         for type in sampleTypes {
+            // Sleep is queried from the beginning of HealthKit history. Using
+            // the recent six-month window here hid older watches and phones,
+            // then made the all-time sleep query fall back to no source filter.
+            let predicate = dataKind(for: type) == .sleep ? nil : recentPredicate
             guard let sources = try? await fetchSources(from: healthStore, type: type, predicate: predicate) else {
                 continue
             }
@@ -3552,9 +4214,10 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             guard let dataKind = dataKind(for: type) else { continue }
 
             for source in sources.sorted(by: sourceSort) {
-                let identifier = source.bundleIdentifier
+                let identifier = AppleHealthSourceIdentity.identifier(for: source)
                 var accumulator = accumulators[identifier] ?? SourceAccumulator(
                     name: source.name,
+                    bundleIdentifier: source.bundleIdentifier,
                     dataKinds: []
                 )
                 accumulator.dataKinds.insert(dataKind)
@@ -3567,13 +4230,22 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             AppleHealthDataSource(
                 identifier: identifier,
                 name: accumulator.name,
-                dataKinds: AppleHealthDataKind.allCases.filter(accumulator.dataKinds.contains)
+                dataKinds: AppleHealthDataKind.allCases.filter(accumulator.dataKinds.contains),
+                sourceBundleIdentifier: accumulator.bundleIdentifier
             )
         }.sorted { lhs, rhs in
             let comparison = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
             return comparison == .orderedSame
                 ? lhs.identifier < rhs.identifier
                 : comparison == .orderedAscending
+        }
+        let migratedSelections = sourcePreferences.migratingLegacyDisabledSourceSelections(
+            disabledSourceSelections,
+            to: availableSources
+        )
+        if migratedSelections != disabledSourceSelections {
+            disabledSourceSelections = migratedSelections
+            sourcePreferences.saveDisabledSourceSelections(migratedSelections)
         }
         sourcePreferences.saveSources(availableSources)
     }
@@ -3634,10 +4306,16 @@ final class AppleHealthSyncService: AppleHealthSyncing {
             return SourceQueryFilter(predicate: nil, excludesAll: false)
         }
         let disabledSources = knownSources.filter {
-            disabledSourceSelections.contains(AppleHealthSourceSelection(
-                sourceIdentifier: $0.bundleIdentifier,
-                dataKind: dataKind
-            ))
+            let identifiers = [
+                AppleHealthSourceIdentity.identifier(for: $0),
+                $0.bundleIdentifier
+            ]
+            return identifiers.contains { identifier in
+                disabledSourceSelections.contains(AppleHealthSourceSelection(
+                    sourceIdentifier: identifier,
+                    dataKind: dataKind
+                ))
+            }
         }
         guard !disabledSources.isEmpty else {
             return SourceQueryFilter(predicate: nil, excludesAll: false)

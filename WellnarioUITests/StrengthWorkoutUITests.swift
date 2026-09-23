@@ -6,7 +6,7 @@ final class StrengthWorkoutUITests: XCTestCase {
     }
 
     @MainActor
-    func testFitnessOpensAnEmptyStrengthWorkoutAndAddsAnExercise() {
+    func testFitnessOpensAStrengthWorkoutFromTheWorkoutsHubAndAddsAnExercise() {
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing",
@@ -21,7 +21,18 @@ final class StrengthWorkoutUITests: XCTestCase {
         strength.tap()
         XCTAssertTrue(app.descendants(matching: .any)["strength.start"].waitForExistence(timeout: 3))
 
-        let emptyWorkout = app.buttons["strength.start.empty"]
+        let workoutHub = app.descendants(matching: .any)["strength.hub.workouts"]
+        XCTAssertTrue(workoutHub.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["strength.hub.exercises"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["strength.hub.templates"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["strength.hub.metrics"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["strength.hub.reports"].exists)
+        workoutHub.tap()
+
+        let newWorkout = app.buttons["strength.workouts.new"]
+        XCTAssertTrue(newWorkout.waitForExistence(timeout: 3))
+        newWorkout.tap()
+        let emptyWorkout = app.buttons["Iniciar entrenamiento vacío"]
         XCTAssertTrue(emptyWorkout.waitForExistence(timeout: 3))
         emptyWorkout.tap()
         XCTAssertTrue(app.descendants(matching: .any)["strength.workout"].waitForExistence(timeout: 3))
@@ -32,8 +43,10 @@ final class StrengthWorkoutUITests: XCTestCase {
         XCTAssertTrue(app.tables["strength.exercise.picker"].waitForExistence(timeout: 3))
         let equipmentFilter = app.buttons["strength.exercise.filter.equipment"]
         let primaryMuscleFilter = app.buttons["strength.exercise.filter.primary_muscle"]
+        let favoritesFilter = app.buttons["strength.exercise.filter.favorites"]
         XCTAssertTrue(equipmentFilter.waitForExistence(timeout: 3))
         XCTAssertTrue(primaryMuscleFilter.exists)
+        XCTAssertTrue(favoritesFilter.exists)
 
         equipmentFilter.tap()
         let barbell = app.buttons["Barra"]
@@ -48,6 +61,11 @@ final class StrengthWorkoutUITests: XCTestCase {
         let squat = app.descendants(matching: .any)["strength.exercise.Barbell_Squat"]
         XCTAssertTrue(squat.waitForExistence(timeout: 3))
         XCTAssertFalse(app.descendants(matching: .any)["strength.exercise.Barbell_Bench_Press_-_Medium_Grip"].exists)
+        let favoriteSquat = app.buttons["strength.exercise.favorite.Barbell_Squat"]
+        XCTAssertTrue(favoriteSquat.exists)
+        favoriteSquat.tap()
+        favoritesFilter.tap()
+        XCTAssertTrue(squat.waitForExistence(timeout: 3))
         squat.tap()
         let done = app.buttons["strength.exercise.picker.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 3))

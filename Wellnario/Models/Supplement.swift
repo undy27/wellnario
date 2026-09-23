@@ -105,6 +105,9 @@ public struct Supplement: Identifiable, Hashable, Sendable {
     /// Label serving, e.g. 2 capsules or 5 ml.
     public let basisQuantity: Decimal
     public let basisUnit: DoseUnit
+    /// Nominal content of an unopened package of this product.
+    public let packageQuantity: Decimal?
+    public let packageUnit: DoseUnit?
     public let components: [SupplementComponent]
     public let createdAt: Date
     public let updatedAt: Date
@@ -122,6 +125,8 @@ public struct Supplement: Identifiable, Hashable, Sendable {
         presentationTypeID: UUID,
         basisQuantity: Decimal,
         basisUnit: DoseUnit,
+        packageQuantity: Decimal? = nil,
+        packageUnit: DoseUnit? = nil,
         components: [SupplementComponent],
         createdAt: Date,
         updatedAt: Date,
@@ -138,6 +143,8 @@ public struct Supplement: Identifiable, Hashable, Sendable {
         self.presentationTypeID = presentationTypeID
         self.basisQuantity = basisQuantity
         self.basisUnit = basisUnit
+        self.packageQuantity = packageQuantity
+        self.packageUnit = packageUnit
         self.components = components
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -158,6 +165,8 @@ public struct SupplementDraft: Hashable, Sendable {
     public var presentationTypeID: UUID
     public var basisQuantity: Decimal
     public var basisUnit: DoseUnit
+    public var packageQuantity: Decimal?
+    public var packageUnit: DoseUnit?
     public var components: [SupplementComponentDraft]
 
     public init(
@@ -171,6 +180,8 @@ public struct SupplementDraft: Hashable, Sendable {
         presentationTypeID: UUID,
         basisQuantity: Decimal,
         basisUnit: DoseUnit,
+        packageQuantity: Decimal? = nil,
+        packageUnit: DoseUnit? = nil,
         components: [SupplementComponentDraft]
     ) {
         self.name = name
@@ -183,6 +194,8 @@ public struct SupplementDraft: Hashable, Sendable {
         self.presentationTypeID = presentationTypeID
         self.basisQuantity = basisQuantity
         self.basisUnit = basisUnit
+        self.packageQuantity = packageQuantity
+        self.packageUnit = packageUnit
         self.components = components
     }
 }

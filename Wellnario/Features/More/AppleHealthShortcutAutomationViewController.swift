@@ -254,7 +254,7 @@ final class AppleHealthShortcutAutomationViewController: WellnessScrollViewContr
         button.setTitle(weekdaySymbol(for: weekday), for: .normal)
         button.applyContinuousCorners(WellnarioRadius.control)
         button.layer.borderWidth = 1
-        button.heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.minimumTouchTarget)
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.textButtonHeight)
             .isActive = true
         button.accessibilityIdentifier = "settings.integration.apple_health.automation.weekday.\(weekday)"
         button.addTarget(self, action: #selector(weekdayTapped), for: .touchUpInside)

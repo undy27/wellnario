@@ -266,7 +266,7 @@ final class FeedbackBannerView: UIView {
         actionButton.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
         actionButton.setContentHuggingPriority(.required, for: .horizontal)
         actionButton.setContentCompressionResistancePriority(.required, for: .horizontal)
-        actionButton.heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.minimumTouchTarget).isActive = true
+        actionButton.heightAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.textButtonHeight).isActive = true
         actionButton.widthAnchor.constraint(greaterThanOrEqualToConstant: WellnarioLayout.minimumTouchTarget).isActive = true
 
         let stack = UIStackView(

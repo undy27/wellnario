@@ -240,6 +240,13 @@ extension WellnarioRepository {
             presentationTypeID: try uuid(row, "presentation_type_id"),
             basisQuantity: try decimal(row, "basis_quantity"),
             basisUnit: try unit(row, "basis_unit"),
+            packageQuantity: try optionalDecimal(row, "package_quantity"),
+            packageUnit: try row.optionalString("package_unit").map { rawValue in
+                guard let unit = DoseUnit(rawValue: rawValue) else {
+                    throw RepositoryError.storage("Invalid dose unit in package_unit: \(rawValue)")
+                }
+                return unit
+            },
             components: try components(supplementID: id),
             createdAt: try date(row, "created_at"),
             updatedAt: try date(row, "updated_at"),

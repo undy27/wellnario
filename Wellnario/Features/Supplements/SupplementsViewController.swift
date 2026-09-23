@@ -182,7 +182,7 @@ final class SupplementsViewController: FeatureViewController {
 
         configureBreathingBarButton(
             intakeBarButton,
-            image: makeEatingPersonIcon(),
+            image: WellnarioSymbols.intake(),
             action: #selector(logIntakeFromInventory),
             accessibilityIdentifier: "supplements.log_intake"
         )
@@ -505,10 +505,9 @@ final class SupplementsViewController: FeatureViewController {
         ].joined(separator: " ")
     }
 
-    /// Returns the package's original total content together with its
-    /// presentation. The current quantity is deliberately not used here: it
-    /// changes as intakes are recorded, while the product card describes the
-    /// size of the package that was purchased.
+    /// Returns the nominal content declared for the product together with its
+    /// presentation. Instance quantities are deliberately not used here:
+    /// they can be lower when a package is first added already opened.
     private func packagePresentationName(
         for supplement: Supplement,
         presentation: PresentationType?
@@ -517,11 +516,9 @@ final class SupplementsViewController: FeatureViewController {
         let presentationName = presentation
             .localizedName(language: catalogLanguage)
             .lowercased(with: LocalizationManager.shared.locale)
-        let package = instances.first { $0.supplementID == supplement.id }
         guard
-            let package,
-            let quantity = package.initialQuantity ?? package.totalQuantity,
-            let unit = package.initialUnit ?? package.totalUnit
+            let quantity = supplement.packageQuantity,
+            let unit = supplement.packageUnit
         else {
             return presentation.localizedName(language: catalogLanguage)
         }
@@ -572,7 +569,7 @@ final class SupplementsViewController: FeatureViewController {
 
     private func configureInstance(_ cell: CatalogListCell, instance: SupplementInstance) {
         let supplement = supplement(for: instance)
-        let remainingLevel = inventoryLevel(for: instance)
+        let remainingLevel = supplement.flatMap { inventoryLevel(for: instance, supplement: $0) }
         let remainingContent = instance.totalQuantity.flatMap { quantity in
             instance.totalUnit.map {
                 L10n.text(
@@ -607,15 +604,15 @@ final class SupplementsViewController: FeatureViewController {
         )
     }
 
-    private func inventoryLevel(for instance: SupplementInstance) -> Double? {
+    private func inventoryLevel(for instance: SupplementInstance, supplement: Supplement) -> Double? {
         guard let remainingQuantity = instance.totalQuantity,
               let remainingUnit = instance.totalUnit,
-              let initialQuantity = instance.initialQuantity,
-              let initialUnit = instance.initialUnit,
-              initialQuantity > 0,
-              remainingUnit.isCompatible(with: initialUnit),
-              let normalizedRemaining = try? remainingUnit.convert(remainingQuantity, to: initialUnit),
-              let quotient = try? DecimalMath.divide(normalizedRemaining, initialQuantity) else {
+              let packageQuantity = supplement.packageQuantity,
+              let packageUnit = supplement.packageUnit,
+              packageQuantity > 0,
+              remainingUnit.isCompatible(with: packageUnit),
+              let normalizedRemaining = try? remainingUnit.convert(remainingQuantity, to: packageUnit),
+              let quotient = try? DecimalMath.divide(normalizedRemaining, packageQuantity) else {
             return nil
         }
         return min(1, max(0, NSDecimalNumber(decimal: quotient).doubleValue))
@@ -866,26 +863,6 @@ final class SupplementsViewController: FeatureViewController {
         }
     }
 
-    private func makeEatingPersonIcon() -> UIImage? {
-        let faceConfiguration = UIImage.SymbolConfiguration(pointSize: 17, weight: .regular)
-        let utensilConfiguration = UIImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
-        guard let face = UIImage(systemName: "face.smiling", withConfiguration: faceConfiguration),
-              let utensil = UIImage(systemName: "fork.knife", withConfiguration: utensilConfiguration) else {
-            return UIImage(systemName: "fork.knife.circle")
-        }
-
-        let size = CGSize(width: 27, height: 22)
-        return UIGraphicsImageRenderer(size: size).image { _ in
-            UIColor.black.setFill()
-            face.withTintColor(.black, renderingMode: .alwaysOriginal).draw(
-                in: CGRect(x: 0, y: 1, width: 20, height: 20)
-            )
-            utensil.withTintColor(.black, renderingMode: .alwaysOriginal).draw(
-                in: CGRect(x: 18, y: 11, width: 9, height: 9)
-            )
-        }.withRenderingMode(.alwaysTemplate)
-    }
-
     @objc private func logIntakeFromInventory() {
         guard mode == .inventory else { return }
         do {
@@ -907,7 +884,10 @@ final class SupplementsViewController: FeatureViewController {
             }
             searchController.isActive = false
             view.endEditing(true)
-            presentSheet(IntakeEditorViewController(repository: repository), largeOnly: true)
+            navigationController?.pushViewController(
+                IntakeEditorViewController(repository: repository),
+                animated: true
+            )
         } catch {
             showError(error)
         }

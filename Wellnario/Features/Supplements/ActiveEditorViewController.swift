@@ -89,28 +89,18 @@ final class ActiveEditorViewController: EditorViewController {
             }
 
             let today = LocalDay(containing: Date(), in: .current)
-            if let originalTarget,
-               !targetWasEdited,
-               originalTarget.lowerBound != originalTarget.upperBound {
-                // Preserve legacy explicit ranges when editing another field;
-                // newly entered targets are always stored as single values.
-                _ = try repository.setTarget(
-                    activeID: saved.id,
-                    lowerBound: originalTarget.lowerBound,
-                    upperBound: originalTarget.upperBound,
-                    unit: originalTarget.unit,
-                    effectiveFrom: today
-                )
-            } else if let target {
-                _ = try repository.setTarget(
-                    activeID: saved.id,
-                    lowerBound: target,
-                    upperBound: target,
-                    unit: selectedTargetUnit,
-                    effectiveFrom: today
-                )
-            } else if active?.currentTarget != nil {
-                try repository.clearTarget(activeID: saved.id, effectiveFrom: today)
+            if originalTarget == nil || targetWasEdited {
+                if let target {
+                    _ = try repository.setTarget(
+                        activeID: saved.id,
+                        lowerBound: target,
+                        upperBound: target,
+                        unit: selectedTargetUnit,
+                        effectiveFrom: today
+                    )
+                } else if active?.currentTarget != nil {
+                    try repository.clearTarget(activeID: saved.id, effectiveFrom: today)
+                }
             }
             finishSaving()
         } catch {
@@ -255,6 +245,7 @@ final class ActiveDetailViewController: FeatureViewController, UIGestureRecogniz
     private let stackView = UIStackView()
     private let favoriteButton = UIButton(type: .system)
     private let targetField = FormFieldView()
+    private let targetEffectiveFromPicker = UIDatePicker()
     private let targetSaveButton = PrimaryButton(style: .secondary)
     private var currentActive: Active?
     private var selectedTargetUnit: DoseUnit = .milligram
@@ -296,9 +287,10 @@ final class ActiveDetailViewController: FeatureViewController, UIGestureRecogniz
     override func reloadContent() {
         do {
             guard let active = try repository.active(id: activeID) else { return }
+            let targetHistory = try repository.targetHistory(activeID: activeID)
             currentActive = active
             title = active.localizedName(language: catalogLanguage)
-            rebuild(active)
+            rebuild(active, targetHistory: targetHistory)
         } catch { showError(error) }
     }
 
@@ -348,12 +340,18 @@ final class ActiveDetailViewController: FeatureViewController, UIGestureRecogniz
         targetField.unitButton.showsMenuAsPrimaryAction = true
         targetField.helperText = L10n.text("actives.target.exact.helper")
 
+        targetEffectiveFromPicker.datePickerMode = .date
+        targetEffectiveFromPicker.preferredDatePickerStyle = .compact
+        targetEffectiveFromPicker.locale = LocalizationManager.shared.locale
+        targetEffectiveFromPicker.maximumDate = Date()
+        targetEffectiveFromPicker.accessibilityIdentifier = "active.detail.target.effective_from"
+
         targetSaveButton.setTitle(L10n.text("actives.target.save"), for: .normal)
         targetSaveButton.accessibilityIdentifier = "active.detail.target.save"
         targetSaveButton.addTarget(self, action: #selector(saveTarget), for: .touchUpInside)
     }
 
-    private func rebuild(_ active: Active) {
+    private func rebuild(_ active: Active, targetHistory: [ActiveTarget]) {
         stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
         let hero = PremiumCardView()
@@ -400,6 +398,10 @@ final class ActiveDetailViewController: FeatureViewController, UIGestureRecogniz
         let exactAmount = active.currentTarget.flatMap { target in
             target.lowerBound == target.upperBound ? target.lowerBound : nil
         }
+        let effectiveFromDate = active.currentTarget.flatMap {
+            FeatureFormatting.localDayDate($0.effectiveFrom)
+        } ?? Date()
+        targetEffectiveFromPicker.setDate(effectiveFromDate, animated: false)
         targetField.configure(
             title: L10n.text("actives.target.daily_amount"),
             placeholder: "0",
@@ -408,8 +410,18 @@ final class ActiveDetailViewController: FeatureViewController, UIGestureRecogniz
         )
         rebuildTargetUnitMenu(active: active)
 
+        var targetViews: [UIView] = [
+            targetTitle,
+            currentTargetLabel,
+            targetField,
+            makeTargetEffectiveFromField(),
+            targetSaveButton
+        ]
+        if !targetHistory.isEmpty {
+            targetViews.append(makeTargetHistorySection(targetHistory))
+        }
         let targetStack = UIStackView(
-            arrangedSubviews: [targetTitle, currentTargetLabel, targetField, targetSaveButton],
+            arrangedSubviews: targetViews,
             axis: .vertical,
             spacing: 16
         )
@@ -421,6 +433,74 @@ final class ActiveDetailViewController: FeatureViewController, UIGestureRecogniz
         trendsButton.accessibilityIdentifier = "active.detail.trends"
         trendsButton.addTarget(self, action: #selector(showTrends), for: .touchUpInside)
         stackView.addArrangedSubview(trendsButton)
+    }
+
+    private func makeTargetEffectiveFromField() -> UIView {
+        let title = UILabel()
+        title.applyWellnarioStyle(.secondary, color: WellnarioPalette.textPrimary)
+        title.text = L10n.text("actives.target.effective_from")
+
+        let row = UIStackView(
+            arrangedSubviews: [title, UIView(), targetEffectiveFromPicker],
+            axis: .horizontal,
+            spacing: 12,
+            alignment: .center
+        )
+        let helper = UILabel()
+        helper.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
+        helper.text = L10n.text("actives.target.effective_from.helper")
+        helper.numberOfLines = 0
+        return UIStackView(arrangedSubviews: [row, helper], axis: .vertical, spacing: 6)
+    }
+
+    private func makeTargetHistorySection(_ history: [ActiveTarget]) -> UIView {
+        let divider = UIView()
+        divider.backgroundColor = WellnarioPalette.hairline
+        divider.heightAnchor.constraint(equalToConstant: 1).isActive = true
+
+        let title = UILabel()
+        title.applyWellnarioStyle(.cardTitle, color: WellnarioPalette.textPrimary)
+        title.text = L10n.text("actives.target.history.title")
+
+        let helper = UILabel()
+        helper.applyWellnarioStyle(.caption, color: WellnarioPalette.textSecondary)
+        helper.text = L10n.text("actives.target.history.helper")
+        helper.numberOfLines = 0
+
+        let rows = history.reversed().map(makeTargetHistoryButton)
+        let rowsStack = UIStackView(arrangedSubviews: rows, axis: .vertical, spacing: 8)
+        return UIStackView(
+            arrangedSubviews: [divider, title, helper, rowsStack],
+            axis: .vertical,
+            spacing: 12
+        )
+    }
+
+    private func makeTargetHistoryButton(_ target: ActiveTarget) -> UIButton {
+        let button = UIButton(type: .system)
+        var configuration = UIButton.Configuration.tinted()
+        configuration.title = targetDescription(target)
+        configuration.subtitle = targetPeriodDescription(target)
+        configuration.image = UIImage(systemName: "pencil")
+        configuration.imagePlacement = .trailing
+        configuration.imagePadding = 10
+        configuration.titleAlignment = .leading
+        configuration.baseForegroundColor = WellnarioPalette.textPrimary
+        configuration.baseBackgroundColor = WellnarioPalette.surfaceElevated
+        configuration.cornerStyle = .medium
+        configuration.contentInsets = NSDirectionalEdgeInsets(
+            top: 10,
+            leading: 12,
+            bottom: 10,
+            trailing: 12
+        )
+        button.configuration = configuration
+        button.contentHorizontalAlignment = .fill
+        button.accessibilityIdentifier = "active.detail.target.history.\(target.effectiveFrom.iso8601)"
+        button.addAction(UIAction { [weak self] _ in
+            self?.selectTargetPeriod(target)
+        }, for: .touchUpInside)
+        return button
     }
 
     private func configureFavoriteButton(isFavorite: Bool) {
@@ -484,6 +564,31 @@ final class ActiveDetailViewController: FeatureViewController, UIGestureRecogniz
         return "\(amount) \(target.unit.symbol(languageCode: catalogLanguage.rawValue))"
     }
 
+    private func targetPeriodDescription(_ target: ActiveTarget) -> String {
+        let from = formattedTargetDay(target.effectiveFrom)
+        guard let through = target.effectiveThrough else {
+            return L10n.text("actives.target.period.from", from)
+        }
+        return L10n.text("actives.target.period.range", from, formattedTargetDay(through))
+    }
+
+    private func formattedTargetDay(_ day: LocalDay) -> String {
+        guard let date = FeatureFormatting.localDayDate(day) else { return day.iso8601 }
+        return WellnarioFormatters.shortDate(date)
+    }
+
+    private func selectTargetPeriod(_ target: ActiveTarget) {
+        guard let active = currentActive else { return }
+        targetField.textField.text = FeatureFormatting.decimal(target.lowerBound)
+        selectedTargetUnit = target.unit
+        rebuildTargetUnitMenu(active: active)
+        if let date = FeatureFormatting.localDayDate(target.effectiveFrom) {
+            targetEffectiveFromPicker.setDate(date, animated: true)
+        }
+        targetField.setError(nil)
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+
     @objc private func toggleFavorite() {
         guard let active = currentActive else { return }
         favoriteButton.isEnabled = false
@@ -511,7 +616,10 @@ final class ActiveDetailViewController: FeatureViewController, UIGestureRecogniz
                 lowerBound: amount,
                 upperBound: amount,
                 unit: selectedTargetUnit,
-                effectiveFrom: LocalDay(containing: Date(), in: .current)
+                effectiveFrom: LocalDay(
+                    containing: targetEffectiveFromPicker.date,
+                    in: .current
+                )
             )
             targetSaveButton.isLoading = false
             UIImpactFeedbackGenerator.wellnarioSuccess()

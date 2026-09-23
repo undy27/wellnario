@@ -98,7 +98,8 @@ final class WellnarioSupplementFlowUITests: XCTestCase {
         let intakeSave = app.buttons["intake.save"]
         reveal(intakeSave, in: app)
         intakeSave.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["instance.editor"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.segmentedControls["supplements.tabs"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["instance.editor"].exists)
     }
 
     @MainActor

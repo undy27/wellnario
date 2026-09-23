@@ -53,32 +53,57 @@ private struct SleepWidgetView: View {
         VStack(alignment: .leading, spacing: 7) {
             header
             Link(destination: SupplementWidgetURL.sleepWidget) {
-                HStack(spacing: 4) {
-                    SleepMetricRing(
+                HStack(spacing: 10) {
+                    SleepQualityRing(
                         title: copy.quality,
                         valueText: snapshot.qualityText,
-                        score: snapshot.qualityScore,
-                        gradient: [SleepWidgetPalette.violet, SleepWidgetPalette.fuchsia]
+                        score: snapshot.qualityScore
                     )
-                    SleepMetricRing(
-                        title: copy.duration,
-                        valueText: snapshot.durationText,
-                        score: snapshot.durationScore,
-                        valueTextScale: 0.84,
-                        gradient: [SleepWidgetPalette.cyan, SleepWidgetPalette.information]
-                    )
-                    SleepMetricRing(
-                        title: copy.regularity,
-                        valueText: snapshot.regularityText,
-                        score: snapshot.regularityScore,
-                        gradient: [SleepWidgetPalette.success, SleepWidgetPalette.cyan]
-                    )
-                    SleepMetricRing(
-                        title: copy.interruptions,
-                        valueText: snapshot.interruptionsText,
-                        score: snapshot.interruptionsScore,
-                        gradient: [SleepWidgetPalette.pink, SleepWidgetPalette.warning]
-                    )
+                    VStack(spacing: 2) {
+                        SleepFactorRow(
+                            title: copy.duration,
+                            valueText: snapshot.durationText,
+                            score: snapshot.durationScore,
+                            symbolName: "bed.double.fill"
+                        )
+                        SleepFactorRow(
+                            title: copy.regularity,
+                            valueText: snapshot.regularityText,
+                            score: snapshot.regularityScore,
+                            symbolName: "calendar"
+                        )
+                        SleepFactorRow(
+                            title: copy.interruptions,
+                            valueText: snapshot.interruptionsText,
+                            score: snapshot.interruptionsScore,
+                            symbolName: "moon.zzz.fill"
+                        )
+                        SleepFactorRow(
+                            title: copy.heartRateDrop,
+                            valueText: snapshot.heartRateDropText ?? "—",
+                            score: snapshot.heartRateDropScore,
+                            symbolName: "heart.fill"
+                        )
+                        SleepFactorRow(
+                            title: copy.sleepStress,
+                            valueText: snapshot.sleepStressText ?? "—",
+                            score: snapshot.sleepStressScore,
+                            symbolName: "waveform.path.ecg"
+                        )
+                        SleepFactorRow(
+                            title: copy.remDeepSleep,
+                            valueText: snapshot.remDeepSleepText ?? "—",
+                            score: snapshot.remDeepSleepScore,
+                            symbolName: "brain.head.profile"
+                        )
+                        SleepFactorRow(
+                            title: copy.sleepLatency,
+                            valueText: snapshot.sleepLatencyText ?? "—",
+                            score: snapshot.sleepLatencyScore,
+                            symbolName: "hourglass"
+                        )
+                    }
+                    .frame(maxWidth: .infinity)
                 }
             }
             .buttonStyle(.plain)
@@ -129,58 +154,41 @@ private struct SleepWidgetView: View {
     }
 }
 
-private struct SleepMetricRing: View {
+private struct SleepQualityRing: View {
     let title: String
     let valueText: String
     let score: Double?
-    let valueTextScale: CGFloat
-    let gradient: [Color]
-
-    init(
-        title: String,
-        valueText: String,
-        score: Double?,
-        valueTextScale: CGFloat = 1,
-        gradient: [Color]
-    ) {
-        self.title = title
-        self.valueText = valueText
-        self.score = score
-        self.valueTextScale = valueTextScale
-        self.gradient = gradient
-    }
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 3) {
             ZStack {
                 Circle()
-                    .stroke(Color.white.opacity(0.14), lineWidth: 7)
+                    .stroke(Color.white.opacity(0.14), lineWidth: 6)
                 Circle()
                     .trim(from: 0, to: progress)
                     .stroke(
                         seamlessGradient,
-                        style: StrokeStyle(lineWidth: 7, lineCap: .round)
+                        style: StrokeStyle(lineWidth: 6, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
 
                 Text(valueText)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(.white)
                     .minimumScaleFactor(0.60)
                     .lineLimit(1)
-                    .scaleEffect(valueTextScale)
             }
-            .frame(width: 64, height: 64)
+            .frame(width: 68, height: 68)
 
             Text(title)
-                .font(.system(size: 10, weight: .medium))
+            .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.white.opacity(0.68))
                 .multilineTextAlignment(.center)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
+        .frame(width: 68)
     }
 
     private var progress: CGFloat {
@@ -189,9 +197,86 @@ private struct SleepMetricRing: View {
 
     private var seamlessGradient: AngularGradient {
         AngularGradient(
-            colors: [gradient[0], gradient[1], gradient[0]],
+            colors: [
+                SleepWidgetPalette.violet,
+                SleepWidgetPalette.fuchsia,
+                SleepWidgetPalette.violet
+            ],
             center: .center
         )
+    }
+}
+
+private struct SleepFactorRow: View {
+    let title: String
+    let valueText: String
+    let score: Double?
+    let symbolName: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbolName)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(SleepWidgetPalette.violet)
+                .frame(width: 15)
+
+            Text(title)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.white.opacity(0.68))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .frame(width: 78, alignment: .leading)
+
+            SleepFactorSegmentBar(score: score)
+                .frame(maxWidth: .infinity)
+                .frame(height: 7)
+
+            Text(valueText)
+                .font(.system(size: 11, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+                .frame(width: 36, alignment: .trailing)
+        }
+        .frame(height: 12)
+    }
+}
+
+private struct SleepFactorSegmentBar: View {
+    private static let segmentCount = 10
+
+    let score: Double?
+
+    var body: some View {
+        GeometryReader { proxy in
+            HStack(spacing: 1.5) {
+                ForEach(0..<Self.segmentCount, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                        .fill(index < activeSegmentCount ? activeColor(for: index) : Color.white.opacity(0.14))
+                        .frame(
+                            width: max(
+                                (proxy.size.width - CGFloat(Self.segmentCount - 1) * 1.5)
+                                    / CGFloat(Self.segmentCount),
+                                0
+                            )
+                        )
+                }
+            }
+        }
+    }
+
+    private var activeSegmentCount: Int {
+        guard let score else { return 0 }
+        let normalized = min(max(score / 100, 0), 1)
+        return Int((normalized * Double(Self.segmentCount)).rounded(.up))
+    }
+
+    private func activeColor(for index: Int) -> Color {
+        let progress = Double(index) / Double(max(Self.segmentCount - 1, 1))
+        if progress < 0.4 { return SleepWidgetPalette.danger }
+        if progress < 0.7 { return SleepWidgetPalette.warning }
+        return SleepWidgetPalette.success
     }
 }
 
@@ -205,6 +290,10 @@ private struct SleepWidgetCopy {
     var duration: String { isEnglish ? "Duration" : "Duración" }
     var regularity: String { isEnglish ? "Regularity" : "Regularidad" }
     var interruptions: String { isEnglish ? "Interruptions" : "Interrupciones" }
+    var heartRateDrop: String { isEnglish ? "HR drop" : "Caída FC" }
+    var sleepStress: String { isEnglish ? "Stress" : "Estrés" }
+    var remDeepSleep: String { isEnglish ? "REM + deep" : "REM + profundo" }
+    var sleepLatency: String { isEnglish ? "Latency" : "Latencia" }
 }
 
 private enum SleepWidgetPalette {
@@ -217,4 +306,5 @@ private enum SleepWidgetPalette {
     static let success = Color(red: 0.400, green: 0.886, blue: 0.435)
     static let pink = Color(red: 1.00, green: 0.243, blue: 0.490)
     static let warning = Color(red: 1.00, green: 0.706, blue: 0.302)
+    static let danger = Color(red: 1.00, green: 0.306, blue: 0.306)
 }

@@ -38,10 +38,16 @@ enum SleepWidgetSnapshotUpdater {
         } ?? "—"
         let interruptionsText: String
         if let breakdown, sleepDay?.awakeHours != nil {
-            interruptionsText = "\(AppleHealthUIFormatting.number(breakdown.awakePercentage, maximumFractionDigits: 0))%"
+            interruptionsText = percentageText(breakdown.awakePercentage)
         } else {
             interruptionsText = "—"
         }
+        let heartRateDropText = breakdown?.heartRateDropPercentage.map(percentageText) ?? "—"
+        let sleepStressText = breakdown?.averageSleepStressScore.map(percentageText) ?? "—"
+        let remDeepSleepText = breakdown?.remDeepSleepPercentage.map(percentageText) ?? "—"
+        let sleepLatencyText = breakdown?.sleepLatencyMinutes.map {
+            AppleHealthUIFormatting.compactDuration($0 * 60)
+        } ?? "—"
 
         SleepWidgetDataStore().save(
             SleepWidgetSnapshot(
@@ -54,10 +60,22 @@ enum SleepWidgetSnapshotUpdater {
                 regularityScore: breakdown?.regularityScore,
                 regularityText: regularityText,
                 interruptionsScore: sleepDay?.awakeHours == nil ? nil : breakdown?.interruptionScore,
-                interruptionsText: interruptionsText
+                interruptionsText: interruptionsText,
+                heartRateDropScore: breakdown?.heartRateDropScore,
+                heartRateDropText: heartRateDropText,
+                sleepStressScore: breakdown?.sleepStressScore,
+                sleepStressText: sleepStressText,
+                remDeepSleepScore: breakdown?.remDeepSleepScore,
+                remDeepSleepText: remDeepSleepText,
+                sleepLatencyScore: breakdown?.sleepLatencyScore,
+                sleepLatencyText: sleepLatencyText
             )
         )
         WidgetCenter.shared.reloadTimelines(ofKind: WellnarioSleepWidgetData.kind)
+    }
+
+    private static func percentageText(_ percentage: Double) -> String {
+        "\(AppleHealthUIFormatting.number(percentage.rounded()))%"
     }
 
     private static func sleepDetail(

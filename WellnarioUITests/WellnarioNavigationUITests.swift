@@ -151,6 +151,15 @@ final class WellnarioNavigationUITests: XCTestCase {
             app.sliders["settings.advanced.sleep.quality.weight.heart_rate_drop"].exists
         )
         XCTAssertTrue(
+            app.sliders["settings.advanced.sleep.quality.weight.sleep_stress"].exists
+        )
+        XCTAssertTrue(
+            app.sliders["settings.advanced.sleep.quality.weight.rem_deep_sleep"].exists
+        )
+        XCTAssertTrue(
+            app.sliders["settings.advanced.sleep.quality.weight.sleep_latency"].exists
+        )
+        XCTAssertTrue(
             app.descendants(matching: .any)["settings.advanced.sleep.quality.table.card"].exists
         )
         app.navigationBars.buttons.element(boundBy: 0).tap()
@@ -292,9 +301,12 @@ final class WellnarioNavigationUITests: XCTestCase {
         let referenceSelector = app.segmentedControls["sleep.trend.reference.selector"]
         XCTAssertTrue(referenceSelector.waitForExistence(timeout: 3))
 
-        for title in ["7d", "30d", "6m", "Desde el principio"] {
+        for title in ["7d", "30d", "6m", "Todo el período"] {
             XCTAssertTrue(selector.buttons[title].exists, "Missing sleep trend period: \(title)")
         }
+        XCTAssertEqual(selector.buttons.count, 5)
+        let customPeriod = selector.buttons.element(boundBy: 4)
+        XCTAssertTrue(customPeriod.exists)
         for title in ["Calidad", "Duración", "REM", "Profundo", "Ligero"] {
             XCTAssertTrue(metricSelector.buttons[title].exists, "Missing sleep trend metric: \(title)")
         }
@@ -308,13 +320,29 @@ final class WellnarioNavigationUITests: XCTestCase {
         rem.tap()
         XCTAssertTrue(rem.isSelected)
 
-        for title in ["30d", "6m", "Desde el principio"] {
+        for title in ["30d", "6m", "Todo el período"] {
             let period = selector.buttons[title]
             for _ in 0..<4 where !period.isHittable { app.swipeUp() }
             XCTAssertTrue(period.isHittable)
             period.tap()
             XCTAssertTrue(period.isSelected)
         }
+
+        customPeriod.tap()
+        XCTAssertTrue(
+            app.datePickers["sleep.trend.period.custom.from"].waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(app.datePickers["sleep.trend.period.custom.through"].exists)
+        let applyCustomPeriod = app.buttons["sleep.trend.period.custom.apply"]
+        XCTAssertTrue(applyCustomPeriod.exists)
+        applyCustomPeriod.tap()
+        XCTAssertTrue(customPeriod.waitForExistence(timeout: 3))
+        XCTAssertTrue(customPeriod.isSelected)
+
+        customPeriod.tap()
+        XCTAssertTrue(
+            app.datePickers["sleep.trend.period.custom.from"].waitForExistence(timeout: 3)
+        )
     }
 
     @MainActor
